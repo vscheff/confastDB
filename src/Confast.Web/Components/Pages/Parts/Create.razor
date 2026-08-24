@@ -1,0 +1,118 @@
+@page "/parts/create"
+@using Confast.Web.Features.Parts
+@inject PartService PartService
+@inject NavigationManager Navigation
+@inject ILogger<Create> Logger
+
+<PageTitle>Create part</PageTitle>
+
+<p><a class="back-link" href="/parts">← Parts</a></p>
+
+<div class="page-heading">
+    <div>
+        <h1>Create part</h1>
+        <p>Assign the part to an existing customer.</p>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading customers…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (customerOptions.Count == 0)
+{
+    <div class="alert alert-warning" role="alert">
+        A customer must exist before a part can be created.
+    </div>
+}
+else
+{
+    @if (saveMessage is not null)
+    {
+        <div class="alert alert-error" role="alert">@saveMessage</div>
+    }
+
+    <PartForm Model="part"
+              CustomerOptions="customerOptions"
+              OnValidSubmit="CreatePartAsync"
+              FormName="create-part"
+              SubmitLabel="Create part"
+              IsSaving="isSaving" />
+}
+
+@code {
+    [SupplyParameterFromQuery]
+    public long? CustomerId { get; set; }
+
+    private readonly PartEditModel part = new();
+    private IReadOnlyList<CustomerOption> customerOptions = [];
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        loadError = null;
+
+        try
+        {
+            customerOptions = await PartService.GetCustomerOptionsAsync();
+
+            if (CustomerId is not null && customerOptions.Any(x => x.Id == CustomerId))
+            {
+                part.CustomerId = CustomerId.Value;
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load customers for part creation");
+            loadError = "Customers could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CreatePartAsync()
+    {
+        isSaving = true;
+        saveMessage = null;
+
+        try
+        {
+            var result = await PartService.CreatePartAsync(part);
+
+            if (result.Status == SavePartStatus.Saved)
+            {
+                Navigation.NavigateTo("/parts");
+                return;
+            }
+
+            saveMessage = result.Status switch
+            {
+                SavePartStatus.DuplicatePartNumber =>
+                    "That customer already has a part with this part number.",
+                SavePartStatus.CustomerNotFound =>
+                    "The selected customer no longer exists. Reload the page and choose another customer.",
+                SavePartStatus.ValidationFailed => result.Message,
+                _ => "The part could not be created. Please try again."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to create part");
+            saveMessage = "The part could not be created. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

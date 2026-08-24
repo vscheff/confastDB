@@ -1,0 +1,100 @@
+@page "/parts"
+@using Confast.Web.Features.Parts
+@inject PartService PartService
+@inject ILogger<Index> Logger
+
+<PageTitle>Parts</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <h1>Parts</h1>
+        <p>Parts are unique by customer and part number.</p>
+    </div>
+    <div class="heading-actions">
+        <button class="button button-secondary" type="button" @onclick="LoadPartsAsync" disabled="@isLoading">
+            Refresh
+        </button>
+        <a class="button button-primary" href="/parts/create">Create part</a>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading parts…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (parts.Count == 0)
+{
+    <div class="empty-state">
+        <h2>No parts yet</h2>
+        <p>Create the first part and assign it to an existing customer.</p>
+    </div>
+}
+else
+{
+    <div class="table-shell">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Part number</th>
+                    <th>Revision</th>
+                    <th>Description</th>
+                    <th>Customer</th>
+                    <th><span class="visually-hidden">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var part in parts)
+                {
+                    <tr>
+                        <td data-label="Part number">
+                            <a class="record-link" href="@($"/parts/{part.Id}/edit")">@part.PartNumber</a>
+                        </td>
+                        <td data-label="Revision">@(part.Revision ?? "—")</td>
+                        <td data-label="Description">@(part.Description ?? "—")</td>
+                        <td data-label="Customer">
+                            <a href="@($"/customers/{part.CustomerId}/edit")">@part.CustomerName</a>
+                        </td>
+                        <td class="table-action">
+                            <div class="row-actions">
+                                <a class="button button-secondary" href="@($"/parts/{part.Id}/edit")">Edit</a>
+                                <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<PartListItem> parts = [];
+    private bool isLoading = true;
+    private string? loadError;
+
+    protected override Task OnInitializedAsync() => LoadPartsAsync();
+
+    private async Task LoadPartsAsync()
+    {
+        isLoading = true;
+        loadError = null;
+
+        try
+        {
+            parts = await PartService.GetPartsAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load parts");
+            loadError = "Parts could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

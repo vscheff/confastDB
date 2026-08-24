@@ -1,0 +1,144 @@
+@page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/new"
+@page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/{CriterionId:long}/edit"
+@using Confast.Web.Features.InspectionCriteria
+@inject InspectionCriteriaService CriteriaService
+@inject NavigationManager Navigation
+@inject ILogger<Criterion> Logger
+
+<PageTitle>@(CriterionId == 0 ? "Add criterion" : "Edit criterion")</PageTitle>
+
+<p><a class="back-link" href="@RevisionUrl">← Revision</a></p>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading criterion…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else
+{
+    <h1>@(CriterionId == 0 ? "Add criterion" : "Edit criterion")</h1>
+
+    @if (message is not null)
+    {
+        <div class="alert alert-error" role="alert">@message</div>
+    }
+
+    <EditForm Model="model" OnValidSubmit="SaveAsync" FormName="edit-inspection-criterion">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="record-form">
+            <div class="form-field form-field-wide">
+                <label for="name">Name</label>
+                <input id="name" @bind="model.Name" @bind:event="oninput" />
+                <ValidationMessage For="() => model.Name" />
+            </div>
+            <div class="form-field form-field-wide">
+                <label for="method">Inspection method</label>
+                <input id="method" @bind="model.InspectionMethod" @bind:event="oninput" />
+            </div>
+            <div class="form-field">
+                <label for="minimum">Minimum value</label>
+                <input id="minimum" type="number" step="any" @bind="model.MinimumValue" @bind:event="oninput" />
+            </div>
+            <div class="form-field">
+                <label for="maximum">Maximum value</label>
+                <input id="maximum" type="number" step="any" @bind="model.MaximumValue" @bind:event="oninput" />
+            </div>
+            <div class="form-field">
+                <label for="unit">Unit</label>
+                <input id="unit" @bind="model.Unit" @bind:event="oninput" />
+            </div>
+            <div class="form-field form-field-wide">
+                <label for="notes">Notes</label>
+                <textarea id="notes" @bind="model.Notes" @bind:event="oninput"></textarea>
+            </div>
+            <div class="form-actions form-field-wide">
+                <button class="button button-primary" type="submit" disabled="@isSaving">@(isSaving ? "Saving…" : "Save criterion")</button>
+                <a class="button button-secondary" href="@RevisionUrl">Cancel</a>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter] public long PartId { get; set; }
+    [Parameter] public long RevisionId { get; set; }
+    [Parameter] public long CriterionId { get; set; }
+
+    private InspectionCriterionEditModel model = new();
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? message;
+    private string RevisionUrl => $"/parts/{PartId}/inspection-criteria/{RevisionId}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            if (CriterionId == 0)
+            {
+                model = new InspectionCriterionEditModel { RevisionId = RevisionId };
+            }
+            else
+            {
+                model = await CriteriaService.GetCriterionAsync(PartId, RevisionId, CriterionId)
+                    ?? throw new InvalidOperationException("The criterion was not found.");
+            }
+        }
+        catch (InvalidOperationException exception)
+        {
+            loadError = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load criterion {CriterionId}", CriterionId);
+            loadError = "The criterion could not be loaded.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        isSaving = true;
+        message = null;
+        try
+        {
+            var result = CriterionId == 0
+                ? await CriteriaService.AddCriterionAsync(PartId, RevisionId, model)
+                : await CriteriaService.SaveCriterionAsync(PartId, RevisionId, model);
+
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                Navigation.NavigateTo(RevisionUrl);
+                return;
+            }
+
+            message = result.Status switch
+            {
+                CriteriaOperationStatus.PublishedRevision => "This revision has been published and can no longer be changed.",
+                CriteriaOperationStatus.Conflict => "Another user changed this criterion. Reload before trying again.",
+                CriteriaOperationStatus.NotFound => "The draft or criterion no longer exists.",
+                CriteriaOperationStatus.ValidationFailed => result.Message,
+                _ => "The criterion could not be saved."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save criterion {CriterionId}", CriterionId);
+            message = "The criterion could not be saved. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

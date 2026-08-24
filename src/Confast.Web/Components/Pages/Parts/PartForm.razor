@@ -1,0 +1,63 @@
+@using Confast.Web.Features.Parts
+
+<EditForm Model="Model" OnValidSubmit="SubmitAsync" FormName="@FormName" class="record-form">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-field form-field-wide">
+        <label for="part-customer">Customer</label>
+        <InputSelect id="part-customer" @bind-Value="Model.CustomerId">
+            <option value="0">Select a customer</option>
+            @foreach (var customer in CustomerOptions)
+            {
+                <option value="@customer.Id">@customer.DisplayName</option>
+            }
+        </InputSelect>
+        <ValidationMessage For="() => Model.CustomerId" />
+    </div>
+
+    <div class="form-field">
+        <label for="part-number">Part number</label>
+        <input id="part-number" @bind="Model.PartNumber" @bind:event="oninput" />
+        <ValidationMessage For="() => Model.PartNumber" />
+    </div>
+
+    <div class="form-field">
+        <label for="part-revision">Revision</label>
+        <input id="part-revision" @bind="Model.Revision" @bind:event="oninput" />
+    </div>
+
+    <div class="form-field form-field-wide">
+        <label for="part-description">Description</label>
+        <textarea id="part-description" @bind="Model.Description" @bind:event="oninput" rows="4"></textarea>
+    </div>
+
+    <div class="form-actions form-field-wide">
+        <button class="button button-primary" type="submit" disabled="@IsSaving">
+            @(IsSaving ? "Saving…" : SubmitLabel)
+        </button>
+        <a class="button button-secondary" href="/parts">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter, EditorRequired]
+    public PartEditModel Model { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CustomerOption> CustomerOptions { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public EventCallback OnValidSubmit { get; set; }
+
+    [Parameter, EditorRequired]
+    public string FormName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string SubmitLabel { get; set; } = "Save changes";
+
+    [Parameter]
+    public bool IsSaving { get; set; }
+
+    private Task SubmitAsync() => OnValidSubmit.InvokeAsync();
+}

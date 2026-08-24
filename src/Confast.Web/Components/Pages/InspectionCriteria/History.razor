@@ -1,0 +1,85 @@
+@page "/parts/{PartId:long}/inspection-criteria"
+@using Confast.Web.Features.InspectionCriteria
+@inject InspectionCriteriaService CriteriaService
+@inject ILogger<History> Logger
+
+<PageTitle>Inspection criteria history</PageTitle>
+
+<p><a class="back-link" href="@($"/parts/{PartId}/edit")">← Part</a></p>
+
+<div class="page-heading">
+    <div>
+        <h1>Inspection criteria history</h1>
+        <p>Published revisions are permanent, read-only snapshots.</p>
+    </div>
+    @if (!isLoading && revisions.All(x => !x.IsDraft))
+    {
+        <a class="button button-primary" href="@($"/parts/{PartId}/inspection-criteria/create")">
+            @(revisions.Any(x => x.IsCurrent) ? "Create new revision" : "Create initial revision")
+        </a>
+    }
+</div>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading history…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error">@loadError</div>
+}
+else if (revisions.Count == 0)
+{
+    <div class="empty-state">No inspection criteria revisions exist for this part.</div>
+}
+else
+{
+    <div class="table-shell">
+        <table class="data-table">
+            <thead><tr><th>Revision</th><th>Status</th><th>Criteria</th><th>Published</th><th>Change note</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var revision in revisions)
+                {
+                    <tr>
+                        <td data-label="Revision">@revision.RevisionNumber</td>
+                        <td data-label="Status"><span class="status-pill @StatusClass(revision)">@revision.Status</span></td>
+                        <td data-label="Criteria">@revision.CriterionCount</td>
+                        <td data-label="Published">@(revision.PublishedAtUtc?.ToString("u") ?? "—")</td>
+                        <td data-label="Change note">@(revision.ChangeNote ?? "—")</td>
+                        <td class="table-action"><a class="button button-secondary" href="@RevisionUrl(revision.Id)">@(revision.IsDraft ? "Edit" : "View")</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public long PartId { get; set; }
+
+    private IReadOnlyList<InspectionCriteriaRevisionSummary> revisions = [];
+    private bool isLoading = true;
+    private string? loadError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        try
+        {
+            revisions = await CriteriaService.GetRevisionHistoryAsync(PartId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load criteria history for part {PartId}", PartId);
+            loadError = "The revision history could not be loaded.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string RevisionUrl(long id) => $"/parts/{PartId}/inspection-criteria/{id}";
+    private static string StatusClass(InspectionCriteriaRevisionSummary revision) =>
+        revision.IsCurrent ? "status-active" : revision.IsDraft ? "status-draft" : "status-inactive";
+}

@@ -1,0 +1,217 @@
+@page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}"
+@using Confast.Web.Features.InspectionCriteria
+@inject InspectionCriteriaService CriteriaService
+@inject ILogger<Revision> Logger
+
+<PageTitle>Inspection criteria revision</PageTitle>
+
+<p><a class="back-link" href="@($"/parts/{PartId}/inspection-criteria")">← Revision history</a></p>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading revision…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (revision is null)
+{
+    <div class="empty-state"><h1>Revision not found</h1></div>
+}
+else
+{
+    <div class="page-heading">
+        <div>
+            <h1>@revision.PartNumber — criteria revision @revision.RevisionNumber</h1>
+            <p>
+                <span class="status-pill @StatusClass">@revision.Status</span>
+                Created @revision.CreatedAtUtc.ToString("u")
+            </p>
+        </div>
+        <div class="heading-actions">
+            @if (revision.IsDraft)
+            {
+                <a class="button button-primary" href="@($"/parts/{PartId}/inspection-criteria/{RevisionId}/criteria/new")">Add criterion</a>
+                <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@isWorking">Publish revision</button>
+            }
+        </div>
+    </div>
+
+    @if (revision.ChangeNote is not null)
+    {
+        <p><strong>Change note:</strong> @revision.ChangeNote</p>
+    }
+
+    @if (!revision.IsDraft)
+    {
+        <div class="alert alert-success" role="status">
+            This published revision is read-only. Create a new revision to change the criteria.
+        </div>
+    }
+
+    @if (message is not null)
+    {
+        <div class="alert @messageClass" role="alert">@message</div>
+    }
+
+    @if (revision.Criteria.Count == 0)
+    {
+        <div class="empty-state compact-empty-state">This draft has no criteria. Add at least one before publishing.</div>
+    }
+    else
+    {
+        <div class="table-shell">
+            <table class="data-table">
+                <thead><tr><th>#</th><th>Requirement</th><th>Method</th><th>Limits</th><th>Notes</th>@if (revision.IsDraft) { <th></th> }</tr></thead>
+                <tbody>
+                    @for (var index = 0; index < revision.Criteria.Count; index++)
+                    {
+                        var criterion = revision.Criteria[index];
+                        <tr>
+                            <td data-label="#">@(index + 1)</td>
+                            <td data-label="Requirement">@criterion.Name</td>
+                            <td data-label="Method">@(criterion.InspectionMethod ?? "—")</td>
+                            <td data-label="Limits">@FormatLimits(criterion)</td>
+                            <td data-label="Notes">@(criterion.Notes ?? "—")</td>
+                            @if (revision.IsDraft)
+                            {
+                                <td class="table-action">
+                                    <div class="row-actions">
+                                        <button class="button button-secondary button-compact" title="Move up" aria-label="Move @criterion.Name up" @onclick="() => MoveAsync(criterion.Id, true)" disabled="@(isWorking || index == 0)">↑</button>
+                                        <button class="button button-secondary button-compact" title="Move down" aria-label="Move @criterion.Name down" @onclick="() => MoveAsync(criterion.Id, false)" disabled="@(isWorking || index == revision.Criteria.Count - 1)">↓</button>
+                                        <a class="button button-secondary" href="@CriterionEditUrl(criterion.Id)">Edit</a>
+                                        <a class="button button-danger-outline" href="@CriterionDeleteUrl(criterion.Id)">Remove</a>
+                                    </div>
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public long PartId { get; set; }
+    [Parameter] public long RevisionId { get; set; }
+
+    private InspectionCriteriaRevisionDetails? revision;
+    private bool isLoading = true;
+    private bool isWorking;
+    private string? loadError;
+    private string? message;
+    private string messageClass = "alert-error";
+
+    private string StatusClass => revision?.IsCurrent == true
+        ? "status-active"
+        : revision?.IsDraft == true ? "status-draft" : "status-inactive";
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            revision = await CriteriaService.GetRevisionAsync(PartId, RevisionId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load criteria revision {RevisionId}", RevisionId);
+            loadError = "The revision could not be loaded.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task PublishAsync()
+    {
+        if (revision is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.PublishRevisionAsync(PartId, RevisionId, revision.Version);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                message = "Revision published. It is now the current inspection criteria.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            message = OperationMessage(result.Status);
+            messageClass = result.Status == CriteriaOperationStatus.Conflict ? "alert-warning" : "alert-error";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to publish criteria revision {RevisionId}", RevisionId);
+            message = "The revision could not be published. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task MoveAsync(long criterionId, bool moveUp)
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.MoveCriterionAsync(PartId, RevisionId, criterionId, moveUp);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+            }
+            else
+            {
+                message = OperationMessage(result.Status);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to reorder criterion {CriterionId}", criterionId);
+            message = "The criterion could not be reordered.";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private static string OperationMessage(CriteriaOperationStatus status) => status switch
+    {
+        CriteriaOperationStatus.EmptyRevision => "Add at least one criterion before publishing.",
+        CriteriaOperationStatus.PublishedRevision => "This revision has already been published and cannot be changed.",
+        CriteriaOperationStatus.NotFound => "The revision no longer exists.",
+        CriteriaOperationStatus.Conflict => "Another user changed this revision. Reload before trying again.",
+        _ => "The operation could not be completed."
+    };
+
+    private string CriterionEditUrl(long id) => $"/parts/{PartId}/inspection-criteria/{RevisionId}/criteria/{id}/edit";
+    private string CriterionDeleteUrl(long id) => $"/parts/{PartId}/inspection-criteria/{RevisionId}/criteria/{id}/delete";
+
+    private static string FormatLimits(InspectionCriterionListItem criterion)
+    {
+        var unit = string.IsNullOrWhiteSpace(criterion.Unit) ? string.Empty : $" {criterion.Unit}";
+        return (criterion.MinimumValue, criterion.MaximumValue) switch
+        {
+            ({ } minimum, { } maximum) => $"{minimum:G29}–{maximum:G29}{unit}",
+            ({ } minimum, null) => $"≥ {minimum:G29}{unit}",
+            (null, { } maximum) => $"≤ {maximum:G29}{unit}",
+            _ => "—"
+        };
+    }
+}

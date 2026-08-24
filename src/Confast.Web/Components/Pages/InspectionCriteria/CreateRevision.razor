@@ -1,0 +1,78 @@
+@page "/parts/{PartId:long}/inspection-criteria/create"
+@using Confast.Web.Features.InspectionCriteria
+@inject InspectionCriteriaService CriteriaService
+@inject NavigationManager Navigation
+@inject ILogger<CreateRevision> Logger
+
+<PageTitle>Create inspection criteria revision</PageTitle>
+
+<p><a class="back-link" href="@($"/parts/{PartId}/edit")">← Part</a></p>
+
+<div class="page-heading">
+    <div>
+        <h1>Create inspection criteria revision</h1>
+        <p>The current revision will be copied into an editable draft.</p>
+    </div>
+</div>
+
+@if (message is not null)
+{
+    <div class="alert alert-error" role="alert">@message</div>
+}
+
+<EditForm Model="model" OnValidSubmit="CreateAsync" FormName="create-criteria-revision">
+    <DataAnnotationsValidator />
+    <div class="record-form">
+        <div class="form-field form-field-wide">
+            <label for="change-note">Change note (optional)</label>
+            <InputTextArea id="change-note" @bind-Value="model.ChangeNote" />
+        </div>
+        <div class="form-actions form-field-wide">
+            <button class="button button-primary" type="submit" disabled="@isSaving">
+                @(isSaving ? "Creating…" : "Create draft")
+            </button>
+            <a class="button button-secondary" href="@($"/parts/{PartId}/edit")">Cancel</a>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter] public long PartId { get; set; }
+
+    private readonly CreateInspectionCriteriaRevisionModel model = new();
+    private bool isSaving;
+    private string? message;
+
+    private async Task CreateAsync()
+    {
+        isSaving = true;
+        message = null;
+
+        try
+        {
+            var result = await CriteriaService.CreateDraftRevisionAsync(PartId, model.ChangeNote);
+            if (result.Status is CriteriaOperationStatus.Succeeded
+                or CriteriaOperationStatus.DraftAlreadyExists)
+            {
+                Navigation.NavigateTo($"/parts/{PartId}/inspection-criteria/{result.RevisionId}");
+                return;
+            }
+
+            message = result.Status switch
+            {
+                CriteriaOperationStatus.NotFound => "The part no longer exists.",
+                CriteriaOperationStatus.Conflict => "Another user changed the criteria at the same time. Reload and try again.",
+                _ => "The draft could not be created."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to create criteria revision for part {PartId}", PartId);
+            message = "The draft could not be created. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

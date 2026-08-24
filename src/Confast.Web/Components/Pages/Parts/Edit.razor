@@ -1,0 +1,228 @@
+@page "/parts/{Id:long}/edit"
+@using Confast.Web.Features.InspectionCriteria
+@using Confast.Web.Features.Parts
+@inject InspectionCriteriaService CriteriaService
+@inject PartService PartService
+@inject ILogger<Edit> Logger
+
+<PageTitle>@(part is null ? "Part" : $"Edit {part.PartNumber}")</PageTitle>
+
+<p><a class="back-link" href="/parts">← Parts</a></p>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading part…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (part is null)
+{
+    <div class="empty-state">
+        <h1>Part not found</h1>
+        <p>The part may have been deleted.</p>
+    </div>
+}
+else
+{
+    <div class="page-heading">
+        <div>
+            <h1>@part.PartNumber</h1>
+            <p>Part ID @part.Id</p>
+        </div>
+        <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
+    </div>
+
+    @if (saveMessage is not null)
+    {
+        <div class="alert @saveMessageClass" role="status">@saveMessage</div>
+    }
+
+    <PartForm Model="part"
+              CustomerOptions="customerOptions"
+              OnValidSubmit="SavePartAsync"
+              FormName="edit-part"
+              IsSaving="isSaving" />
+
+    <section class="linked-records" aria-labelledby="inspection-criteria-heading">
+        <div class="section-heading">
+            <div>
+                <h2 id="inspection-criteria-heading">Inspection criteria</h2>
+                <p>Versioned requirements used to inspect this part.</p>
+            </div>
+            <div class="heading-actions">
+                @if (criteriaSummary?.DraftRevision is not null)
+                {
+                    <a class="button button-primary" href="@RevisionUrl(criteriaSummary.DraftRevision.Id)">Edit draft</a>
+                }
+                else
+                {
+                    <a class="button button-primary" href="@($"/parts/{Id}/inspection-criteria/create")">
+                        @(criteriaSummary?.CurrentRevision is null ? "Create initial revision" : "Create new revision")
+                    </a>
+                }
+                <a class="button button-secondary" href="@($"/parts/{Id}/inspection-criteria")">History</a>
+            </div>
+        </div>
+
+        @if (criteriaSummary?.DraftRevision is not null)
+        {
+            <div class="alert alert-warning" role="status">
+                Revision @criteriaSummary.DraftRevision.RevisionNumber is a draft. The published revision remains current until the draft is published.
+            </div>
+        }
+
+        @if (currentRevision is null)
+        {
+            <div class="empty-state compact-empty-state">No inspection criteria have been published for this part.</div>
+        }
+        else
+        {
+            <p>
+                <span class="status-pill status-active">Current</span>
+                Revision @currentRevision.RevisionNumber, published @currentRevision.PublishedAtUtc?.ToString("u")
+            </p>
+            <div class="table-shell">
+                <table class="data-table">
+                    <thead><tr><th>Requirement</th><th>Method</th><th>Limits</th><th>Notes</th></tr></thead>
+                    <tbody>
+                        @foreach (var criterion in currentRevision.Criteria)
+                        {
+                            <tr>
+                                <td data-label="Requirement">@criterion.Name</td>
+                                <td data-label="Method">@(criterion.InspectionMethod ?? "—")</td>
+                                <td data-label="Limits">@FormatLimits(criterion)</td>
+                                <td data-label="Notes">@(criterion.Notes ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private PartEditModel? part;
+    private IReadOnlyList<CustomerOption> customerOptions = [];
+    private PartInspectionCriteriaSummary? criteriaSummary;
+    private InspectionCriteriaRevisionDetails? currentRevision;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveMessage;
+    private string saveMessageClass = "alert-success";
+
+    protected override Task OnParametersSetAsync() => LoadPartAsync();
+
+    private async Task LoadPartAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        saveMessage = null;
+
+        try
+        {
+            var partTask = PartService.GetPartAsync(Id);
+            var optionsTask = PartService.GetCustomerOptionsAsync();
+            var criteriaTask = CriteriaService.GetPartSummaryAsync(Id);
+
+            await Task.WhenAll(partTask, optionsTask, criteriaTask);
+            part = await partTask;
+            customerOptions = await optionsTask;
+            criteriaSummary = await criteriaTask;
+
+            if (criteriaSummary?.CurrentRevision is not null)
+            {
+                currentRevision = await CriteriaService.GetRevisionAsync(
+                    Id,
+                    criteriaSummary.CurrentRevision.Id);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load part {PartId}", Id);
+            loadError = "The part could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string RevisionUrl(long revisionId) =>
+        $"/parts/{Id}/inspection-criteria/{revisionId}";
+
+    private static string FormatLimits(InspectionCriterionListItem criterion)
+    {
+        var unit = string.IsNullOrWhiteSpace(criterion.Unit) ? string.Empty : $" {criterion.Unit}";
+        return (criterion.MinimumValue, criterion.MaximumValue) switch
+        {
+            ({ } minimum, { } maximum) => $"{minimum:G29}–{maximum:G29}{unit}",
+            ({ } minimum, null) => $"≥ {minimum:G29}{unit}",
+            (null, { } maximum) => $"≤ {maximum:G29}{unit}",
+            _ => "—"
+        };
+    }
+
+    private async Task SavePartAsync()
+    {
+        if (part is null)
+        {
+            return;
+        }
+
+        isSaving = true;
+        saveMessage = null;
+
+        try
+        {
+            var result = await PartService.SavePartAsync(part);
+
+            switch (result.Status)
+            {
+                case SavePartStatus.Saved:
+                    part.Version = result.Version!.Value;
+                    saveMessage = "Changes saved.";
+                    saveMessageClass = "alert-success";
+                    break;
+                case SavePartStatus.NotFound:
+                    saveMessage = "This part no longer exists.";
+                    saveMessageClass = "alert-error";
+                    break;
+                case SavePartStatus.Conflict:
+                    saveMessage = "Someone else changed this part. Reload the page before trying again.";
+                    saveMessageClass = "alert-warning";
+                    break;
+                case SavePartStatus.DuplicatePartNumber:
+                    saveMessage = "That customer already has a part with this part number.";
+                    saveMessageClass = "alert-error";
+                    break;
+                case SavePartStatus.CustomerNotFound:
+                    saveMessage = "The selected customer no longer exists. Reload the page and choose another customer.";
+                    saveMessageClass = "alert-error";
+                    break;
+                case SavePartStatus.ValidationFailed:
+                    saveMessage = result.Message;
+                    saveMessageClass = "alert-error";
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected save status: {result.Status}");
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save part {PartId}", part.Id);
+            saveMessage = "The changes could not be saved. Please try again.";
+            saveMessageClass = "alert-error";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

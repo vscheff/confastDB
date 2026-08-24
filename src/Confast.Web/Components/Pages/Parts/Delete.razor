@@ -1,0 +1,122 @@
+@page "/parts/{Id:long}/delete"
+@using Confast.Web.Features.Parts
+@inject PartService PartService
+@inject NavigationManager Navigation
+@inject ILogger<Delete> Logger
+
+<PageTitle>Delete part</PageTitle>
+
+<p><a class="back-link" href="/parts">← Parts</a></p>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading part…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (part is null)
+{
+    <div class="empty-state">
+        <h1>Part not found</h1>
+        <p>The part may already have been deleted.</p>
+    </div>
+}
+else
+{
+    <div class="confirmation-card">
+        <h1>Delete @part.PartNumber?</h1>
+        <p>
+            This part belongs to <strong>@part.CustomerName</strong>. This operation cannot be undone.
+        </p>
+
+        @if (deleteMessage is not null)
+        {
+            <div class="alert @deleteMessageClass" role="alert">@deleteMessage</div>
+        }
+
+        <div class="form-actions">
+            <button class="button button-danger" type="button" @onclick="DeletePartAsync" disabled="@isDeleting">
+                @(isDeleting ? "Deleting…" : "Delete part")
+            </button>
+            <a class="button button-secondary" href="@($"/parts/{part.Id}/edit")">Cancel</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private PartDeleteModel? part;
+    private bool isLoading = true;
+    private bool isDeleting;
+    private string? loadError;
+    private string? deleteMessage;
+    private string deleteMessageClass = "alert-error";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        loadError = null;
+
+        try
+        {
+            part = await PartService.GetPartForDeleteAsync(Id);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load part {PartId} for deletion", Id);
+            loadError = "The part could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task DeletePartAsync()
+    {
+        if (part is null)
+        {
+            return;
+        }
+
+        isDeleting = true;
+        deleteMessage = null;
+
+        try
+        {
+            var status = await PartService.DeletePartAsync(part.Id, part.Version);
+
+            switch (status)
+            {
+                case DeletePartStatus.Deleted:
+                    Navigation.NavigateTo("/parts");
+                    return;
+                case DeletePartStatus.NotFound:
+                    deleteMessage = "This part no longer exists.";
+                    break;
+                case DeletePartStatus.Conflict:
+                    deleteMessage = "Someone else changed this part. Reload the page before deleting it.";
+                    deleteMessageClass = "alert-warning";
+                    break;
+                case DeletePartStatus.Blocked:
+                    deleteMessage = "This part is referenced by other records and cannot be deleted.";
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected delete status: {status}");
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to delete part {PartId}", part.Id);
+            deleteMessage = "The part could not be deleted. Please try again.";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+}

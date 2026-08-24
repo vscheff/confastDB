@@ -1,0 +1,218 @@
+@page "/customers/{Id:long}/edit"
+@using Confast.Web.Features.Customers
+@using Confast.Web.Features.Parts
+@inject CustomerService CustomerService
+@inject PartService PartService
+@inject ILogger<Edit> Logger
+
+<PageTitle>@(customer is null ? "Customer" : $"Edit {customer.Name}")</PageTitle>
+
+<p><a class="back-link" href="/customers">← Customers</a></p>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading customer…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (customer is null)
+{
+    <div class="empty-state">
+        <h1>Customer not found</h1>
+        <p>The customer may have been removed.</p>
+    </div>
+}
+else
+{
+    <div class="page-heading">
+        <div>
+            <h1>@customer.Name</h1>
+            <p>Customer ID @customer.Id</p>
+        </div>
+        <span class="status-pill @(customer.IsActive ? "status-active" : "status-inactive")">
+            @(customer.IsActive ? "Active" : "Inactive")
+        </span>
+    </div>
+
+    @if (saveMessage is not null)
+    {
+        <div class="alert @saveMessageClass" role="status">@saveMessage</div>
+    }
+
+    <EditForm Model="customer" OnValidSubmit="SaveAsync" FormName="edit-customer" class="customer-form">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="form-field form-field-wide">
+            <label for="customer-name">Name</label>
+            <InputText id="customer-name" @bind-Value="customer.Name" autocomplete="organization" />
+            <ValidationMessage For="() => customer.Name" />
+        </div>
+
+        <div class="form-field form-field-wide">
+            <label for="address-line-1">Address line 1</label>
+            <InputText id="address-line-1" @bind-Value="customer.AddressLine1" autocomplete="address-line1" />
+        </div>
+
+        <div class="form-field form-field-wide">
+            <label for="address-line-2">Address line 2</label>
+            <InputText id="address-line-2" @bind-Value="customer.AddressLine2" autocomplete="address-line2" />
+        </div>
+
+        <div class="form-field">
+            <label for="city">City</label>
+            <InputText id="city" @bind-Value="customer.City" autocomplete="address-level2" />
+        </div>
+
+        <div class="form-field">
+            <label for="state">State</label>
+            <InputText id="state" @bind-Value="customer.State" autocomplete="address-level1" />
+        </div>
+
+        <div class="form-field">
+            <label for="postal-code">Postal code</label>
+            <InputText id="postal-code" @bind-Value="customer.PostalCode" autocomplete="postal-code" />
+        </div>
+
+        <div class="form-field form-field-wide checkbox-field">
+            <InputCheckbox id="is-active" @bind-Value="customer.IsActive" />
+            <label for="is-active">Active customer</label>
+        </div>
+
+        <div class="form-actions form-field-wide">
+            <button class="button button-primary" type="submit" disabled="@isSaving">
+                @(isSaving ? "Saving…" : "Save changes")
+            </button>
+            <a class="button button-secondary" href="/customers">Cancel</a>
+        </div>
+    </EditForm>
+
+    <section class="linked-records" aria-labelledby="customer-parts-heading">
+        <div class="section-heading">
+            <div>
+                <h2 id="customer-parts-heading">Parts</h2>
+                <p>Parts assigned to @customer.Name.</p>
+            </div>
+            <a class="button button-primary" href="@($"/parts/create?customerId={customer.Id}")">Create part</a>
+        </div>
+
+        @if (parts.Count == 0)
+        {
+            <div class="empty-state compact-empty-state">This customer has no parts.</div>
+        }
+        else
+        {
+            <div class="table-shell">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Part number</th>
+                            <th>Revision</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var part in parts)
+                        {
+                            <tr>
+                                <td data-label="Part number">
+                                    <a class="record-link" href="@($"/parts/{part.Id}/edit")">@part.PartNumber</a>
+                                </td>
+                                <td data-label="Revision">@(part.Revision ?? "—")</td>
+                                <td data-label="Description">@(part.Description ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    [Parameter]
+    public long Id { get; set; }
+
+    private CustomerEditModel? customer;
+    private IReadOnlyList<PartListItem> parts = [];
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveMessage;
+    private string saveMessageClass = "alert-success";
+
+    protected override Task OnParametersSetAsync() => LoadCustomerAsync();
+
+    private async Task LoadCustomerAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        saveMessage = null;
+
+        try
+        {
+            var customerTask = CustomerService.GetCustomerAsync(Id);
+            var partsTask = PartService.GetPartsForCustomerAsync(Id);
+
+            await Task.WhenAll(customerTask, partsTask);
+            customer = await customerTask;
+            parts = await partsTask;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load customer {CustomerId}", Id);
+            loadError = "The customer could not be loaded. Check that the database is running and configured.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (customer is null)
+        {
+            return;
+        }
+
+        isSaving = true;
+        saveMessage = null;
+
+        try
+        {
+            var result = await CustomerService.SaveCustomerAsync(customer);
+
+            switch (result.Status)
+            {
+                case SaveCustomerStatus.Saved:
+                    customer.Version = result.Version!.Value;
+                    saveMessage = "Changes saved.";
+                    saveMessageClass = "alert-success";
+                    break;
+                case SaveCustomerStatus.NotFound:
+                    saveMessage = "This customer no longer exists.";
+                    saveMessageClass = "alert-error";
+                    break;
+                case SaveCustomerStatus.Conflict:
+                    saveMessage = "Someone else changed this customer. Reload the page before trying again.";
+                    saveMessageClass = "alert-warning";
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected save status: {result.Status}");
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save customer {CustomerId}", customer.Id);
+            saveMessage = "The changes could not be saved. Please try again.";
+            saveMessageClass = "alert-error";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}
