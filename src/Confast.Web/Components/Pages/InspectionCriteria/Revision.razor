@@ -1,10 +1,13 @@
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}"
 @using Confast.Web.Features.InspectionCriteria
+@using Confast.Web.Features.Gages
 @inject InspectionCriteriaService CriteriaService
+@inject GageService GageService
 @inject ILogger<Revision> Logger
 
 <PageTitle>Inspection criteria revision</PageTitle>
 
+<div class="criteria-revision-page">
 <p><a class="back-link" href="@($"/parts/{PartId}/inspection-criteria")">← Revision history</a></p>
 
 @if (isLoading)
@@ -32,8 +35,8 @@ else
         <div class="heading-actions">
             @if (revision.IsDraft)
             {
-                <a class="button button-primary" href="@($"/parts/{PartId}/inspection-criteria/{RevisionId}/criteria/new")">Add criterion</a>
-                <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@isWorking">Publish revision</button>
+                <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add criterion</button>
+                <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Publish revision</button>
             }
         </div>
     </div>
@@ -55,51 +58,390 @@ else
         <div class="alert @messageClass" role="alert">@message</div>
     }
 
-    @if (revision.Criteria.Count == 0)
+    <div class="subtabs revision-tabs" role="tablist" aria-label="Inspection criteria revision sections">
+        <button class="subtab @(activeTab == RevisionTab.Criteria ? "subtab-active" : null)"
+                type="button"
+                role="tab"
+                aria-selected="@(activeTab == RevisionTab.Criteria)"
+                @onclick="() => activeTab = RevisionTab.Criteria">
+            Criteria
+        </button>
+        <button class="subtab @(activeTab == RevisionTab.MasterPrint ? "subtab-active" : null)"
+                type="button"
+                role="tab"
+                aria-selected="@(activeTab == RevisionTab.MasterPrint)"
+                @onclick="() => activeTab = RevisionTab.MasterPrint">
+            Master Print
+        </button>
+    </div>
+
+    @if (activeTab == RevisionTab.Criteria)
     {
-        <div class="empty-state compact-empty-state">This draft has no criteria. Add at least one before publishing.</div>
+    <section class="revision-details-bar">
+            <div class="compact-form-field print-revision-field">
+                <label for="print-revision-number">Print Revision Number</label>
+                <input id="print-revision-number" type="text" readonly="@(!revision.IsDraft)" @bind="revisionHeaderModel.PrintRevisionNumber" @bind:event="oninput" />
+            </div>
+            <div class="compact-form-field part-description-field">
+                <label for="part-description">Part Description</label>
+                <input id="part-description" type="text" readonly="@(!revision.IsDraft)" @bind="revisionHeaderModel.PartDescription" @bind:event="oninput" />
+            </div>
+            <div class="compact-form-field specification-used-field">
+                <label for="specification-used">Spec Used</label>
+                <input id="specification-used" type="text" readonly="@(!revision.IsDraft)" @bind="revisionHeaderModel.SpecificationUsed" @bind:event="oninput" />
+            </div>
+            @if (revision.IsDraft)
+            {
+                <button class="button button-primary revision-details-save" type="button" @onclick="SaveRevisionHeaderAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Save Details</button>
+            }
+    </section>
+
+    @if (revision.Criteria.Count == 0 && editingModel is null)
+    {
+        <div class="empty-state compact-empty-state">
+            @(revision.IsDraft ? "This draft has no criteria. Add at least one before publishing." : "This revision has no criteria.")
+        </div>
     }
     else
     {
-        <div class="table-shell">
-            <table class="data-table">
-                <thead><tr><th>#</th><th>Requirement</th><th>Method</th><th>Limits</th><th>Notes</th>@if (revision.IsDraft) { <th></th> }</tr></thead>
+        <div class="table-shell criteria-table-shell">
+            <table class="data-table criteria-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Requirement</th>
+                        <th>Maximum / tolerance</th>
+                        <th>Minimum</th>
+                        <th>Inspection method</th>
+                        <th>Unit</th>
+                        <th>Notes</th>
+                        @if (revision.IsDraft)
+                        {
+                            <th><span class="visually-hidden">Actions</span></th>
+                        }
+                    </tr>
+                </thead>
                 <tbody>
                     @for (var index = 0; index < revision.Criteria.Count; index++)
                     {
                         var criterion = revision.Criteria[index];
-                        <tr>
-                            <td data-label="#">@(index + 1)</td>
-                            <td data-label="Requirement">@criterion.Name</td>
-                            <td data-label="Method">@(criterion.InspectionMethod ?? "—")</td>
-                            <td data-label="Limits">@FormatLimits(criterion)</td>
-                            <td data-label="Notes">@(criterion.Notes ?? "—")</td>
-                            @if (revision.IsDraft)
+                        var isEditing = editingModel?.Id == criterion.Id;
+                        <tr class="@(isEditing ? "editing-row" : null)">
+                            @if (isEditing)
                             {
-                                <td class="table-action">
-                                    <div class="row-actions">
-                                        <button class="button button-secondary button-compact" title="Move up" aria-label="Move @criterion.Name up" @onclick="() => MoveAsync(criterion.Id, true)" disabled="@(isWorking || index == 0)">↑</button>
-                                        <button class="button button-secondary button-compact" title="Move down" aria-label="Move @criterion.Name down" @onclick="() => MoveAsync(criterion.Id, false)" disabled="@(isWorking || index == revision.Criteria.Count - 1)">↓</button>
-                                        <a class="button button-secondary" href="@CriterionEditUrl(criterion.Id)">Edit</a>
-                                        <a class="button button-danger-outline" href="@CriterionDeleteUrl(criterion.Id)">Remove</a>
+                                <td data-label="#">
+                                    <input class="table-input inspection-number-input" type="number" min="1" aria-label="Inspection number" @bind="editingModel!.InspectionNumber" @bind:event="oninput" />
+                                </td>
+                                <td data-label="Requirement">
+                                    <input class="table-input requirement-input" aria-label="Requirement" @ref="requirementInput" @bind="editingModel!.Name" @bind:event="oninput" />
+                                </td>
+                                <td data-label="Maximum / tolerance">
+                                    <input class="table-input tolerance-input" aria-label="Maximum or tolerance" @bind="editingModel!.MaximumOrTolerance" @bind:event="oninput" />
+                                </td>
+                                <td data-label="Minimum">
+                                    <input class="table-input tolerance-input" aria-label="Minimum" @bind="editingModel!.Minimum" @bind:event="oninput" />
+                                </td>
+                                <td data-label="Inspection method">
+                                    <select class="table-input" aria-label="Inspection method" @bind="editingModel!.GageTypeId">
+                                        <option value="">Select</option>
+                                        @foreach (var choice in methodChoices)
+                                        {
+                                            <option value="@choice.Id">@choice.Name@(!choice.IsActive ? " (inactive)" : null)</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td data-label="Unit">
+                                    <EditableUnitSelect CssClass="table-input unit-input" Choices="unitChoices" @bind-Value="editingModel!.Unit" />
+                                </td>
+                                <td data-label="Notes">
+                                    <textarea class="table-input table-notes" aria-label="Notes" title="Tab to save and add another criterion" @onkeydown="NotesKeyDownAsync" @bind="editingModel!.Notes" @bind:event="oninput"></textarea>
+                                </td>
+                                <td class="table-action" data-label="Actions">
+                                    <div class="row-actions row-edit-actions">
+                                        <button class="button button-primary" type="button" @onclick="SaveEditAsync" disabled="@isWorking">Save</button>
+                                        <button class="button button-secondary" type="button" @onclick="CancelEdit" disabled="@isWorking">Cancel</button>
                                     </div>
                                 </td>
                             }
+                            else
+                            {
+                                <td data-label="#">@criterion.InspectionNumber</td>
+                                <td data-label="Requirement">@criterion.Name</td>
+                                <td data-label="Maximum / tolerance">@(criterion.MaximumOrTolerance ?? "—")</td>
+                                <td data-label="Minimum">@(criterion.Minimum ?? "—")</td>
+                                <td data-label="Inspection method">@(criterion.InspectionMethod ?? "—")</td>
+                                <td data-label="Unit">@(criterion.Unit ?? "—")</td>
+                                <td data-label="Notes">@(criterion.Notes ?? "—")</td>
+                                @if (revision.IsDraft)
+                                {
+                                    <td class="table-action" data-label="Actions">
+                                        @if (pendingDeleteId == criterion.Id)
+                                        {
+                                            <div class="row-actions delete-confirmation">
+                                                <span>Remove?</span>
+                                                <button class="button button-danger button-compact" type="button" @onclick="() => DeleteAsync(criterion)" disabled="@isWorking">Yes</button>
+                                                <button class="button button-secondary button-compact" type="button" @onclick="CancelDelete" disabled="@isWorking">No</button>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="row-actions">
+                                                <button class="button button-secondary button-compact" type="button" title="Move up" aria-label="Move @criterion.Name up" @onclick="() => MoveAsync(criterion.Id, true)" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null || index == 0)">↑</button>
+                                                <button class="button button-secondary button-compact" type="button" title="Move down" aria-label="Move @criterion.Name down" @onclick="() => MoveAsync(criterion.Id, false)" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null || index == revision.Criteria.Count - 1)">↓</button>
+                                                <button class="button button-secondary" type="button" @onclick="() => BeginEdit(criterion)" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Edit</button>
+                                                <button class="button button-danger-outline" type="button" @onclick="() => BeginDelete(criterion.Id)" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Remove</button>
+                                            </div>
+                                        }
+                                    </td>
+                                }
+                            }
+                        </tr>
+                    }
+
+                    @if (editingModel?.Id == 0)
+                    {
+                        <tr class="editing-row new-criterion-row">
+                            <td data-label="#">
+                                <input class="table-input inspection-number-input" type="number" min="1" aria-label="Inspection number" @bind="editingModel.InspectionNumber" @bind:event="oninput" />
+                            </td>
+                            <td data-label="Requirement">
+                                <input class="table-input requirement-input" aria-label="Requirement" placeholder="Required" @ref="requirementInput" @bind="editingModel.Name" @bind:event="oninput" />
+                            </td>
+                            <td data-label="Maximum / tolerance">
+                                <input class="table-input tolerance-input" aria-label="Maximum or tolerance" @bind="editingModel.MaximumOrTolerance" @bind:event="oninput" />
+                            </td>
+                            <td data-label="Minimum">
+                                <input class="table-input tolerance-input" aria-label="Minimum" @bind="editingModel.Minimum" @bind:event="oninput" />
+                            </td>
+                                <td data-label="Inspection method">
+                                <select class="table-input" aria-label="Inspection method" @bind="editingModel.GageTypeId">
+                                    <option value="">Select</option>
+                                    @foreach (var choice in methodChoices)
+                                    {
+                                        <option value="@choice.Id">@choice.Name</option>
+                                    }
+                                </select>
+                            </td>
+                            <td data-label="Unit">
+                                <EditableUnitSelect CssClass="table-input unit-input" Choices="unitChoices" @bind-Value="editingModel.Unit" />
+                            </td>
+                            <td data-label="Notes">
+                                <textarea class="table-input table-notes" aria-label="Notes" title="Tab to save and add another criterion" @onkeydown="NotesKeyDownAsync" @bind="editingModel.Notes" @bind:event="oninput"></textarea>
+                            </td>
+                            <td class="table-action" data-label="Actions">
+                                <div class="row-actions row-edit-actions">
+                                    <button class="button button-primary" type="button" @onclick="SaveEditAsync" disabled="@isWorking">Add</button>
+                                    <button class="button button-secondary" type="button" @onclick="CancelEdit" disabled="@isWorking">Cancel</button>
+                                </div>
+                            </td>
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
+
+    }
+
+    <div class="revision-lower-grid">
+    <section class="secondary-process-section">
+        <div class="section-heading secondary-process-heading">
+            <h2>Secondary Processes</h2>
+            @if (revision.IsDraft)
+            {
+                <button class="button button-secondary" type="button" @onclick="BeginAddSecondaryProcess" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add Secondary Process</button>
+            }
+        </div>
+
+        @if (revision.SecondaryProcessRequirements.Count == 0 && secondaryProcessEditingModel is null)
+        {
+            <div class="empty-state compact-empty-state">This revision has no secondary processes.</div>
+        }
+        else
+        {
+            <div class="table-shell">
+                <table class="data-table secondary-process-table">
+                    <thead>
+                        <tr>
+                            <th>Process</th>
+                            <th>Specification</th>
+                            @if (revision.IsDraft)
+                            {
+                                <th><span class="visually-hidden">Actions</span></th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var requirement in revision.SecondaryProcessRequirements)
+                        {
+                            var isEditingProcess = secondaryProcessEditingModel?.Id == requirement.Id;
+                            <tr class="@(isEditingProcess ? "editing-row" : null)">
+                                @if (isEditingProcess)
+                                {
+                                    <td data-label="Process">
+                                        <select class="table-input" aria-label="Process" @bind="secondaryProcessEditingModel!.SecondaryProcessTypeId">
+                                            <option value="">Select</option>
+                                            @foreach (var processType in secondaryProcessTypeChoices)
+                                            {
+                                                <option value="@processType.Id">@processType.Name</option>
+                                            }
+                                        </select>
+                                    </td>
+                                    <td data-label="Specification"><input class="table-input" aria-label="Specification" @bind="secondaryProcessEditingModel!.Specification" @bind:event="oninput" /></td>
+                                    <td class="table-action" data-label="Actions">
+                                        <div class="row-actions row-edit-actions">
+                                            <button class="button button-primary" type="button" @onclick="SaveSecondaryProcessAsync" disabled="@isWorking">Save</button>
+                                            <button class="button button-secondary" type="button" @onclick="CancelSecondaryProcessEdit" disabled="@isWorking">Cancel</button>
+                                        </div>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td data-label="Process">@requirement.ProcessName</td>
+                                    <td data-label="Specification">@(requirement.Specification ?? "—")</td>
+                                    @if (revision.IsDraft)
+                                    {
+                                        <td class="table-action" data-label="Actions">
+                                            @if (pendingSecondaryProcessDeleteId == requirement.Id)
+                                            {
+                                                <div class="row-actions delete-confirmation">
+                                                    <span>Remove?</span>
+                                                    <button class="button button-danger button-compact" type="button" @onclick="() => DeleteSecondaryProcessAsync(requirement)" disabled="@isWorking">Yes</button>
+                                                    <button class="button button-secondary button-compact" type="button" @onclick="CancelSecondaryProcessDelete" disabled="@isWorking">No</button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="row-actions">
+                                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditSecondaryProcess(requirement)" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Edit</button>
+                                                    <button class="button button-danger-outline" type="button" @onclick="() => BeginDeleteSecondaryProcess(requirement.Id)" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Remove</button>
+                                                </div>
+                                            }
+                                        </td>
+                                    }
+                                }
+                            </tr>
+                        }
+
+                        @if (secondaryProcessEditingModel?.Id == 0)
+                        {
+                            <tr class="editing-row">
+                                <td data-label="Process">
+                                    <select class="table-input" aria-label="Process" @bind="secondaryProcessEditingModel.SecondaryProcessTypeId">
+                                        <option value="">Select</option>
+                                        @foreach (var processType in secondaryProcessTypeChoices)
+                                        {
+                                            <option value="@processType.Id">@processType.Name</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td data-label="Specification"><input class="table-input" aria-label="Specification" @bind="secondaryProcessEditingModel.Specification" @bind:event="oninput" /></td>
+                                <td class="table-action" data-label="Actions">
+                                    <div class="row-actions row-edit-actions">
+                                        <button class="button button-primary" type="button" @onclick="SaveSecondaryProcessAsync" disabled="@isWorking">Add</button>
+                                        <button class="button button-secondary" type="button" @onclick="CancelSecondaryProcessEdit" disabled="@isWorking">Cancel</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section class="revision-notes-section">
+        <div class="section-heading revision-notes-heading">
+            <h2>Notes</h2>
+            @if (revision.IsDraft)
+            {
+                <button class="button button-primary" type="button" @onclick="SaveRevisionHeaderAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Save Notes</button>
+            }
+        </div>
+        <textarea class="revision-notes-input" aria-label="Revision notes" rows="5" readonly="@(!revision.IsDraft)" @bind="revisionHeaderModel.Notes" @bind:event="oninput"></textarea>
+    </section>
+    </div>
+    }
+    else
+    {
+        <section class="master-print-panel">
+            <div class="master-print-toolbar">
+                <div>
+                    <h2>Master Print</h2>
+                    @if (revision.HasMasterPrint)
+                    {
+                        <p>
+                            <strong>@revision.MasterPrintFileName</strong>
+                            @if (revision.MasterPrintUploadedAtUtc is not null)
+                            {
+                                <span> · Uploaded @revision.MasterPrintUploadedAtUtc.Value.ToString("u")</span>
+                            }
+                        </p>
+                    }
+                    else
+                    {
+                        <p>No master print has been uploaded for this revision.</p>
+                    }
+                </div>
+                @if (revision.HasMasterPrint)
+                {
+                    <div class="heading-actions">
+                        <a class="button button-secondary" href="@MasterPrintUrl" target="_blank" rel="noopener">Open in new tab</a>
+                        @if (revision.IsDraft)
+                        {
+                            @if (confirmMasterPrintDelete)
+                            {
+                                <button class="button button-danger" type="button" @onclick="DeleteMasterPrintAsync" disabled="@isWorking">Confirm remove</button>
+                                <button class="button button-secondary" type="button" @onclick="() => confirmMasterPrintDelete = false" disabled="@isWorking">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="button button-danger-outline" type="button" @onclick="() => confirmMasterPrintDelete = true" disabled="@isWorking">Remove</button>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (revision.IsDraft)
+            {
+                <label class="master-print-drop-zone">
+                    <InputFile class="master-print-file-input"
+                               OnChange="UploadMasterPrintAsync"
+                               accept="application/pdf,.pdf"
+                               disabled="@isWorking" />
+                    <span class="master-print-drop-title">@(revision.HasMasterPrint ? "Drop a replacement PDF here" : "Drop the master print PDF here")</span>
+                    <span>or click to choose a file · 25 MB maximum</span>
+                </label>
+            }
+
+            @if (revision.HasMasterPrint)
+            {
+                <iframe class="master-print-viewer" src="@MasterPrintUrl" title="Master print PDF"></iframe>
+            }
+        </section>
     }
 }
+</div>
 
 @code {
     [Parameter] public long PartId { get; set; }
     [Parameter] public long RevisionId { get; set; }
 
     private InspectionCriteriaRevisionDetails? revision;
+    private InspectionCriteriaRevisionHeaderEditModel revisionHeaderModel = new();
+    private InspectionCriterionEditModel? editingModel;
+    private SecondaryProcessRequirementEditModel? secondaryProcessEditingModel;
+    private IReadOnlyList<GageTypeChoice> methodChoices = [];
+    private IReadOnlyList<string> unitChoices = [];
+    private IReadOnlyList<SecondaryProcessTypeChoice> secondaryProcessTypeChoices = [];
+    private ElementReference requirementInput;
+    private long? pendingDeleteId;
+    private long? pendingSecondaryProcessDeleteId;
+    private bool focusNewRequirement;
     private bool isLoading = true;
     private bool isWorking;
+    private bool confirmMasterPrintDelete;
+    private RevisionTab activeTab;
     private string? loadError;
     private string? message;
     private string messageClass = "alert-error";
@@ -108,7 +450,20 @@ else
         ? "status-active"
         : revision?.IsDraft == true ? "status-draft" : "status-inactive";
 
+    private string MasterPrintUrl => $"/parts/{PartId}/inspection-criteria/{RevisionId}/master-print";
+
     protected override Task OnParametersSetAsync() => LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusNewRequirement)
+        {
+            return;
+        }
+
+        focusNewRequirement = false;
+        await requirementInput.FocusAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -117,6 +472,25 @@ else
         try
         {
             revision = await CriteriaService.GetRevisionAsync(PartId, RevisionId);
+            if (revision is not null)
+            {
+                revisionHeaderModel = new InspectionCriteriaRevisionHeaderEditModel
+                {
+                    PrintRevisionNumber = revision.PrintRevisionNumber,
+                    PartDescription = revision.PartDescription,
+                    SpecificationUsed = revision.SpecificationUsed,
+                    Notes = revision.Notes,
+                    Version = revision.Version
+                };
+            }
+            await LoadMethodChoicesAsync();
+            unitChoices = await CriteriaService.GetUnitChoicesAsync();
+            secondaryProcessTypeChoices = await CriteriaService.GetSecondaryProcessTypeChoicesAsync();
+            editingModel = null;
+            secondaryProcessEditingModel = null;
+            pendingDeleteId = null;
+            pendingSecondaryProcessDeleteId = null;
+            confirmMasterPrintDelete = false;
         }
         catch (Exception exception)
         {
@@ -126,6 +500,231 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private void BeginAdd()
+    {
+        pendingDeleteId = null;
+        pendingSecondaryProcessDeleteId = null;
+        message = null;
+        editingModel = new InspectionCriterionEditModel
+        {
+            RevisionId = RevisionId,
+            InspectionNumber = NextInspectionNumber
+        };
+    }
+
+    private async Task BeginEdit(InspectionCriterionListItem criterion)
+    {
+        pendingDeleteId = null;
+        pendingSecondaryProcessDeleteId = null;
+        message = null;
+        editingModel = new InspectionCriterionEditModel
+        {
+            Id = criterion.Id,
+            RevisionId = RevisionId,
+            InspectionNumber = criterion.InspectionNumber,
+            Name = criterion.Name,
+            GageTypeId = criterion.GageTypeId,
+            Minimum = criterion.Minimum,
+            MaximumOrTolerance = criterion.MaximumOrTolerance,
+            Unit = criterion.Unit,
+            Notes = criterion.Notes,
+            Version = criterion.Version
+        };
+        await LoadMethodChoicesAsync(criterion.GageTypeId);
+    }
+
+    private async Task LoadMethodChoicesAsync(long? includeGageTypeId = null)
+    {
+        methodChoices = await GageService.GetGageTypeChoicesAsync(
+            activeOnly: true,
+            includeGageTypeId: includeGageTypeId);
+    }
+
+    private int NextInspectionNumber => revision?.Criteria.Count > 0
+        ? revision.Criteria.Max(x => x.InspectionNumber) + 1
+        : 1;
+
+    private void CancelEdit()
+    {
+        editingModel = null;
+        message = null;
+    }
+
+    private Task SaveEditAsync() => SaveEditAsync(addAnother: false);
+
+    private async Task SaveEditAsync(bool addAnother)
+    {
+        if (editingModel is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        message = null;
+        try
+        {
+            var isNew = editingModel.Id == 0;
+            var result = isNew
+                ? await CriteriaService.AddCriterionAsync(PartId, RevisionId, editingModel)
+                : await CriteriaService.SaveCriterionAsync(PartId, RevisionId, editingModel);
+
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                if (addAnother)
+                {
+                    BeginAdd();
+                    focusNewRequirement = true;
+                }
+
+                message = isNew ? "Criterion added." : "Criterion saved.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save criterion {CriterionId}", editingModel.Id);
+            message = "The criterion could not be saved. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task NotesKeyDownAsync(KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key == "Tab" && !eventArgs.ShiftKey && !isWorking)
+        {
+            await SaveEditAsync(addAnother: true);
+        }
+    }
+
+    private async Task SaveRevisionHeaderAsync()
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.SaveRevisionHeaderAsync(
+                PartId,
+                RevisionId,
+                revisionHeaderModel);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                message = "Revision details saved.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save revision details {RevisionId}", RevisionId);
+            message = "The revision details could not be saved. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task UploadMasterPrintAsync(InputFileChangeEventArgs eventArgs)
+    {
+        if (revision is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        message = null;
+        try
+        {
+            var file = eventArgs.File;
+            await using var stream = file.OpenReadStream(InspectionCriteriaService.MaximumMasterPrintBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+
+            var result = await CriteriaService.UploadMasterPrintAsync(
+                PartId,
+                RevisionId,
+                file.Name,
+                buffer.ToArray(),
+                revision.Version);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                activeTab = RevisionTab.MasterPrint;
+                message = "Master print uploaded.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (IOException exception)
+        {
+            Logger.LogWarning(exception, "Rejected master print upload for revision {RevisionId}", RevisionId);
+            message = "The PDF must be 25 MB or smaller.";
+            messageClass = "alert-error";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to upload master print for revision {RevisionId}", RevisionId);
+            message = "The master print could not be uploaded. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task DeleteMasterPrintAsync()
+    {
+        if (revision is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.DeleteMasterPrintAsync(
+                PartId,
+                RevisionId,
+                revision.Version);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                activeTab = RevisionTab.MasterPrint;
+                message = "Master print removed.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to remove master print from revision {RevisionId}", RevisionId);
+            message = "The master print could not be removed. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
         }
     }
 
@@ -149,8 +748,7 @@ else
                 return;
             }
 
-            message = OperationMessage(result.Status);
-            messageClass = result.Status == CriteriaOperationStatus.Conflict ? "alert-warning" : "alert-error";
+            SetOperationMessage(result);
         }
         catch (Exception exception)
         {
@@ -168,6 +766,7 @@ else
     {
         isWorking = true;
         message = null;
+        pendingDeleteId = null;
         try
         {
             var result = await CriteriaService.MoveCriterionAsync(PartId, RevisionId, criterionId, moveUp);
@@ -177,13 +776,14 @@ else
             }
             else
             {
-                message = OperationMessage(result.Status);
+                SetOperationMessage(result);
             }
         }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to reorder criterion {CriterionId}", criterionId);
             message = "The criterion could not be reordered.";
+            messageClass = "alert-error";
         }
         finally
         {
@@ -191,27 +791,193 @@ else
         }
     }
 
+    private void BeginDelete(long criterionId)
+    {
+        message = null;
+        pendingDeleteId = criterionId;
+    }
+
+    private void CancelDelete() => pendingDeleteId = null;
+
+    private async Task DeleteAsync(InspectionCriterionListItem criterion)
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.DeleteCriterionAsync(
+                PartId,
+                RevisionId,
+                criterion.Id,
+                criterion.Version);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                message = "Criterion removed.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to remove criterion {CriterionId}", criterion.Id);
+            message = "The criterion could not be removed.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void BeginAddSecondaryProcess()
+    {
+        pendingDeleteId = null;
+        pendingSecondaryProcessDeleteId = null;
+        message = null;
+        secondaryProcessEditingModel = new SecondaryProcessRequirementEditModel
+        {
+            RevisionId = RevisionId
+        };
+    }
+
+    private void BeginEditSecondaryProcess(SecondaryProcessRequirementListItem requirement)
+    {
+        pendingDeleteId = null;
+        pendingSecondaryProcessDeleteId = null;
+        message = null;
+        secondaryProcessEditingModel = new SecondaryProcessRequirementEditModel
+        {
+            Id = requirement.Id,
+            RevisionId = RevisionId,
+            SecondaryProcessTypeId = requirement.SecondaryProcessTypeId,
+            Specification = requirement.Specification,
+            Version = requirement.Version
+        };
+    }
+
+    private void CancelSecondaryProcessEdit()
+    {
+        secondaryProcessEditingModel = null;
+        message = null;
+    }
+
+    private async Task SaveSecondaryProcessAsync()
+    {
+        if (secondaryProcessEditingModel is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        message = null;
+        try
+        {
+            var isNew = secondaryProcessEditingModel.Id == 0;
+            var result = isNew
+                ? await CriteriaService.AddSecondaryProcessRequirementAsync(
+                    PartId,
+                    RevisionId,
+                    secondaryProcessEditingModel)
+                : await CriteriaService.SaveSecondaryProcessRequirementAsync(
+                    PartId,
+                    RevisionId,
+                    secondaryProcessEditingModel);
+
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                message = isNew
+                    ? "Secondary process added."
+                    : "Secondary process saved.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to save secondary process requirement {RequirementId}",
+                secondaryProcessEditingModel.Id);
+            message = "The secondary process could not be saved. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void BeginDeleteSecondaryProcess(long requirementId)
+    {
+        message = null;
+        pendingSecondaryProcessDeleteId = requirementId;
+    }
+
+    private void CancelSecondaryProcessDelete() => pendingSecondaryProcessDeleteId = null;
+
+    private async Task DeleteSecondaryProcessAsync(SecondaryProcessRequirementListItem requirement)
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.DeleteSecondaryProcessRequirementAsync(
+                PartId,
+                RevisionId,
+                requirement.Id,
+                requirement.Version);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                message = "Secondary process removed.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to remove secondary process requirement {RequirementId}",
+                requirement.Id);
+            message = "The secondary process could not be removed.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void SetOperationMessage(CriteriaOperationResult result)
+    {
+        message = result.Status == CriteriaOperationStatus.ValidationFailed && result.Message is not null
+            ? result.Message
+            : OperationMessage(result.Status);
+        messageClass = result.Status == CriteriaOperationStatus.Conflict ? "alert-warning" : "alert-error";
+    }
+
     private static string OperationMessage(CriteriaOperationStatus status) => status switch
     {
         CriteriaOperationStatus.EmptyRevision => "Add at least one criterion before publishing.",
         CriteriaOperationStatus.PublishedRevision => "This revision has already been published and cannot be changed.",
-        CriteriaOperationStatus.NotFound => "The revision no longer exists.",
+        CriteriaOperationStatus.NotFound => "The revision or item no longer exists.",
         CriteriaOperationStatus.Conflict => "Another user changed this revision. Reload before trying again.",
         _ => "The operation could not be completed."
     };
 
-    private string CriterionEditUrl(long id) => $"/parts/{PartId}/inspection-criteria/{RevisionId}/criteria/{id}/edit";
-    private string CriterionDeleteUrl(long id) => $"/parts/{PartId}/inspection-criteria/{RevisionId}/criteria/{id}/delete";
-
-    private static string FormatLimits(InspectionCriterionListItem criterion)
+    private enum RevisionTab
     {
-        var unit = string.IsNullOrWhiteSpace(criterion.Unit) ? string.Empty : $" {criterion.Unit}";
-        return (criterion.MinimumValue, criterion.MaximumValue) switch
-        {
-            ({ } minimum, { } maximum) => $"{minimum:G29}–{maximum:G29}{unit}",
-            ({ } minimum, null) => $"≥ {minimum:G29}{unit}",
-            (null, { } maximum) => $"≤ {maximum:G29}{unit}",
-            _ => "—"
-        };
+        Criteria,
+        MasterPrint
     }
+
 }

@@ -1,0 +1,71 @@
+<div class="unit-picker">
+    <select id="@Id"
+            class="@CssClass"
+            value="@SelectedValue"
+            aria-label="@AriaLabel"
+            @onchange="SelectionChangedAsync">
+        <option value="">Select a unit</option>
+        @foreach (var choice in Choices)
+        {
+            <option value="@choice">@choice</option>
+        }
+        <option value="@CustomValue">Add another unit…</option>
+    </select>
+
+    @if (isCustom)
+    {
+        <input id="@(Id is null ? null : $"{Id}-custom")"
+               class="@CssClass"
+               type="text"
+               value="@Value"
+               aria-label="Custom unit"
+               placeholder="Enter a unit"
+               @oninput="CustomUnitChangedAsync" />
+    }
+</div>
+
+@code {
+    private const string CustomValue = "__add_custom_unit__";
+    private bool isCustom;
+
+    [Parameter] public string? Id { get; set; }
+
+    [Parameter] public string? CssClass { get; set; }
+
+    [Parameter] public string AriaLabel { get; set; } = "Unit";
+
+    [Parameter] public IReadOnlyList<string> Choices { get; set; } = [];
+
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    private string SelectedValue => isCustom ? CustomValue : Value ?? string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (string.IsNullOrWhiteSpace(Value))
+        {
+            return;
+        }
+
+        isCustom = !Choices.Contains(Value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task SelectionChangedAsync(ChangeEventArgs eventArgs)
+    {
+        var selected = eventArgs.Value?.ToString();
+        if (selected == CustomValue)
+        {
+            isCustom = true;
+            await ValueChanged.InvokeAsync(null);
+            return;
+        }
+
+        isCustom = false;
+        await ValueChanged.InvokeAsync(string.IsNullOrEmpty(selected) ? null : selected);
+    }
+
+    private Task CustomUnitChangedAsync(ChangeEventArgs eventArgs) =>
+        ValueChanged.InvokeAsync(eventArgs.Value?.ToString());
+}

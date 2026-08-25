@@ -12,6 +12,20 @@ public sealed class InspectionCriteriaRevision
 
     public int RevisionNumber { get; set; }
 
+    public string? PrintRevisionNumber { get; set; }
+
+    public string? PartDescription { get; set; }
+
+    public string? SpecificationUsed { get; set; }
+
+    public string? Notes { get; set; }
+
+    public string? MasterPrintFileName { get; set; }
+
+    public byte[]? MasterPrintContent { get; set; }
+
+    public DateTimeOffset? MasterPrintUploadedAtUtc { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset? PublishedAtUtc { get; set; }
@@ -23,4 +37,6 @@ public sealed class InspectionCriteriaRevision
     public uint Version { get; set; }
 
     public ICollection<InspectionCriterion> Criteria { get; } = [];
+
+    public ICollection<SecondaryProcessRequirement> SecondaryProcessRequirements { get; } = [];
 }

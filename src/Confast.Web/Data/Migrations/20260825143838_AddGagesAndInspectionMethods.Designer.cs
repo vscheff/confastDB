@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260825143838_AddGagesAndInspectionMethods")]
+    partial class AddGagesAndInspectionMethods
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -171,34 +174,9 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("created_at_utc")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-                    b.Property<byte[]>("MasterPrintContent")
-                        .HasColumnType("bytea")
-                        .HasColumnName("master_print_content");
-
-                    b.Property<string>("MasterPrintFileName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("master_print_file_name");
-
-                    b.Property<DateTimeOffset?>("MasterPrintUploadedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("master_print_uploaded_at_utc");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("text")
-                        .HasColumnName("notes");
-
-                    b.Property<string>("PartDescription")
-                        .HasColumnType("text")
-                        .HasColumnName("part_description");
-
                     b.Property<long>("PartId")
                         .HasColumnType("bigint")
                         .HasColumnName("part_id");
-
-                    b.Property<string>("PrintRevisionNumber")
-                        .HasColumnType("text")
-                        .HasColumnName("print_revision_number");
 
                     b.Property<DateTimeOffset?>("PublishedAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -207,10 +185,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<int>("RevisionNumber")
                         .HasColumnType("integer")
                         .HasColumnName("revision_number");
-
-                    b.Property<string>("SpecificationUsed")
-                        .HasColumnType("text")
-                        .HasColumnName("specification_used");
 
                     b.Property<DateTimeOffset?>("SupersededAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -272,10 +246,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("inspection_method");
 
-                    b.Property<int>("InspectionNumber")
-                        .HasColumnType("integer")
-                        .HasColumnName("inspection_number");
-
                     b.Property<string>("MaximumOrTolerance")
                         .HasColumnType("text")
                         .HasColumnName("maximum_or_tolerance");
@@ -313,108 +283,9 @@ namespace Confast.Web.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_inspection_criteria_revision_id_display_order");
 
-                    b.HasIndex("InspectionCriteriaRevisionId", "InspectionNumber")
-                        .IsUnique()
-                        .HasDatabaseName("UX_inspection_criteria_revision_id_inspection_number");
-
                     b.ToTable("inspection_criteria", null, t =>
                         {
                             t.HasCheckConstraint("CK_inspection_criteria_display_order", "display_order > 0");
-
-                            t.HasCheckConstraint("CK_inspection_criteria_inspection_number", "inspection_number > 0");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.SecondaryProcessRequirement", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("InspectionCriteriaRevisionId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("inspection_criteria_revision_id");
-
-                    b.Property<long>("SecondaryProcessTypeId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("secondary_process_type_id");
-
-                    b.Property<string>("Specification")
-                        .HasColumnType("text")
-                        .HasColumnName("specification");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id")
-                        .HasName("PK_secondary_process_requirements");
-
-                    b.HasIndex("InspectionCriteriaRevisionId")
-                        .HasDatabaseName("IX_secondary_process_requirements_revision_id");
-
-                    b.HasIndex("SecondaryProcessTypeId")
-                        .HasDatabaseName("IX_secondary_process_requirements_type_id");
-
-                    b.ToTable("secondary_process_requirements", (string)null);
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.SecondaryProcessType", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
-                    b.HasKey("Id")
-                        .HasName("PK_secondary_process_types");
-
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasDatabaseName("UX_secondary_process_types_name");
-
-                    b.ToTable("secondary_process_types", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_secondary_process_types_name_not_blank", "btrim(name) <> ''");
-                        });
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1L,
-                            Name = "Heat Treat"
-                        },
-                        new
-                        {
-                            Id = 2L,
-                            Name = "Clean"
-                        },
-                        new
-                        {
-                            Id = 3L,
-                            Name = "Patch"
-                        },
-                        new
-                        {
-                            Id = 4L,
-                            Name = "Plate"
-                        },
-                        new
-                        {
-                            Id = 5L,
-                            Name = "Sort"
                         });
                 });
 
@@ -504,27 +375,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("Revision");
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.SecondaryProcessRequirement", b =>
-                {
-                    b.HasOne("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", "InspectionCriteriaRevision")
-                        .WithMany("SecondaryProcessRequirements")
-                        .HasForeignKey("InspectionCriteriaRevisionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_secondary_process_requirements_revision_id");
-
-                    b.HasOne("Confast.Web.Features.InspectionCriteria.SecondaryProcessType", "SecondaryProcessType")
-                        .WithMany()
-                        .HasForeignKey("SecondaryProcessTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_secondary_process_requirements_type_id");
-
-                    b.Navigation("InspectionCriteriaRevision");
-
-                    b.Navigation("SecondaryProcessType");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Parts.Part", b =>
                 {
                     b.HasOne("Confast.Web.Features.Customers.Customer", "Customer")
@@ -550,8 +400,6 @@ namespace Confast.Web.Data.Migrations
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", b =>
                 {
                     b.Navigation("Criteria");
-
-                    b.Navigation("SecondaryProcessRequirements");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Parts.Part", b =>

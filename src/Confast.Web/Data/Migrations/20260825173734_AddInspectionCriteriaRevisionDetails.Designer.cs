@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260825173734_AddInspectionCriteriaRevisionDetails")]
+    partial class AddInspectionCriteriaRevisionDetails
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -170,23 +173,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<byte[]>("MasterPrintContent")
-                        .HasColumnType("bytea")
-                        .HasColumnName("master_print_content");
-
-                    b.Property<string>("MasterPrintFileName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("master_print_file_name");
-
-                    b.Property<DateTimeOffset?>("MasterPrintUploadedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("master_print_uploaded_at_utc");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("text")
-                        .HasColumnName("notes");
 
                     b.Property<string>("PartDescription")
                         .HasColumnType("text")

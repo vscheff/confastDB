@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260825171706_AddSecondaryProcessRequirements")]
+    partial class AddSecondaryProcessRequirements
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -171,34 +174,9 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("created_at_utc")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-                    b.Property<byte[]>("MasterPrintContent")
-                        .HasColumnType("bytea")
-                        .HasColumnName("master_print_content");
-
-                    b.Property<string>("MasterPrintFileName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("master_print_file_name");
-
-                    b.Property<DateTimeOffset?>("MasterPrintUploadedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("master_print_uploaded_at_utc");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("text")
-                        .HasColumnName("notes");
-
-                    b.Property<string>("PartDescription")
-                        .HasColumnType("text")
-                        .HasColumnName("part_description");
-
                     b.Property<long>("PartId")
                         .HasColumnType("bigint")
                         .HasColumnName("part_id");
-
-                    b.Property<string>("PrintRevisionNumber")
-                        .HasColumnType("text")
-                        .HasColumnName("print_revision_number");
 
                     b.Property<DateTimeOffset?>("PublishedAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -207,10 +185,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<int>("RevisionNumber")
                         .HasColumnType("integer")
                         .HasColumnName("revision_number");
-
-                    b.Property<string>("SpecificationUsed")
-                        .HasColumnType("text")
-                        .HasColumnName("specification_used");
 
                     b.Property<DateTimeOffset?>("SupersededAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -337,6 +311,10 @@ namespace Confast.Web.Data.Migrations
                     b.Property<long>("InspectionCriteriaRevisionId")
                         .HasColumnType("bigint")
                         .HasColumnName("inspection_criteria_revision_id");
+
+                    b.Property<string>("PONumber")
+                        .HasColumnType("text")
+                        .HasColumnName("po_number");
 
                     b.Property<long>("SecondaryProcessTypeId")
                         .HasColumnType("bigint")

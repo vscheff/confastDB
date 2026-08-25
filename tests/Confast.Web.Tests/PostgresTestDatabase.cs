@@ -47,6 +47,6 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
     {
         await using var db = CreateDbContext();
         await db.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE inspection_criteria, inspection_criteria_revisions, parts, customers RESTART IDENTITY CASCADE");
+            "TRUNCATE TABLE secondary_process_requirements, inspection_criteria, inspection_criteria_revisions, gages, gage_types, parts, customers RESTART IDENTITY CASCADE");
     }
 }

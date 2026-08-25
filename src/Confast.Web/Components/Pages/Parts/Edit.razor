@@ -85,14 +85,17 @@ else
             </p>
             <div class="table-shell">
                 <table class="data-table">
-                    <thead><tr><th>Requirement</th><th>Method</th><th>Limits</th><th>Notes</th></tr></thead>
+                    <thead><tr><th>#</th><th>Requirement</th><th>Maximum / tolerance</th><th>Minimum</th><th>Method</th><th>Unit</th><th>Notes</th></tr></thead>
                     <tbody>
                         @foreach (var criterion in currentRevision.Criteria)
                         {
                             <tr>
+                                <td data-label="#">@criterion.InspectionNumber</td>
                                 <td data-label="Requirement">@criterion.Name</td>
+                                <td data-label="Maximum / tolerance">@(criterion.MaximumOrTolerance ?? "—")</td>
+                                <td data-label="Minimum">@(criterion.Minimum ?? "—")</td>
                                 <td data-label="Method">@(criterion.InspectionMethod ?? "—")</td>
-                                <td data-label="Limits">@FormatLimits(criterion)</td>
+                                <td data-label="Unit">@(criterion.Unit ?? "—")</td>
                                 <td data-label="Notes">@(criterion.Notes ?? "—")</td>
                             </tr>
                         }
@@ -156,18 +159,6 @@ else
 
     private string RevisionUrl(long revisionId) =>
         $"/parts/{Id}/inspection-criteria/{revisionId}";
-
-    private static string FormatLimits(InspectionCriterionListItem criterion)
-    {
-        var unit = string.IsNullOrWhiteSpace(criterion.Unit) ? string.Empty : $" {criterion.Unit}";
-        return (criterion.MinimumValue, criterion.MaximumValue) switch
-        {
-            ({ } minimum, { } maximum) => $"{minimum:G29}–{maximum:G29}{unit}",
-            ({ } minimum, null) => $"≥ {minimum:G29}{unit}",
-            (null, { } maximum) => $"≤ {maximum:G29}{unit}",
-            _ => "—"
-        };
-    }
 
     private async Task SavePartAsync()
     {

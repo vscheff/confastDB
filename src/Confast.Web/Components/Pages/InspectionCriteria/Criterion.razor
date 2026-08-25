@@ -1,7 +1,9 @@
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/new"
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/{CriterionId:long}/edit"
 @using Confast.Web.Features.InspectionCriteria
+@using Confast.Web.Features.Gages
 @inject InspectionCriteriaService CriteriaService
+@inject GageService GageService
 @inject NavigationManager Navigation
 @inject ILogger<Criterion> Logger
 
@@ -30,6 +32,11 @@ else
         <DataAnnotationsValidator />
         <ValidationSummary />
         <div class="record-form">
+            <div class="form-field">
+                <label for="inspection-number">Inspection number</label>
+                <input id="inspection-number" type="number" min="1" @bind="model.InspectionNumber" @bind:event="oninput" />
+                <ValidationMessage For="() => model.InspectionNumber" />
+            </div>
             <div class="form-field form-field-wide">
                 <label for="name">Name</label>
                 <input id="name" @bind="model.Name" @bind:event="oninput" />
@@ -37,19 +44,26 @@ else
             </div>
             <div class="form-field form-field-wide">
                 <label for="method">Inspection method</label>
-                <input id="method" @bind="model.InspectionMethod" @bind:event="oninput" />
+                <select id="method" @bind="model.GageTypeId">
+                    <option value="">Select an inspection method</option>
+                    @foreach (var choice in methodChoices)
+                    {
+                        <option value="@choice.Id">@choice.Name@(!choice.IsActive ? " (inactive)" : null)</option>
+                    }
+                </select>
+                <ValidationMessage For="() => model.GageTypeId" />
             </div>
             <div class="form-field">
-                <label for="minimum">Minimum value</label>
-                <input id="minimum" type="number" step="any" @bind="model.MinimumValue" @bind:event="oninput" />
+                <label for="minimum">Minimum</label>
+                <input id="minimum" @bind="model.Minimum" @bind:event="oninput" />
             </div>
             <div class="form-field">
-                <label for="maximum">Maximum value</label>
-                <input id="maximum" type="number" step="any" @bind="model.MaximumValue" @bind:event="oninput" />
+                <label for="maximum">Maximum / tolerance</label>
+                <input id="maximum" @bind="model.MaximumOrTolerance" @bind:event="oninput" />
             </div>
             <div class="form-field">
                 <label for="unit">Unit</label>
-                <input id="unit" @bind="model.Unit" @bind:event="oninput" />
+                <EditableUnitSelect Id="unit" Choices="unitChoices" @bind-Value="model.Unit" />
             </div>
             <div class="form-field form-field-wide">
                 <label for="notes">Notes</label>
@@ -69,6 +83,8 @@ else
     [Parameter] public long CriterionId { get; set; }
 
     private InspectionCriterionEditModel model = new();
+    private IReadOnlyList<GageTypeChoice> methodChoices = [];
+    private IReadOnlyList<string> unitChoices = [];
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
@@ -83,13 +99,26 @@ else
         {
             if (CriterionId == 0)
             {
-                model = new InspectionCriterionEditModel { RevisionId = RevisionId };
+                var revision = await CriteriaService.GetRevisionAsync(PartId, RevisionId)
+                    ?? throw new InvalidOperationException("The revision was not found.");
+                model = new InspectionCriterionEditModel
+                {
+                    RevisionId = RevisionId,
+                    InspectionNumber = revision.Criteria.Count > 0
+                        ? revision.Criteria.Max(x => x.InspectionNumber) + 1
+                        : 1
+                };
             }
             else
             {
                 model = await CriteriaService.GetCriterionAsync(PartId, RevisionId, CriterionId)
                     ?? throw new InvalidOperationException("The criterion was not found.");
             }
+
+            methodChoices = await GageService.GetGageTypeChoicesAsync(
+                activeOnly: true,
+                includeGageTypeId: model.GageTypeId);
+            unitChoices = await CriteriaService.GetUnitChoicesAsync();
         }
         catch (InvalidOperationException exception)
         {

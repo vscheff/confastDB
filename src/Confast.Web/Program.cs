@@ -1,6 +1,7 @@
 using Confast.Web.Components;
 using Confast.Web.Data;
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Parts;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +19,7 @@ var connectionString = builder.Configuration.GetConnectionString("Confast")
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 builder.Services.AddScoped<CustomerService>();
+builder.Services.AddScoped<GageService>();
 builder.Services.AddScoped<InspectionCriteriaService>();
 builder.Services.AddScoped<PartService>();
 
@@ -36,6 +38,30 @@ app.UseHttpsRedirection();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+app.MapGet(
+    "/parts/{partId:long}/inspection-criteria/{revisionId:long}/master-print",
+    async Task<IResult> (
+        long partId,
+        long revisionId,
+        InspectionCriteriaService criteriaService,
+        HttpContext httpContext,
+        CancellationToken cancellationToken) =>
+    {
+        var file = await criteriaService.GetMasterPrintAsync(
+            partId,
+            revisionId,
+            cancellationToken);
+        if (file is null)
+        {
+            return Results.NotFound();
+        }
+
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+        return Results.File(
+            file.Content,
+            contentType: "application/pdf",
+            enableRangeProcessing: true);
+    });
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

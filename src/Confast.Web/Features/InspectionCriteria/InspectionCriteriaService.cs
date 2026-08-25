@@ -7,6 +7,62 @@ namespace Confast.Web.Features.InspectionCriteria;
 
 public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> contextFactory)
 {
+    public const long MaximumMasterPrintBytes = 25 * 1024 * 1024;
+
+    private static readonly string[] DefaultUnitChoices =
+    [
+        "N/A",
+        "MM",
+        "µM",
+        "IN",
+        "Degrees",
+        "N",
+        "N-m",
+        "IN-LB",
+        "Rz",
+        "15Tw/ball",
+        "15N",
+        "30N",
+        "HRB",
+        "HRC",
+        "HV"
+    ];
+
+    public async Task<IReadOnlyList<string>> GetUnitChoicesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var savedUnits = await db.InspectionCriteria
+            .AsNoTracking()
+            .Where(x => x.Unit != null && x.Unit != "")
+            .Select(x => x.Unit!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var choices = new List<string>(DefaultUnitChoices);
+        var knownChoices = new HashSet<string>(choices, StringComparer.OrdinalIgnoreCase);
+        foreach (var unit in savedUnits.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            if (knownChoices.Add(unit))
+            {
+                choices.Add(unit);
+            }
+        }
+
+        return choices;
+    }
+
+    public async Task<IReadOnlyList<SecondaryProcessTypeChoice>> GetSecondaryProcessTypeChoicesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.SecondaryProcessTypes
+            .AsNoTracking()
+            .OrderBy(x => x.Id)
+            .Select(x => new SecondaryProcessTypeChoice(x.Id, x.Name))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<PartInspectionCriteriaSummary?> GetPartSummaryAsync(
         long partId,
         CancellationToken cancellationToken = default)
@@ -68,6 +124,13 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 x.PartId,
                 x.Part.PartNumber,
                 x.RevisionNumber,
+                x.PrintRevisionNumber,
+                x.PartDescription,
+                x.SpecificationUsed,
+                x.Notes,
+                HasMasterPrint = x.MasterPrintContent != null,
+                x.MasterPrintFileName,
+                x.MasterPrintUploadedAtUtc,
                 x.CreatedAtUtc,
                 x.PublishedAtUtc,
                 x.SupersededAtUtc,
@@ -87,13 +150,27 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             .OrderBy(x => x.DisplayOrder)
             .Select(x => new InspectionCriterionListItem(
                 x.Id,
+                x.InspectionNumber,
                 x.Name,
+                x.GageTypeId,
                 x.InspectionMethod,
-                x.MinimumValue,
-                x.MaximumValue,
+                x.Minimum,
+                x.MaximumOrTolerance,
                 x.Unit,
                 x.DisplayOrder,
                 x.Notes,
+                x.Version))
+            .ToListAsync(cancellationToken);
+
+        var secondaryProcessRequirements = await db.SecondaryProcessRequirements
+            .AsNoTracking()
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .OrderBy(x => x.Id)
+            .Select(x => new SecondaryProcessRequirementListItem(
+                x.Id,
+                x.SecondaryProcessTypeId,
+                x.SecondaryProcessType.Name,
+                x.Specification,
                 x.Version))
             .ToListAsync(cancellationToken);
 
@@ -102,12 +179,20 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             revision.PartId,
             revision.PartNumber,
             revision.RevisionNumber,
+            revision.PrintRevisionNumber,
+            revision.PartDescription,
+            revision.SpecificationUsed,
+            revision.Notes,
+            revision.HasMasterPrint,
+            revision.MasterPrintFileName,
+            revision.MasterPrintUploadedAtUtc,
             revision.CreatedAtUtc,
             revision.PublishedAtUtc,
             revision.SupersededAtUtc,
             revision.ChangeNote,
             revision.Version,
-            criteria);
+            criteria,
+            secondaryProcessRequirements);
     }
 
     public async Task<InspectionCriterionEditModel?> GetCriterionAsync(
@@ -127,10 +212,11 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             {
                 Id = x.Id,
                 RevisionId = x.InspectionCriteriaRevisionId,
+                InspectionNumber = x.InspectionNumber,
                 Name = x.Name,
-                InspectionMethod = x.InspectionMethod,
-                MinimumValue = x.MinimumValue,
-                MaximumValue = x.MaximumValue,
+                GageTypeId = x.GageTypeId,
+                Minimum = x.Minimum,
+                MaximumOrTolerance = x.MaximumOrTolerance,
                 Unit = x.Unit,
                 Notes = x.Notes,
                 Version = x.Version
@@ -169,6 +255,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         var current = await db.InspectionCriteriaRevisions
             .AsNoTracking()
             .Include(x => x.Criteria.OrderBy(c => c.DisplayOrder))
+            .Include(x => x.SecondaryProcessRequirements.OrderBy(r => r.Id))
             .SingleOrDefaultAsync(
                 x => x.PartId == partId
                     && x.PublishedAtUtc != null
@@ -184,6 +271,13 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         {
             PartId = partId,
             RevisionNumber = nextRevisionNumber + 1,
+            PrintRevisionNumber = current is null ? part.Revision : current.PrintRevisionNumber,
+            PartDescription = current is null ? part.Description : current.PartDescription,
+            SpecificationUsed = current?.SpecificationUsed,
+            Notes = current?.Notes,
+            MasterPrintFileName = current?.MasterPrintFileName,
+            MasterPrintContent = current?.MasterPrintContent?.ToArray(),
+            MasterPrintUploadedAtUtc = current?.MasterPrintUploadedAtUtc,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             ChangeNote = NormalizeOptionalText(changeNote)
         };
@@ -194,13 +288,25 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             {
                 draft.Criteria.Add(new InspectionCriterion
                 {
+                    InspectionNumber = source.InspectionNumber,
                     Name = source.Name,
+                    GageTypeId = source.GageTypeId,
                     InspectionMethod = source.InspectionMethod,
-                    MinimumValue = source.MinimumValue,
-                    MaximumValue = source.MaximumValue,
+                    Minimum = source.Minimum,
+                    MaximumOrTolerance = source.MaximumOrTolerance,
                     Unit = source.Unit,
                     DisplayOrder = source.DisplayOrder,
                     Notes = source.Notes
+                });
+            }
+
+
+            foreach (var source in current.SecondaryProcessRequirements)
+            {
+                draft.SecondaryProcessRequirements.Add(new SecondaryProcessRequirement
+                {
+                    SecondaryProcessTypeId = source.SecondaryProcessTypeId,
+                    Specification = source.Specification
                 });
             }
         }
@@ -255,6 +361,16 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.EmptyRevision);
         }
 
+        if (await db.InspectionCriteria.AnyAsync(
+                x => x.InspectionCriteriaRevisionId == revisionId
+                    && x.GageTypeId == null,
+                cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Every criterion must have an inspection method before publishing.");
+        }
+
         db.Entry(draft).Property(x => x.Version).OriginalValue = version;
         var now = DateTimeOffset.UtcNow;
         var current = await db.InspectionCriteriaRevisions.SingleOrDefaultAsync(
@@ -281,6 +397,145 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
         }
         catch (DbUpdateException exception) when (IsIntegrityConflict(exception))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<CriteriaOperationResult> SaveRevisionHeaderAsync(
+        long partId,
+        long revisionId,
+        InspectionCriteriaRevisionHeaderEditModel model,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        db.Entry(revision).Property(x => x.Version).OriginalValue = model.Version;
+        revision.PrintRevisionNumber = NormalizeOptionalText(model.PrintRevisionNumber);
+        revision.PartDescription = NormalizeOptionalText(model.PartDescription);
+        revision.SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed);
+        revision.Notes = NormalizeOptionalText(model.Notes);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<MasterPrintFile?> GetMasterPrintAsync(
+        long partId,
+        long revisionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var file = await db.InspectionCriteriaRevisions
+            .AsNoTracking()
+            .Where(x => x.Id == revisionId
+                && x.PartId == partId
+                && x.MasterPrintContent != null
+                && x.MasterPrintFileName != null)
+            .Select(x => new { x.MasterPrintFileName, x.MasterPrintContent })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return file is null
+            ? null
+            : new MasterPrintFile(file.MasterPrintFileName!, file.MasterPrintContent!);
+    }
+
+    public async Task<CriteriaOperationResult> UploadMasterPrintAsync(
+        long partId,
+        long revisionId,
+        string fileName,
+        byte[] content,
+        uint version,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = ValidateMasterPrint(fileName, content);
+        if (validationError is not null)
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: validationError);
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        db.Entry(revision).Property(x => x.Version).OriginalValue = version;
+        revision.MasterPrintFileName = Path.GetFileName(fileName);
+        revision.MasterPrintContent = content;
+        revision.MasterPrintUploadedAtUtc = DateTimeOffset.UtcNow;
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<CriteriaOperationResult> DeleteMasterPrintAsync(
+        long partId,
+        long revisionId,
+        uint version,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        db.Entry(revision).Property(x => x.Version).OriginalValue = version;
+        revision.MasterPrintFileName = null;
+        revision.MasterPrintContent = null;
+        revision.MasterPrintUploadedAtUtc = null;
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
         {
             return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
         }
@@ -313,6 +568,16 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
         }
 
+        if (await db.InspectionCriteria.AnyAsync(
+                x => x.InspectionCriteriaRevisionId == revisionId
+                    && x.InspectionNumber == model.InspectionNumber,
+                cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "That inspection number is already used in this revision.");
+        }
+
         var lastOrder = await db.InspectionCriteria
             .Where(x => x.InspectionCriteriaRevisionId == revisionId)
             .Select(x => (int?)x.DisplayOrder)
@@ -323,7 +588,17 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             InspectionCriteriaRevisionId = revisionId,
             DisplayOrder = lastOrder + 1
         };
-        Apply(model, criterion);
+        var gageType = await db.GageTypes.SingleOrDefaultAsync(
+            x => x.Id == model.GageTypeId && x.IsActive,
+            cancellationToken);
+        if (gageType is null)
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Select an active inspection method.");
+        }
+
+        Apply(model, criterion, gageType.Id, gageType.Name);
         db.InspectionCriteria.Add(criterion);
 
         try
@@ -376,8 +651,30 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
+        if (await db.InspectionCriteria.AnyAsync(
+                x => x.InspectionCriteriaRevisionId == revisionId
+                    && x.Id != criterion.Id
+                    && x.InspectionNumber == model.InspectionNumber,
+                cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "That inspection number is already used in this revision.");
+        }
+
+        var gageType = await db.GageTypes.SingleOrDefaultAsync(
+            x => x.Id == model.GageTypeId
+                && (x.IsActive || x.Id == criterion.GageTypeId),
+            cancellationToken);
+        if (gageType is null)
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Select an active inspection method.");
+        }
+
         db.Entry(criterion).Property(x => x.Version).OriginalValue = model.Version;
-        Apply(model, criterion);
+        Apply(model, criterion, gageType.Id, gageType.Name);
 
         try
         {
@@ -389,6 +686,10 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 criterion.Id);
         }
         catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+        catch (DbUpdateException exception) when (IsIntegrityConflict(exception))
         {
             return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
         }
@@ -497,6 +798,169 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         }
     }
 
+    public async Task<CriteriaOperationResult> AddSecondaryProcessRequirementAsync(
+        long partId,
+        long revisionId,
+        SecondaryProcessRequirementEditModel model,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = Validate(model);
+        if (validationError is not null)
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: validationError);
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        if (!await db.SecondaryProcessTypes.AnyAsync(
+                x => x.Id == model.SecondaryProcessTypeId,
+                cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Select a valid secondary process.");
+        }
+
+        var requirement = new SecondaryProcessRequirement
+        {
+            InspectionCriteriaRevisionId = revisionId,
+            SecondaryProcessTypeId = model.SecondaryProcessTypeId!.Value,
+            Specification = NormalizeOptionalText(model.Specification)
+        };
+        db.SecondaryProcessRequirements.Add(requirement);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateException exception) when (IsIntegrityConflict(exception))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<CriteriaOperationResult> SaveSecondaryProcessRequirementAsync(
+        long partId,
+        long revisionId,
+        SecondaryProcessRequirementEditModel model,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = Validate(model);
+        if (validationError is not null)
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: validationError);
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        var requirement = await db.SecondaryProcessRequirements.SingleOrDefaultAsync(
+            x => x.Id == model.Id && x.InspectionCriteriaRevisionId == revisionId,
+            cancellationToken);
+        if (requirement is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (!await db.SecondaryProcessTypes.AnyAsync(
+                x => x.Id == model.SecondaryProcessTypeId,
+                cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Select a valid secondary process.");
+        }
+
+        db.Entry(requirement).Property(x => x.Version).OriginalValue = model.Version;
+        requirement.SecondaryProcessTypeId = model.SecondaryProcessTypeId!.Value;
+        requirement.Specification = NormalizeOptionalText(model.Specification);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+        catch (DbUpdateException exception) when (IsIntegrityConflict(exception))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<CriteriaOperationResult> DeleteSecondaryProcessRequirementAsync(
+        long partId,
+        long revisionId,
+        long requirementId,
+        uint version,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        var requirement = await db.SecondaryProcessRequirements.SingleOrDefaultAsync(
+            x => x.Id == requirementId && x.InspectionCriteriaRevisionId == revisionId,
+            cancellationToken);
+        if (requirement is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        db.Entry(requirement).Property(x => x.Version).OriginalValue = version;
+        db.SecondaryProcessRequirements.Remove(requirement);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
     private static IQueryable<InspectionCriteriaRevisionSummary> RevisionSummaries(
         IQueryable<InspectionCriteriaRevision> query) =>
         query
@@ -526,12 +990,18 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             .FromSqlInterpolated($"SELECT p.*, p.xmin FROM parts AS p WHERE id = {partId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
 
-    private static void Apply(InspectionCriterionEditModel model, InspectionCriterion criterion)
+    private static void Apply(
+        InspectionCriterionEditModel model,
+        InspectionCriterion criterion,
+        long gageTypeId,
+        string inspectionMethod)
     {
         criterion.Name = model.Name.Trim();
-        criterion.InspectionMethod = NormalizeOptionalText(model.InspectionMethod);
-        criterion.MinimumValue = model.MinimumValue;
-        criterion.MaximumValue = model.MaximumValue;
+        criterion.InspectionNumber = model.InspectionNumber;
+        criterion.GageTypeId = gageTypeId;
+        criterion.InspectionMethod = inspectionMethod;
+        criterion.Minimum = NormalizeOptionalText(model.Minimum);
+        criterion.MaximumOrTolerance = NormalizeOptionalText(model.MaximumOrTolerance);
         criterion.Unit = NormalizeOptionalText(model.Unit);
         criterion.Notes = NormalizeOptionalText(model.Notes);
     }
@@ -543,11 +1013,55 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return "Name is required.";
         }
 
-        return model.MinimumValue is not null
-            && model.MaximumValue is not null
-            && model.MinimumValue > model.MaximumValue
-                ? "Minimum value cannot be greater than maximum value."
-                : null;
+        if (model.InspectionNumber <= 0)
+        {
+            return "Inspection number must be greater than zero.";
+        }
+
+        if (model.GageTypeId is null or <= 0)
+        {
+            return "Inspection method is required.";
+        }
+
+        return null;
+    }
+
+    private static string? Validate(SecondaryProcessRequirementEditModel model) =>
+        model.SecondaryProcessTypeId is null or <= 0 ? "Process is required." : null;
+
+    private static string? ValidateMasterPrint(string fileName, byte[] content)
+    {
+        var safeFileName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeFileName)
+            || !string.Equals(Path.GetExtension(safeFileName), ".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Select a PDF file.";
+        }
+
+        if (safeFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return "The PDF file name contains invalid characters.";
+        }
+
+        if (safeFileName.Length > 255)
+        {
+            return "The PDF file name must be 255 characters or fewer.";
+        }
+
+        if (content.Length == 0)
+        {
+            return "The PDF file is empty.";
+        }
+
+        if (content.LongLength > MaximumMasterPrintBytes)
+        {
+            return "The PDF must be 25 MB or smaller.";
+        }
+
+        var headerLength = Math.Min(content.Length, 1024);
+        return content.AsSpan(0, headerLength).IndexOf("%PDF-"u8) < 0
+            ? "The selected file does not appear to be a PDF."
+            : null;
     }
 
     private static string? NormalizeOptionalText(string? value)

@@ -27,12 +27,20 @@ public sealed record InspectionCriteriaRevisionDetails(
     long PartId,
     string PartNumber,
     int RevisionNumber,
+    string? PrintRevisionNumber,
+    string? PartDescription,
+    string? SpecificationUsed,
+    string? Notes,
+    bool HasMasterPrint,
+    string? MasterPrintFileName,
+    DateTimeOffset? MasterPrintUploadedAtUtc,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? PublishedAtUtc,
     DateTimeOffset? SupersededAtUtc,
     string? ChangeNote,
     uint Version,
-    IReadOnlyList<InspectionCriterionListItem> Criteria)
+    IReadOnlyList<InspectionCriterionListItem> Criteria,
+    IReadOnlyList<SecondaryProcessRequirementListItem> SecondaryProcessRequirements)
 {
     public bool IsDraft => PublishedAtUtc is null;
     public bool IsCurrent => PublishedAtUtc is not null && SupersededAtUtc is null;
@@ -41,14 +49,42 @@ public sealed record InspectionCriteriaRevisionDetails(
 
 public sealed record InspectionCriterionListItem(
     long Id,
+    int InspectionNumber,
     string Name,
+    long? GageTypeId,
     string? InspectionMethod,
-    decimal? MinimumValue,
-    decimal? MaximumValue,
+    string? Minimum,
+    string? MaximumOrTolerance,
     string? Unit,
     int DisplayOrder,
     string? Notes,
     uint Version);
+
+public sealed record SecondaryProcessTypeChoice(long Id, string Name);
+
+public sealed record MasterPrintFile(string FileName, byte[] Content);
+
+public sealed record SecondaryProcessRequirementListItem(
+    long Id,
+    long SecondaryProcessTypeId,
+    string ProcessName,
+    string? Specification,
+    uint Version);
+
+public sealed class SecondaryProcessRequirementEditModel
+{
+    public long Id { get; set; }
+
+    public long RevisionId { get; set; }
+
+    [Range(1, long.MaxValue, ErrorMessage = "Process is required.")]
+    [Display(Name = "Process")]
+    public long? SecondaryProcessTypeId { get; set; }
+
+    public string? Specification { get; set; }
+
+    public uint Version { get; set; }
+}
 
 public sealed class CreateInspectionCriteriaRevisionModel
 {
@@ -56,39 +92,49 @@ public sealed class CreateInspectionCriteriaRevisionModel
     public string? ChangeNote { get; set; }
 }
 
-public sealed class InspectionCriterionEditModel : IValidatableObject
+public sealed class InspectionCriteriaRevisionHeaderEditModel
+{
+    [Display(Name = "Print Revision Number")]
+    public string? PrintRevisionNumber { get; set; }
+
+    [Display(Name = "Part Description")]
+    public string? PartDescription { get; set; }
+
+    [Display(Name = "Spec Used")]
+    public string? SpecificationUsed { get; set; }
+
+    public string? Notes { get; set; }
+
+    public uint Version { get; set; }
+}
+
+public sealed class InspectionCriterionEditModel
 {
     public long Id { get; set; }
 
     public long RevisionId { get; set; }
 
+    [Range(1, int.MaxValue, ErrorMessage = "Inspection number must be greater than zero.")]
+    [Display(Name = "Inspection number")]
+    public int InspectionNumber { get; set; }
+
     [Required(ErrorMessage = "Name is required.")]
     public string Name { get; set; } = string.Empty;
 
+    [Range(1, long.MaxValue, ErrorMessage = "Inspection method is required.")]
     [Display(Name = "Inspection method")]
-    public string? InspectionMethod { get; set; }
+    public long? GageTypeId { get; set; }
 
-    [Display(Name = "Minimum value")]
-    public decimal? MinimumValue { get; set; }
+    public string? Minimum { get; set; }
 
-    [Display(Name = "Maximum value")]
-    public decimal? MaximumValue { get; set; }
+    [Display(Name = "Maximum / tolerance")]
+    public string? MaximumOrTolerance { get; set; }
 
     public string? Unit { get; set; }
 
     public string? Notes { get; set; }
 
     public uint Version { get; set; }
-
-    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
-    {
-        if (MinimumValue is not null && MaximumValue is not null && MinimumValue > MaximumValue)
-        {
-            yield return new ValidationResult(
-                "Minimum value cannot be greater than maximum value.",
-                [nameof(MinimumValue), nameof(MaximumValue)]);
-        }
-    }
 }
 
 public enum CriteriaOperationStatus

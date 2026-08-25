@@ -1,0 +1,353 @@
+@page "/gages"
+@using Confast.Web.Features.Gages
+@inject GageService GageService
+@inject ILogger<Index> Logger
+
+<PageTitle>Gages</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <h1>Gages</h1>
+        <p>Manage inspection methods and the physical instruments of each type.</p>
+    </div>
+    <button class="button button-secondary" type="button" @onclick="LoadAsync" disabled="@isLoading">Refresh</button>
+</div>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading gages…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else
+{
+    @if (message is not null)
+    {
+        <div class="alert @messageClass" role="alert">@message</div>
+    }
+
+    <div class="subtabs" aria-label="Gage management sections">
+        <button class="subtab @(activeTab == GageTab.PhysicalGages ? "subtab-active" : null)"
+                type="button"
+                aria-pressed="@(activeTab == GageTab.PhysicalGages)"
+                @onclick="() => SelectTab(GageTab.PhysicalGages)">
+            Physical Gages
+        </button>
+        <button class="subtab @(activeTab == GageTab.Types ? "subtab-active" : null)"
+                type="button"
+                aria-pressed="@(activeTab == GageTab.Types)"
+                @onclick="() => SelectTab(GageTab.Types)">
+            Gage Types
+        </button>
+    </div>
+
+    @if (activeTab == GageTab.Types)
+    {
+    <section>
+        <div class="page-heading section-heading">
+            <div>
+                <h2>Gage types</h2>
+                <p>These are the inspection methods offered on inspection criteria.</p>
+            </div>
+            <button class="button button-primary" type="button" @onclick="BeginAddType" disabled="@(isSaving || typeModel is not null)">Add gage type</button>
+        </div>
+
+        @if (typeModel is not null)
+        {
+            <EditForm Model="typeModel" OnValidSubmit="SaveTypeAsync" FormName="edit-gage-type">
+                <DataAnnotationsValidator />
+                <div class="record-form compact-record-form">
+                    <div class="form-field">
+                        <label for="gage-type-name">Name</label>
+                        <input id="gage-type-name" @bind="typeModel.Name" @bind:event="oninput" />
+                        <ValidationMessage For="() => typeModel.Name" />
+                    </div>
+                    <label class="checkbox-field"><InputCheckbox @bind-Value="typeModel.IsActive" /> Active</label>
+                    <div class="form-actions">
+                        <button class="button button-primary" type="submit" disabled="@isSaving">Save</button>
+                        <button class="button button-secondary" type="button" @onclick="CancelType" disabled="@isSaving">Cancel</button>
+                    </div>
+                </div>
+            </EditForm>
+        }
+
+        <div class="table-shell">
+            <table class="data-table">
+                <thead><tr><th>Name</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                    @foreach (var type in gageTypes)
+                    {
+                        <tr>
+                            <td data-label="Name">@type.Name</td>
+                            <td data-label="Status"><span class="status-pill @(type.IsActive ? "status-active" : "status-inactive")">@(type.IsActive ? "Active" : "Inactive")</span></td>
+                            <td class="table-action" data-label="Actions">
+                                <div class="row-actions">
+                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditType(type)" disabled="@(isSaving || typeModel is not null)">Edit</button>
+                                    <button class="button button-secondary" type="button" @onclick="() => ToggleTypeAsync(type)" disabled="@isSaving">@(type.IsActive ? "Deactivate" : "Activate")</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+    }
+    else
+    {
+    <section>
+        <div class="page-heading section-heading">
+            <div>
+                <h2>Physical gages</h2>
+                <p>These records identify actual instruments; they are not assigned to criteria yet.</p>
+            </div>
+            <button class="button button-primary" type="button" @onclick="BeginAddGage" disabled="@(isSaving || gageModel is not null || gageTypes.Count == 0)">Add gage</button>
+        </div>
+
+        @if (gageModel is not null)
+        {
+            <EditForm Model="gageModel" OnValidSubmit="SaveGageAsync" FormName="edit-gage">
+                <DataAnnotationsValidator />
+                <div class="record-form compact-record-form">
+                    <div class="form-field">
+                        <label for="gage-number">Gage number</label>
+                        <input id="gage-number" @bind="gageModel.GageNumber" @bind:event="oninput" />
+                        <ValidationMessage For="() => gageModel.GageNumber" />
+                    </div>
+                    <div class="form-field">
+                        <label for="gage-type">Gage type</label>
+                        <InputSelect id="gage-type" @bind-Value="gageModel.GageTypeId">
+                            <option value="0">Select a gage type</option>
+                            @foreach (var type in gageTypes)
+                            {
+                                <option value="@type.Id">@type.Name@(!type.IsActive ? " (inactive)" : null)</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="() => gageModel.GageTypeId" />
+                    </div>
+                    <label class="checkbox-field"><InputCheckbox @bind-Value="gageModel.IsActive" /> Active</label>
+                    <div class="form-actions">
+                        <button class="button button-primary" type="submit" disabled="@isSaving">Save</button>
+                        <button class="button button-secondary" type="button" @onclick="CancelGage" disabled="@isSaving">Cancel</button>
+                    </div>
+                </div>
+            </EditForm>
+        }
+
+        <div class="list-toolbar" aria-label="Physical gage sorting">
+            <span class="sort-label">Sort by</span>
+            <div class="sort-controls">
+                <button class="button button-secondary @(gageSortField == GageSortField.Number ? "sort-button-active" : null)"
+                        type="button"
+                        aria-pressed="@(gageSortField == GageSortField.Number)"
+                        @onclick="() => SetGageSortField(GageSortField.Number)">
+                    Gage Number
+                </button>
+                <button class="button button-secondary @(gageSortField == GageSortField.Type ? "sort-button-active" : null)"
+                        type="button"
+                        aria-pressed="@(gageSortField == GageSortField.Type)"
+                        @onclick="() => SetGageSortField(GageSortField.Type)">
+                    Gage Type
+                </button>
+                <button class="button button-secondary" type="button" @onclick="ToggleGageSortDirection">
+                    @(gageSortAscending ? "↑ Ascending" : "↓ Descending")
+                </button>
+            </div>
+        </div>
+
+        <div class="table-shell">
+            <table class="data-table">
+                <thead><tr><th>Gage number</th><th>Gage type</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                    @foreach (var gage in SortedGages)
+                    {
+                        <tr>
+                            <td data-label="Gage number">@gage.GageNumber</td>
+                            <td data-label="Gage type">@gage.GageTypeName</td>
+                            <td data-label="Status"><span class="status-pill @(gage.IsActive ? "status-active" : "status-inactive")">@(gage.IsActive ? "Active" : "Inactive")</span></td>
+                            <td class="table-action" data-label="Actions">
+                                <div class="row-actions">
+                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditGage(gage)" disabled="@(isSaving || gageModel is not null)">Edit</button>
+                                    <button class="button button-secondary" type="button" @onclick="() => ToggleGageAsync(gage)" disabled="@isSaving">@(gage.IsActive ? "Deactivate" : "Activate")</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+    }
+}
+
+@code {
+    private IReadOnlyList<GageTypeListItem> gageTypes = [];
+    private IReadOnlyList<GageListItem> gages = [];
+    private GageTypeEditModel? typeModel;
+    private GageEditModel? gageModel;
+    private GageTab activeTab = GageTab.PhysicalGages;
+    private GageSortField gageSortField = GageSortField.Number;
+    private bool gageSortAscending = true;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? message;
+    private string messageClass = "alert-success";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private void SelectTab(GageTab tab)
+    {
+        activeTab = tab;
+        message = null;
+    }
+
+    private IEnumerable<GageListItem> SortedGages => (gageSortField, gageSortAscending) switch
+    {
+        (GageSortField.Number, true) => gages
+            .OrderBy(x => x.GageNumber, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Id),
+        (GageSortField.Number, false) => gages
+            .OrderByDescending(x => x.GageNumber, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(x => x.Id),
+        (GageSortField.Type, true) => gages
+            .OrderBy(x => x.GageTypeName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.GageNumber, StringComparer.OrdinalIgnoreCase),
+        _ => gages
+            .OrderByDescending(x => x.GageTypeName, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(x => x.GageNumber, StringComparer.OrdinalIgnoreCase)
+    };
+
+    private void SetGageSortField(GageSortField field) => gageSortField = field;
+
+    private void ToggleGageSortDirection() => gageSortAscending = !gageSortAscending;
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            gageTypes = await GageService.GetGageTypesAsync();
+            gages = await GageService.GetGagesAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load gages");
+            loadError = "Gages could not be loaded. Check that the database is running and configured.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BeginAddType() => typeModel = new GageTypeEditModel();
+
+    private void BeginEditType(GageTypeListItem type) => typeModel = new GageTypeEditModel
+    {
+        Id = type.Id,
+        Name = type.Name,
+        IsActive = type.IsActive,
+        Version = type.Version
+    };
+
+    private void CancelType() => typeModel = null;
+
+    private async Task SaveTypeAsync()
+    {
+        if (typeModel is null) return;
+        await SaveAndReloadAsync(() => GageService.SaveGageTypeAsync(typeModel), "Gage type saved.");
+        if (messageClass == "alert-success") typeModel = null;
+    }
+
+    private Task ToggleTypeAsync(GageTypeListItem type) => SaveAndReloadAsync(
+        () => GageService.SaveGageTypeAsync(new GageTypeEditModel
+        {
+            Id = type.Id, Name = type.Name, IsActive = !type.IsActive, Version = type.Version
+        }),
+        type.IsActive ? "Gage type deactivated." : "Gage type activated.");
+
+    private void BeginAddGage() => gageModel = new GageEditModel
+    {
+        GageTypeId = gageTypes.FirstOrDefault(x => x.IsActive)?.Id ?? 0
+    };
+
+    private void BeginEditGage(GageListItem gage) => gageModel = new GageEditModel
+    {
+        Id = gage.Id,
+        GageTypeId = gage.GageTypeId,
+        GageNumber = gage.GageNumber,
+        IsActive = gage.IsActive,
+        Version = gage.Version
+    };
+
+    private void CancelGage() => gageModel = null;
+
+    private async Task SaveGageAsync()
+    {
+        if (gageModel is null) return;
+        await SaveAndReloadAsync(() => GageService.SaveGageAsync(gageModel), "Gage saved.");
+        if (messageClass == "alert-success") gageModel = null;
+    }
+
+    private Task ToggleGageAsync(GageListItem gage) => SaveAndReloadAsync(
+        () => GageService.SaveGageAsync(new GageEditModel
+        {
+            Id = gage.Id,
+            GageTypeId = gage.GageTypeId,
+            GageNumber = gage.GageNumber,
+            IsActive = !gage.IsActive,
+            Version = gage.Version
+        }),
+        gage.IsActive ? "Gage deactivated." : "Gage activated.");
+
+    private async Task SaveAndReloadAsync(Func<Task<SaveGageResult>> save, string successMessage)
+    {
+        isSaving = true;
+        message = null;
+        try
+        {
+            var result = await save();
+            if (result.Status == SaveGageStatus.Saved)
+            {
+                await LoadAsync();
+                message = successMessage;
+                messageClass = "alert-success";
+                return;
+            }
+
+            message = result.Message ?? result.Status switch
+            {
+                SaveGageStatus.Conflict => "Another user changed this record. Reload before trying again.",
+                SaveGageStatus.NotFound => "The record no longer exists.",
+                _ => "The record could not be saved."
+            };
+            messageClass = result.Status == SaveGageStatus.Conflict ? "alert-warning" : "alert-error";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save a gage record");
+            message = "The record could not be saved. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private enum GageTab
+    {
+        Types,
+        PhysicalGages
+    }
+
+    private enum GageSortField
+    {
+        Number,
+        Type
+    }
+}
