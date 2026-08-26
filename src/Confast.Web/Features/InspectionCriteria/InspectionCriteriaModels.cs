@@ -40,7 +40,8 @@ public sealed record InspectionCriteriaRevisionDetails(
     string? ChangeNote,
     uint Version,
     IReadOnlyList<InspectionCriterionListItem> Criteria,
-    IReadOnlyList<SecondaryProcessRequirementListItem> SecondaryProcessRequirements)
+    IReadOnlyList<SecondaryProcessRequirementListItem> SecondaryProcessRequirements,
+    IReadOnlyList<RevisionCertificationRequirementListItem> CertificationRequirements)
 {
     public bool IsDraft => PublishedAtUtc is null;
     public bool IsCurrent => PublishedAtUtc is not null && SupersededAtUtc is null;
@@ -62,6 +63,8 @@ public sealed record InspectionCriterionListItem(
 
 public sealed record SecondaryProcessTypeChoice(long Id, string Name);
 
+public sealed record CertificationTypeChoice(long Id, string Name, int DisplayOrder);
+
 public sealed record MasterPrintFile(string FileName, byte[] Content);
 
 public sealed record SecondaryProcessRequirementListItem(
@@ -70,6 +73,29 @@ public sealed record SecondaryProcessRequirementListItem(
     string ProcessName,
     string? Specification,
     uint Version);
+
+public sealed record RevisionCertificationRequirementListItem(
+    long Id,
+    long CertificationTypeId,
+    string CertificationTypeName,
+    CertificationRequirementLevel RequirementLevel,
+    string? Notes,
+    uint Version);
+
+public sealed class RevisionCertificationRequirementEditModel
+{
+    public long Id { get; set; }
+
+    public long CertificationTypeId { get; set; }
+
+    public string CertificationTypeName { get; set; } = string.Empty;
+
+    public CertificationRequirementLevel? RequirementLevel { get; set; }
+
+    public string? Notes { get; set; }
+
+    public uint Version { get; set; }
+}
 
 public sealed class SecondaryProcessRequirementEditModel
 {

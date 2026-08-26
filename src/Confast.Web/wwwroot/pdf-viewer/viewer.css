@@ -1,0 +1,31 @@
+:root {
+    color-scheme: dark;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #e8edf1;
+    background: #22282d;
+}
+
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { display: grid; grid-template-rows: auto 1fr; }
+
+.viewer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 50px; padding: .4rem .75rem; background: #30363b; border-bottom: 1px solid #111619; box-shadow: 0 1px 3px rgb(0 0 0 / 35%); z-index: 1; }
+.toolbar-group { display: flex; align-items: center; gap: .4rem; }
+.viewer-toolbar button, .viewer-toolbar a { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: .4rem .65rem; color: #eef3f6; background: #41494f; border: 1px solid #626d75; border-radius: .3rem; cursor: pointer; font: inherit; font-size: .82rem; font-weight: 650; text-decoration: none; }
+.viewer-toolbar button:hover:not(:disabled), .viewer-toolbar a:hover { background: #505a61; }
+.viewer-toolbar button:focus-visible, .viewer-toolbar a:focus-visible { outline: 3px solid rgb(84 183 231 / 45%); outline-offset: 1px; }
+.viewer-toolbar button:disabled { cursor: default; opacity: .45; }
+#page-status, #zoom-status { min-width: 5.5rem; text-align: center; font-size: .82rem; }
+
+.viewer-surface { display: flex; align-items: flex-start; justify-content: center; min-height: 0; padding: 1rem; overflow: auto; background: #252a2e; }
+#pdf-page { display: none; max-width: none; background: #fff; box-shadow: 0 3px 16px rgb(0 0 0 / 50%); }
+.viewer-ready #pdf-page { display: block; }
+.viewer-message { position: fixed; top: 50%; left: 50%; max-width: min(32rem, calc(100% - 2rem)); padding: .8rem 1rem; transform: translate(-50%, -50%); color: #dce7ed; background: #30383d; border: 1px solid #59676f; border-radius: .4rem; text-align: center; z-index: 2; }
+.viewer-message[hidden] { display: none; }
+.viewer-message-error { color: #ffd8d6; background: #542a2a; border-color: #a05b58; }
+
+@media (max-width: 720px) {
+    .viewer-toolbar { align-items: stretch; flex-direction: column; }
+    .toolbar-group { justify-content: center; }
+    .viewer-surface { padding: .5rem; }
+}

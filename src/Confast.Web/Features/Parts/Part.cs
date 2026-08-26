@@ -1,5 +1,6 @@
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.InspectionCriteria;
+using Confast.Web.Features.Inspections;
 
 namespace Confast.Web.Features.Parts;
 
@@ -20,4 +21,6 @@ public sealed class Part
     public uint Version { get; set; }
 
     public ICollection<InspectionCriteriaRevision> InspectionCriteriaRevisions { get; } = [];
+
+    public ICollection<Inspection> Inspections { get; } = [];
 }

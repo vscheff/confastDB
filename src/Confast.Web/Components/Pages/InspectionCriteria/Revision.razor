@@ -73,6 +73,13 @@ else
                 @onclick="() => activeTab = RevisionTab.MasterPrint">
             Master Print
         </button>
+        <button class="subtab @(activeTab == RevisionTab.Certifications ? "subtab-active" : null)"
+                type="button"
+                role="tab"
+                aria-selected="@(activeTab == RevisionTab.Certifications)"
+                @onclick="() => activeTab = RevisionTab.Certifications">
+            Certification Requirements
+        </button>
     </div>
 
     @if (activeTab == RevisionTab.Criteria)
@@ -361,7 +368,7 @@ else
     </section>
     </div>
     }
-    else
+    else if (activeTab == RevisionTab.MasterPrint)
     {
         <section class="master-print-panel">
             <div class="master-print-toolbar">
@@ -385,7 +392,7 @@ else
                 @if (revision.HasMasterPrint)
                 {
                     <div class="heading-actions">
-                        <a class="button button-secondary" href="@MasterPrintUrl" target="_blank" rel="noopener">Open in new tab</a>
+                        <a class="button button-secondary" href="@MasterPrintViewerUrl" target="_blank" rel="noopener">Open in new tab</a>
                         @if (revision.IsDraft)
                         {
                             @if (confirmMasterPrintDelete)
@@ -404,20 +411,79 @@ else
 
             @if (revision.IsDraft)
             {
-                <label class="master-print-drop-zone">
-                    <InputFile class="master-print-file-input"
-                               OnChange="UploadMasterPrintAsync"
-                               accept="application/pdf,.pdf"
-                               disabled="@isWorking" />
+                <label class="master-print-drop-zone" for="master-print-file-input">
                     <span class="master-print-drop-title">@(revision.HasMasterPrint ? "Drop a replacement PDF here" : "Drop the master print PDF here")</span>
                     <span>or click to choose a file · 25 MB maximum</span>
                 </label>
+                <InputFile id="master-print-file-input"
+                           class="master-print-file-input"
+                           OnChange="UploadMasterPrintAsync"
+                           accept="application/pdf,.pdf"
+                           disabled="@isWorking" />
             }
 
             @if (revision.HasMasterPrint)
             {
-                <iframe class="master-print-viewer" src="@MasterPrintUrl" title="Master print PDF"></iframe>
+                <iframe class="master-print-viewer" src="@MasterPrintViewerUrl" title="Master print PDF"></iframe>
             }
+        </section>
+    }
+    else
+    {
+        <section class="revision-certification-section">
+            <div class="section-heading">
+                <div>
+                    <h2>Certification Requirements</h2>
+                    <p>Not Applicable is represented by no requirement row.</p>
+                </div>
+                @if (revision.IsDraft)
+                {
+                    <button class="button button-primary" type="button" @onclick="SaveCertificationRequirementsAsync" disabled="@isWorking">Save Requirements</button>
+                }
+            </div>
+            <div class="table-shell">
+                <table class="data-table certification-requirements-table">
+                    <thead>
+                        <tr>
+                            <th>Certification type</th>
+                            <th>Requirement</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var requirement in certificationRequirementModels)
+                        {
+                            <tr>
+                                <td data-label="Certification type">@requirement.CertificationTypeName</td>
+                                <td data-label="Requirement">
+                                    @if (revision.IsDraft)
+                                    {
+                                        <select class="table-input" aria-label="Requirement for @requirement.CertificationTypeName" @bind="requirement.RequirementLevel">
+                                            <option value="">Not Applicable</option>
+                                            <option value="@CertificationRequirementLevel.Required">Required</option>
+                                            <option value="@CertificationRequirementLevel.Optional">Optional</option>
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span>@(requirement.RequirementLevel?.ToString() ?? "Not Applicable")</span>
+                                    }
+                                </td>
+                                <td data-label="Notes">
+                                    @if (revision.IsDraft)
+                                    {
+                                        <input class="table-input" aria-label="Notes for @requirement.CertificationTypeName" @bind="requirement.Notes" @bind:event="oninput" disabled="@(requirement.RequirementLevel is null)" />
+                                    }
+                                    else
+                                    {
+                                        <span>@(requirement.Notes ?? "—")</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </section>
     }
 }
@@ -434,6 +500,7 @@ else
     private IReadOnlyList<GageTypeChoice> methodChoices = [];
     private IReadOnlyList<string> unitChoices = [];
     private IReadOnlyList<SecondaryProcessTypeChoice> secondaryProcessTypeChoices = [];
+    private List<RevisionCertificationRequirementEditModel> certificationRequirementModels = [];
     private ElementReference requirementInput;
     private long? pendingDeleteId;
     private long? pendingSecondaryProcessDeleteId;
@@ -451,6 +518,9 @@ else
         : revision?.IsDraft == true ? "status-draft" : "status-inactive";
 
     private string MasterPrintUrl => $"/parts/{PartId}/inspection-criteria/{RevisionId}/master-print";
+
+    private string MasterPrintViewerUrl =>
+        $"/pdf-viewer/index.html?file={Uri.EscapeDataString(MasterPrintUrl)}";
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -486,6 +556,22 @@ else
             await LoadMethodChoicesAsync();
             unitChoices = await CriteriaService.GetUnitChoicesAsync();
             secondaryProcessTypeChoices = await CriteriaService.GetSecondaryProcessTypeChoicesAsync();
+            var certificationTypes = await CriteriaService.GetCertificationTypeChoicesAsync();
+            var savedCertificationRequirements = revision?.CertificationRequirements
+                .ToDictionary(x => x.CertificationTypeId) ?? [];
+            certificationRequirementModels = certificationTypes.Select(type =>
+            {
+                savedCertificationRequirements.TryGetValue(type.Id, out var saved);
+                return new RevisionCertificationRequirementEditModel
+                {
+                    Id = saved?.Id ?? 0,
+                    CertificationTypeId = type.Id,
+                    CertificationTypeName = saved?.CertificationTypeName ?? type.Name,
+                    RequirementLevel = saved?.RequirementLevel,
+                    Notes = saved?.Notes,
+                    Version = saved?.Version ?? 0
+                };
+            }).ToList();
             editingModel = null;
             secondaryProcessEditingModel = null;
             pendingDeleteId = null;
@@ -631,6 +717,39 @@ else
         {
             Logger.LogError(exception, "Failed to save revision details {RevisionId}", RevisionId);
             message = "The revision details could not be saved. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task SaveCertificationRequirementsAsync()
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.SaveCertificationRequirementsAsync(
+                PartId,
+                RevisionId,
+                certificationRequirementModels);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                activeTab = RevisionTab.Certifications;
+                message = "Certification requirements saved.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save certification requirements for revision {RevisionId}", RevisionId);
+            message = "The certification requirements could not be saved. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -977,7 +1096,8 @@ else
     private enum RevisionTab
     {
         Criteria,
-        MasterPrint
+        MasterPrint,
+        Certifications
     }
 
 }

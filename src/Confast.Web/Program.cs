@@ -3,6 +3,7 @@ using Confast.Web.Data;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
+using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Parts;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,7 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<GageService>();
 builder.Services.AddScoped<InspectionCriteriaService>();
+builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<PartService>();
 
 var app = builder.Build();
@@ -60,6 +62,55 @@ app.MapGet(
         return Results.File(
             file.Content,
             contentType: "application/pdf",
+            enableRangeProcessing: true);
+    });
+app.MapGet(
+    "/inspections/{inspectionId:long}/certifications/documents/{documentId:long}",
+    async Task<IResult> (
+        long inspectionId,
+        long documentId,
+        InspectionService inspectionService,
+        HttpContext httpContext,
+        CancellationToken cancellationToken) =>
+    {
+        var file = await inspectionService.GetCertificationDocumentAsync(
+            inspectionId,
+            documentId,
+            cancellationToken);
+        if (file is null)
+        {
+            return Results.NotFound();
+        }
+
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+        return Results.File(
+            file.Content,
+            contentType: file.ContentType,
+            enableRangeProcessing: true);
+    });
+app.MapGet(
+    "/inspections/{inspectionId:long}/certifications/documents/{documentId:long}/download",
+    async Task<IResult> (
+        long inspectionId,
+        long documentId,
+        InspectionService inspectionService,
+        HttpContext httpContext,
+        CancellationToken cancellationToken) =>
+    {
+        var file = await inspectionService.GetCertificationDocumentAsync(
+            inspectionId,
+            documentId,
+            cancellationToken);
+        if (file is null)
+        {
+            return Results.NotFound();
+        }
+
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+        return Results.File(
+            file.Content,
+            contentType: file.ContentType,
+            fileDownloadName: file.OriginalFileName,
             enableRangeProcessing: true);
     });
 app.MapRazorComponents<App>()

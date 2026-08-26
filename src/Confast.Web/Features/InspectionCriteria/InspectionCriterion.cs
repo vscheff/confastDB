@@ -1,6 +1,7 @@
 namespace Confast.Web.Features.InspectionCriteria;
 
 using Confast.Web.Features.Gages;
+using Confast.Web.Features.Inspections;
 
 public sealed class InspectionCriterion
 {
@@ -32,4 +33,6 @@ public sealed class InspectionCriterion
     public string? Notes { get; set; }
 
     public uint Version { get; set; }
+
+    public ICollection<InspectionResult> InspectionResults { get; } = [];
 }

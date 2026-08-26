@@ -144,5 +144,13 @@ public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory)
         {
             return new SaveGageResult(SaveGageStatus.Duplicate, duplicateMessage);
         }
+        catch (DbUpdateException exception)
+            when (exception.GetBaseException() is PostgresException
+                { SqlState: PostgresErrorCodes.RestrictViolation })
+        {
+            return new SaveGageResult(
+                SaveGageStatus.ValidationFailed,
+                "The gage type cannot be changed because the gage has been used on an inspection.");
+        }
     }
 }

@@ -1,4 +1,5 @@
 using Confast.Web.Features.Parts;
+using Confast.Web.Features.Inspections;
 
 namespace Confast.Web.Features.InspectionCriteria;
 
@@ -39,4 +40,8 @@ public sealed class InspectionCriteriaRevision
     public ICollection<InspectionCriterion> Criteria { get; } = [];
 
     public ICollection<SecondaryProcessRequirement> SecondaryProcessRequirements { get; } = [];
+
+    public ICollection<RevisionCertificationRequirement> CertificationRequirements { get; } = [];
+
+    public ICollection<Inspection> Inspections { get; } = [];
 }

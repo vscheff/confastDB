@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+    <title>PDF Viewer</title>
+    <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+    <header class="viewer-toolbar" aria-label="PDF controls">
+        <div class="toolbar-group">
+            <button id="previous-page" type="button">Previous</button>
+            <span id="page-status" aria-live="polite">Page 1</span>
+            <button id="next-page" type="button">Next</button>
+        </div>
+        <div class="toolbar-group">
+            <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+            <span id="zoom-status" aria-live="polite">Fit width</span>
+            <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+            <button id="fit-width" type="button">Fit width</button>
+            <a id="download-pdf" download>Download original</a>
+        </div>
+    </header>
+
+    <div id="viewer-message" class="viewer-message" role="status">Loading PDF…</div>
+    <main id="viewer-surface" class="viewer-surface">
+        <canvas id="pdf-page" aria-label="PDF page"></canvas>
+    </main>
+
+    <script type="module" src="viewer.mjs"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@
 
 <PageTitle>@(part is null ? "Part" : $"Edit {part.PartNumber}")</PageTitle>
 
+<div class="criteria-revision-page part-detail-page">
 <p><a class="back-link" href="/parts">← Parts</a></p>
 
 @if (isLoading)
@@ -43,13 +44,24 @@ else
               CustomerOptions="customerOptions"
               OnValidSubmit="SavePartAsync"
               FormName="edit-part"
-              IsSaving="isSaving" />
+              IsSaving="isSaving"
+              Compact="true" />
 
     <section class="linked-records" aria-labelledby="inspection-criteria-heading">
         <div class="section-heading">
             <div>
-                <h2 id="inspection-criteria-heading">Inspection criteria</h2>
-                <p>Versioned requirements used to inspect this part.</p>
+                <h2 id="inspection-criteria-heading">Inspection Criteria</h2>
+                @if (currentRevision is not null)
+                {
+                    <p>
+                        <span class="status-pill status-active">Current</span>
+                        Revision @currentRevision.RevisionNumber · published @currentRevision.PublishedAtUtc?.ToString("u")
+                    </p>
+                }
+                else
+                {
+                    <p>Versioned requirements used to inspect this part.</p>
+                }
             </div>
             <div class="heading-actions">
                 @if (criteriaSummary?.DraftRevision is not null)
@@ -79,32 +91,144 @@ else
         }
         else
         {
-            <p>
-                <span class="status-pill status-active">Current</span>
-                Revision @currentRevision.RevisionNumber, published @currentRevision.PublishedAtUtc?.ToString("u")
-            </p>
-            <div class="table-shell">
-                <table class="data-table">
-                    <thead><tr><th>#</th><th>Requirement</th><th>Maximum / tolerance</th><th>Minimum</th><th>Method</th><th>Unit</th><th>Notes</th></tr></thead>
-                    <tbody>
-                        @foreach (var criterion in currentRevision.Criteria)
-                        {
-                            <tr>
-                                <td data-label="#">@criterion.InspectionNumber</td>
-                                <td data-label="Requirement">@criterion.Name</td>
-                                <td data-label="Maximum / tolerance">@(criterion.MaximumOrTolerance ?? "—")</td>
-                                <td data-label="Minimum">@(criterion.Minimum ?? "—")</td>
-                                <td data-label="Method">@(criterion.InspectionMethod ?? "—")</td>
-                                <td data-label="Unit">@(criterion.Unit ?? "—")</td>
-                                <td data-label="Notes">@(criterion.Notes ?? "—")</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
+            <div class="subtabs revision-tabs" role="tablist" aria-label="Current inspection criteria sections">
+                <button class="subtab @(activeCriteriaTab == PartCriteriaTab.Criteria ? "subtab-active" : null)"
+                        type="button"
+                        role="tab"
+                        aria-selected="@(activeCriteriaTab == PartCriteriaTab.Criteria)"
+                        @onclick="() => activeCriteriaTab = PartCriteriaTab.Criteria">
+                    Criteria
+                </button>
+                <button class="subtab @(activeCriteriaTab == PartCriteriaTab.MasterPrint ? "subtab-active" : null)"
+                        type="button"
+                        role="tab"
+                        aria-selected="@(activeCriteriaTab == PartCriteriaTab.MasterPrint)"
+                        @onclick="() => activeCriteriaTab = PartCriteriaTab.MasterPrint">
+                    Master Print
+                </button>
             </div>
+
+            @if (activeCriteriaTab == PartCriteriaTab.Criteria)
+            {
+                <section class="revision-details-bar" aria-label="Current revision details">
+                    <div class="compact-form-field print-revision-field">
+                        <label>Print Revision Number</label>
+                        <input type="text" readonly value="@currentRevision.PrintRevisionNumber" />
+                    </div>
+                    <div class="compact-form-field part-description-field">
+                        <label>Part Description</label>
+                        <input type="text" readonly value="@currentRevision.PartDescription" />
+                    </div>
+                    <div class="compact-form-field specification-used-field">
+                        <label>Spec Used</label>
+                        <input type="text" readonly value="@currentRevision.SpecificationUsed" />
+                    </div>
+                </section>
+
+                @if (currentRevision.Criteria.Count == 0)
+                {
+                    <div class="empty-state compact-empty-state">This revision has no criteria.</div>
+                }
+                else
+                {
+                    <div class="table-shell criteria-table-shell">
+                        <table class="data-table criteria-table">
+                            <thead><tr><th>#</th><th>Requirement</th><th>Maximum / tolerance</th><th>Minimum</th><th>Inspection method</th><th>Unit</th><th>Notes</th></tr></thead>
+                            <tbody>
+                                @foreach (var criterion in currentRevision.Criteria)
+                                {
+                                    <tr>
+                                        <td data-label="#">@criterion.InspectionNumber</td>
+                                        <td data-label="Requirement">@criterion.Name</td>
+                                        <td data-label="Maximum / tolerance">@(criterion.MaximumOrTolerance ?? "—")</td>
+                                        <td data-label="Minimum">@(criterion.Minimum ?? "—")</td>
+                                        <td data-label="Inspection method">@(criterion.InspectionMethod ?? "—")</td>
+                                        <td data-label="Unit">@(criterion.Unit ?? "—")</td>
+                                        <td data-label="Notes">@(criterion.Notes ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <div class="revision-lower-grid">
+                    <section class="secondary-process-section">
+                        <div class="section-heading secondary-process-heading">
+                            <h2>Secondary Processes</h2>
+                        </div>
+                        @if (currentRevision.SecondaryProcessRequirements.Count == 0)
+                        {
+                            <div class="empty-state compact-empty-state">This revision has no secondary processes.</div>
+                        }
+                        else
+                        {
+                            <div class="table-shell">
+                                <table class="data-table secondary-process-table">
+                                    <thead><tr><th>Process</th><th>Specification</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var requirement in currentRevision.SecondaryProcessRequirements)
+                                        {
+                                            <tr>
+                                                <td data-label="Process">@requirement.ProcessName</td>
+                                                <td data-label="Specification">@(requirement.Specification ?? "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="revision-notes-section">
+                        <div class="section-heading revision-notes-heading">
+                            <h2>Notes</h2>
+                        </div>
+                        <div class="revision-notes-input revision-notes-display">
+                            @(currentRevision.Notes ?? "No notes for this revision.")
+                        </div>
+                    </section>
+                </div>
+            }
+            else
+            {
+                <section class="master-print-panel">
+                    <div class="master-print-toolbar">
+                        <div>
+                            <h2>Master Print</h2>
+                            @if (currentRevision.HasMasterPrint)
+                            {
+                                <p>
+                                    <strong>@currentRevision.MasterPrintFileName</strong>
+                                    @if (currentRevision.MasterPrintUploadedAtUtc is not null)
+                                    {
+                                        <span> · Uploaded @currentRevision.MasterPrintUploadedAtUtc.Value.ToString("u")</span>
+                                    }
+                                </p>
+                            }
+                            else
+                            {
+                                <p>No master print has been uploaded for this revision.</p>
+                            }
+                        </div>
+                        @if (currentRevision.HasMasterPrint)
+                        {
+                            <div class="heading-actions">
+                                <a class="button button-secondary" href="@CurrentMasterPrintViewerUrl" target="_blank" rel="noopener">Open in new tab</a>
+                            </div>
+                        }
+                    </div>
+
+                    @if (currentRevision.HasMasterPrint)
+                    {
+                        <iframe class="master-print-viewer" src="@CurrentMasterPrintViewerUrl" title="Master print PDF"></iframe>
+                    }
+                </section>
+            }
         }
     </section>
 }
+</div>
 
 @code {
     [Parameter]
@@ -119,6 +243,11 @@ else
     private string? loadError;
     private string? saveMessage;
     private string saveMessageClass = "alert-success";
+    private PartCriteriaTab activeCriteriaTab;
+
+    private string CurrentMasterPrintViewerUrl => currentRevision is null
+        ? string.Empty
+        : $"/pdf-viewer/index.html?file={Uri.EscapeDataString($"/parts/{Id}/inspection-criteria/{currentRevision.Id}/master-print")}";
 
     protected override Task OnParametersSetAsync() => LoadPartAsync();
 
@@ -127,6 +256,8 @@ else
         isLoading = true;
         loadError = null;
         saveMessage = null;
+        currentRevision = null;
+        activeCriteriaTab = PartCriteriaTab.Criteria;
 
         try
         {
@@ -215,5 +346,11 @@ else
         {
             isSaving = false;
         }
+    }
+
+    private enum PartCriteriaTab
+    {
+        Criteria,
+        MasterPrint
     }
 }

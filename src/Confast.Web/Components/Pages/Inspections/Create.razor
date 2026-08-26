@@ -1,0 +1,172 @@
+@page "/inspections/create"
+@using Confast.Web.Features.Inspections
+@inject InspectionService InspectionService
+@inject NavigationManager Navigation
+@inject ILogger<Create> Logger
+
+<PageTitle>Create inspection</PageTitle>
+
+<p><a class="back-link" href="/inspections">← Inspections</a></p>
+
+<div class="page-heading">
+    <div>
+        <h1>Create inspection</h1>
+        <p>The current published criteria revision will be locked to this inspection.</p>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading Parts…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (partOptions.Count == 0)
+{
+    <div class="alert alert-warning" role="alert">
+        No Parts have a current published inspection-criteria revision.
+    </div>
+}
+else
+{
+    @if (saveMessage is not null)
+    {
+        <div class="alert alert-error" role="alert">@saveMessage</div>
+    }
+
+    <EditForm Model="inspection" OnValidSubmit="CreateAsync" FormName="create-inspection" class="record-form">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="form-field form-field-wide">
+            <label for="part">Part</label>
+            <InputSelect id="part" @bind-Value="inspection.PartId">
+                <option value="0">Select a Part</option>
+                @foreach (var option in partOptions)
+                {
+                    <option value="@option.Id">@option.CustomerName — @option.PartNumber</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => inspection.PartId)" />
+        </div>
+
+        <div class="form-field">
+            <label for="lot-number">Lot number</label>
+            <InputText id="lot-number" @bind-Value="inspection.LotNumber" />
+        </div>
+
+        <div class="form-field">
+            <label for="inspection-date">Inspection date</label>
+            <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" />
+            <ValidationMessage For="@(() => inspection.InspectionDate)" />
+        </div>
+
+        <div class="form-field">
+            <label for="conformance-po-number">Conformance PO#</label>
+            <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" />
+        </div>
+
+        <div class="form-field">
+            <label for="manufacturer-lot-number">Manufacturer's Lot#</label>
+            <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" />
+        </div>
+
+        <div class="form-field">
+            <label for="date-received">Date Received</label>
+            <InputDate id="date-received" @bind-Value="inspection.DateReceived" />
+        </div>
+
+        <div class="form-field">
+            <label for="quantity-received">Quantity Received</label>
+            <ThousandsSeparatedIntegerInput id="quantity-received"
+                                            @bind-Value="inspection.QuantityReceived"
+                                            @bind-Value:after="UpdateQuantityInspected" />
+            <ValidationMessage For="@(() => inspection.QuantityReceived)" />
+        </div>
+
+        <div class="form-field">
+            <label for="quantity-inspected">Quantity Inspected</label>
+            <InputNumber id="quantity-inspected" @bind-Value="inspection.QuantityInspected" />
+            <ValidationMessage For="@(() => inspection.QuantityInspected)" />
+        </div>
+
+        <div class="form-field form-field-wide">
+            <label for="inspector">Inspector</label>
+            <InputText id="inspector" @bind-Value="inspection.Inspector" />
+        </div>
+
+        <div class="form-actions form-field-wide">
+            <button class="button button-primary" type="submit" disabled="@isSaving">
+                @(isSaving ? "Creating…" : "Create inspection")
+            </button>
+            <a class="button button-secondary" href="/inspections">Cancel</a>
+        </div>
+    </EditForm>
+}
+
+@code {
+    private readonly CreateInspectionModel inspection = new();
+    private IReadOnlyList<InspectionPartOption> partOptions = [];
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? loadError;
+    private string? saveMessage;
+
+    private void UpdateQuantityInspected() =>
+        inspection.QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(
+            inspection.QuantityReceived);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            partOptions = await InspectionService.GetPartOptionsAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load Parts for inspection creation");
+            loadError = "Parts could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        isSaving = true;
+        saveMessage = null;
+
+        try
+        {
+            var result = await InspectionService.CreateInspectionAsync(inspection);
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                Navigation.NavigateTo($"/inspections/{result.InspectionId}");
+                return;
+            }
+
+            saveMessage = result.Status switch
+            {
+                InspectionOperationStatus.NoCurrentRevision =>
+                    "That Part no longer has a current published criteria revision.",
+                InspectionOperationStatus.ValidationFailed => result.Message,
+                InspectionOperationStatus.Conflict =>
+                    "The current revision changed while the inspection was being created. Try again.",
+                _ => "The inspection could not be created. Please try again."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to create inspection");
+            saveMessage = "The inspection could not be created. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

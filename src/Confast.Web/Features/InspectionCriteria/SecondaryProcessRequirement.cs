@@ -1,5 +1,7 @@
 namespace Confast.Web.Features.InspectionCriteria;
 
+using Confast.Web.Features.Inspections;
+
 public sealed class SecondaryProcessRequirement
 {
     public long Id { get; set; }
@@ -15,4 +17,6 @@ public sealed class SecondaryProcessRequirement
     public string? Specification { get; set; }
 
     public uint Version { get; set; }
+
+    public ICollection<InspectionSecondaryProcess> InspectionSecondaryProcesses { get; } = [];
 }

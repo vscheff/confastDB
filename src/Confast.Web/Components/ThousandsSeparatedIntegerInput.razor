@@ -1,0 +1,44 @@
+@using System.Globalization
+@inherits InputBase<int?>
+
+<input @attributes="AdditionalAttributes"
+       class="@CssClass"
+       inputmode="numeric"
+       value="@CurrentValueAsString"
+       @onchange="HandleChange" />
+
+@code {
+    private void HandleChange(ChangeEventArgs args) =>
+        CurrentValueAsString = args.Value?.ToString();
+
+    protected override string? FormatValueAsString(int? value) =>
+        value?.ToString("N0", CultureInfo.InvariantCulture);
+
+    protected override bool TryParseValueFromString(
+        string? value,
+        out int? result,
+        out string validationErrorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            result = null;
+            validationErrorMessage = null!;
+            return true;
+        }
+
+        if (int.TryParse(
+                value,
+                NumberStyles.Integer | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var parsedValue))
+        {
+            result = parsedValue;
+            validationErrorMessage = null!;
+            return true;
+        }
+
+        result = null;
+        validationErrorMessage = "Enter a valid whole number.";
+        return false;
+    }
+}

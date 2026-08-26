@@ -152,6 +152,135 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("gage_types", (string)null);
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.CertificationType", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id")
+                        .HasName("PK_certification_types");
+
+                    b.HasIndex("DisplayOrder")
+                        .IsUnique()
+                        .HasDatabaseName("UX_certification_types_display_order");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("UX_certification_types_name");
+
+                    b.ToTable("certification_types", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_certification_types_display_order", "display_order > 0");
+
+                            t.HasCheckConstraint("CK_certification_types_name_not_blank", "btrim(name) <> ''");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1L,
+                            DisplayOrder = 1,
+                            Name = "CBP"
+                        },
+                        new
+                        {
+                            Id = 2L,
+                            DisplayOrder = 2,
+                            Name = "Clean"
+                        },
+                        new
+                        {
+                            Id = 3L,
+                            DisplayOrder = 3,
+                            Name = "C of C"
+                        },
+                        new
+                        {
+                            Id = 4L,
+                            DisplayOrder = 4,
+                            Name = "Gall"
+                        },
+                        new
+                        {
+                            Id = 5L,
+                            DisplayOrder = 5,
+                            Name = "Hardness"
+                        },
+                        new
+                        {
+                            Id = 6L,
+                            DisplayOrder = 6,
+                            Name = "Heat"
+                        },
+                        new
+                        {
+                            Id = 7L,
+                            DisplayOrder = 7,
+                            Name = "Material"
+                        },
+                        new
+                        {
+                            Id = 8L,
+                            DisplayOrder = 8,
+                            Name = "Patch"
+                        },
+                        new
+                        {
+                            Id = 9L,
+                            DisplayOrder = 9,
+                            Name = "Plate"
+                        },
+                        new
+                        {
+                            Id = 10L,
+                            DisplayOrder = 10,
+                            Name = "Salt Spray"
+                        },
+                        new
+                        {
+                            Id = 11L,
+                            DisplayOrder = 11,
+                            Name = "SPC"
+                        },
+                        new
+                        {
+                            Id = 12L,
+                            DisplayOrder = 12,
+                            Name = "Supplier Inspection"
+                        },
+                        new
+                        {
+                            Id = 13L,
+                            DisplayOrder = 13,
+                            Name = "Tensile/Proof Load/Yield"
+                        },
+                        new
+                        {
+                            Id = 14L,
+                            DisplayOrder = 14,
+                            Name = "Torque"
+                        },
+                        new
+                        {
+                            Id = 15L,
+                            DisplayOrder = 15,
+                            Name = "Notes/Misc"
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", b =>
                 {
                     b.Property<long>("Id")
@@ -224,6 +353,9 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("PK_inspection_criteria_revisions");
+
+                    b.HasAlternateKey("Id", "PartId")
+                        .HasName("AK_inspection_criteria_revisions_id_part_id");
 
                     b.HasIndex("PartId", "RevisionNumber")
                         .IsUnique()
@@ -306,6 +438,9 @@ namespace Confast.Web.Data.Migrations
                     b.HasKey("Id")
                         .HasName("PK_inspection_criteria");
 
+                    b.HasAlternateKey("Id", "InspectionCriteriaRevisionId")
+                        .HasName("AK_inspection_criteria_id_revision_id");
+
                     b.HasIndex("GageTypeId")
                         .HasDatabaseName("IX_inspection_criteria_gage_type_id");
 
@@ -322,6 +457,60 @@ namespace Confast.Web.Data.Migrations
                             t.HasCheckConstraint("CK_inspection_criteria_display_order", "display_order > 0");
 
                             t.HasCheckConstraint("CK_inspection_criteria_inspection_number", "inspection_number > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.RevisionCertificationRequirement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CertificationTypeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("certification_type_id");
+
+                    b.Property<string>("CertificationTypeName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("certification_type_name");
+
+                    b.Property<long>("InspectionCriteriaRevisionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_criteria_revision_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("RequirementLevel")
+                        .HasColumnType("integer")
+                        .HasColumnName("requirement_level");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_revision_certification_requirements");
+
+                    b.HasIndex("CertificationTypeId")
+                        .HasDatabaseName("IX_revision_certification_requirements_type_id");
+
+                    b.HasIndex("InspectionCriteriaRevisionId", "CertificationTypeId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_revision_certification_requirements_revision_id_type_id");
+
+                    b.ToTable("revision_certification_requirements", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_revision_certification_requirements_level", "requirement_level IN (1, 2)");
+
+                            t.HasCheckConstraint("CK_revision_certification_requirements_type_name_not_blank", "btrim(certification_type_name) <> ''");
                         });
                 });
 
@@ -354,6 +543,9 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("PK_secondary_process_requirements");
+
+                    b.HasAlternateKey("Id", "InspectionCriteriaRevisionId")
+                        .HasName("AK_secondary_process_requirements_id_revision_id");
 
                     b.HasIndex("InspectionCriteriaRevisionId")
                         .HasDatabaseName("IX_secondary_process_requirements_revision_id");
@@ -415,6 +607,382 @@ namespace Confast.Web.Data.Migrations
                         {
                             Id = 5L,
                             Name = "Sort"
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.CertificationDocument", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("content");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("content_type");
+
+                    b.Property<long>("InspectionCertificationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_certification_id");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("original_file_name");
+
+                    b.Property<DateTimeOffset>("UploadedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("uploaded_at_utc")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_certification_documents");
+
+                    b.HasIndex("InspectionCertificationId")
+                        .HasDatabaseName("IX_certification_documents_certification_id");
+
+                    b.ToTable("certification_documents", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.Inspection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ConformancePoNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("conformance_po_number");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateOnly?>("DateReceived")
+                        .HasColumnType("date")
+                        .HasColumnName("date_received");
+
+                    b.Property<string>("InHouseNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("in_house_notes");
+
+                    b.Property<long>("InspectionCriteriaRevisionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_criteria_revision_id");
+
+                    b.Property<DateOnly>("InspectionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("inspection_date");
+
+                    b.Property<string>("Inspector")
+                        .HasColumnType("text")
+                        .HasColumnName("inspector");
+
+                    b.Property<string>("InspectorNotes")
+                        .HasColumnType("text")
+                        .HasColumnName("inspector_notes");
+
+                    b.Property<string>("LotNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("lot_number");
+
+                    b.Property<string>("ManufacturerLotNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("manufacturer_lot_number");
+
+                    b.Property<long>("PartId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("part_id");
+
+                    b.Property<int?>("QuantityInspected")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity_inspected");
+
+                    b.Property<int?>("QuantityReceived")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity_received");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_inspections");
+
+                    b.HasAlternateKey("Id", "InspectionCriteriaRevisionId")
+                        .HasName("AK_inspections_id_revision_id");
+
+                    b.HasIndex("InspectionCriteriaRevisionId")
+                        .HasDatabaseName("IX_inspections_revision_id");
+
+                    b.HasIndex("InspectionDate")
+                        .HasDatabaseName("IX_inspections_inspection_date");
+
+                    b.HasIndex("PartId")
+                        .HasDatabaseName("IX_inspections_part_id");
+
+                    b.HasIndex("InspectionCriteriaRevisionId", "PartId");
+
+                    b.ToTable("inspections", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_inspections_quantity_inspected", "quantity_inspected IS NULL OR quantity_inspected > 0");
+
+                            t.HasCheckConstraint("CK_inspections_quantity_received", "quantity_received IS NULL OR quantity_received > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionCertification", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CertificationTypeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("certification_type_id");
+
+                    b.Property<string>("CertificationTypeName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("certification_type_name");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<long>("InspectionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_inspection_certifications");
+
+                    b.HasIndex("CertificationTypeId")
+                        .HasDatabaseName("IX_inspection_certifications_type_id");
+
+                    b.HasIndex("InspectionId", "CertificationTypeId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_inspection_certifications_inspection_id_type_id");
+
+                    b.ToTable("inspection_certifications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_inspection_certifications_type_name_not_blank", "btrim(certification_type_name) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionCertificationRequirement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CertificationTypeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("certification_type_id");
+
+                    b.Property<string>("CertificationTypeName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("certification_type_name");
+
+                    b.Property<long>("InspectionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_id");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("RequirementLevel")
+                        .HasColumnType("integer")
+                        .HasColumnName("requirement_level");
+
+                    b.HasKey("Id")
+                        .HasName("PK_inspection_certification_requirements");
+
+                    b.HasIndex("CertificationTypeId")
+                        .HasDatabaseName("IX_inspection_certification_requirements_type_id");
+
+                    b.HasIndex("InspectionId", "CertificationTypeId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_inspection_certification_requirements_inspection_id_type_id");
+
+                    b.ToTable("inspection_certification_requirements", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_inspection_certification_requirements_level", "requirement_level IN (1, 2)");
+
+                            t.HasCheckConstraint("CK_inspection_certification_requirements_type_name_not_blank", "btrim(certification_type_name) <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionResult", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ActualMax")
+                        .HasColumnType("text")
+                        .HasColumnName("actual_max");
+
+                    b.Property<string>("ActualMin")
+                        .HasColumnType("text")
+                        .HasColumnName("actual_min");
+
+                    b.Property<long?>("GageId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("gage_id");
+
+                    b.Property<string>("GageNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("gage_number");
+
+                    b.Property<long>("InspectionCriteriaRevisionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_criteria_revision_id");
+
+                    b.Property<long>("InspectionCriterionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_criterion_id");
+
+                    b.Property<long>("InspectionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_id");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_inspection_results");
+
+                    b.HasIndex("GageId")
+                        .HasDatabaseName("IX_inspection_results_gage_id");
+
+                    b.HasIndex("InspectionCriterionId", "InspectionCriteriaRevisionId")
+                        .HasDatabaseName("IX_inspection_results_criterion_id_revision_id");
+
+                    b.HasIndex("InspectionId", "InspectionCriteriaRevisionId");
+
+                    b.HasIndex("InspectionId", "InspectionCriterionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_inspection_results_inspection_id_criterion_id");
+
+                    b.ToTable("inspection_results", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionSecondaryProcess", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("InspectionCriteriaRevisionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_criteria_revision_id");
+
+                    b.Property<long>("InspectionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("inspection_id");
+
+                    b.Property<bool>("IsComplete")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_complete");
+
+                    b.Property<string>("ProcessName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("process_name");
+
+                    b.Property<string>("PurchaseOrderNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("purchase_order_number");
+
+                    b.Property<long>("SecondaryProcessRequirementId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("secondary_process_requirement_id");
+
+                    b.Property<string>("Specification")
+                        .HasColumnType("text")
+                        .HasColumnName("specification");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_inspection_secondary_processes");
+
+                    b.HasIndex("InspectionId", "InspectionCriteriaRevisionId");
+
+                    b.HasIndex("InspectionId", "SecondaryProcessRequirementId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_inspection_secondary_processes_inspection_id_requirement_id");
+
+                    b.HasIndex("SecondaryProcessRequirementId", "InspectionCriteriaRevisionId")
+                        .HasDatabaseName("IX_inspection_secondary_processes_requirement_id_revision_id");
+
+                    b.ToTable("inspection_secondary_processes", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_inspection_secondary_processes_process_name_not_blank", "btrim(process_name) <> ''");
                         });
                 });
 
@@ -504,6 +1072,27 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("Revision");
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.RevisionCertificationRequirement", b =>
+                {
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.CertificationType", "CertificationType")
+                        .WithMany()
+                        .HasForeignKey("CertificationTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_revision_certification_requirements_type_id");
+
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", "InspectionCriteriaRevision")
+                        .WithMany("CertificationRequirements")
+                        .HasForeignKey("InspectionCriteriaRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_revision_certification_requirements_revision_id");
+
+                    b.Navigation("CertificationType");
+
+                    b.Navigation("InspectionCriteriaRevision");
+                });
+
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.SecondaryProcessRequirement", b =>
                 {
                     b.HasOne("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", "InspectionCriteriaRevision")
@@ -523,6 +1112,136 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("InspectionCriteriaRevision");
 
                     b.Navigation("SecondaryProcessType");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.CertificationDocument", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Inspections.InspectionCertification", "InspectionCertification")
+                        .WithMany("Documents")
+                        .HasForeignKey("InspectionCertificationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_certification_documents_certification_id");
+
+                    b.Navigation("InspectionCertification");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.Inspection", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Parts.Part", "Part")
+                        .WithMany("Inspections")
+                        .HasForeignKey("PartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspections_parts_part_id");
+
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", "InspectionCriteriaRevision")
+                        .WithMany("Inspections")
+                        .HasForeignKey("InspectionCriteriaRevisionId", "PartId")
+                        .HasPrincipalKey("Id", "PartId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspections_revision_id_part_id");
+
+                    b.Navigation("InspectionCriteriaRevision");
+
+                    b.Navigation("Part");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionCertification", b =>
+                {
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.CertificationType", "CertificationType")
+                        .WithMany()
+                        .HasForeignKey("CertificationTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_certifications_type_id");
+
+                    b.HasOne("Confast.Web.Features.Inspections.Inspection", "Inspection")
+                        .WithMany("Certifications")
+                        .HasForeignKey("InspectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_certifications_inspection_id");
+
+                    b.Navigation("CertificationType");
+
+                    b.Navigation("Inspection");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionCertificationRequirement", b =>
+                {
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.CertificationType", "CertificationType")
+                        .WithMany()
+                        .HasForeignKey("CertificationTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_certification_requirements_type_id");
+
+                    b.HasOne("Confast.Web.Features.Inspections.Inspection", "Inspection")
+                        .WithMany("CertificationRequirements")
+                        .HasForeignKey("InspectionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_certification_requirements_inspection_id");
+
+                    b.Navigation("CertificationType");
+
+                    b.Navigation("Inspection");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionResult", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Gages.Gage", "Gage")
+                        .WithMany()
+                        .HasForeignKey("GageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_inspection_results_gages_gage_id");
+
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.InspectionCriterion", "InspectionCriterion")
+                        .WithMany("InspectionResults")
+                        .HasForeignKey("InspectionCriterionId", "InspectionCriteriaRevisionId")
+                        .HasPrincipalKey("Id", "InspectionCriteriaRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_results_criterion_id_revision_id");
+
+                    b.HasOne("Confast.Web.Features.Inspections.Inspection", "Inspection")
+                        .WithMany("Results")
+                        .HasForeignKey("InspectionId", "InspectionCriteriaRevisionId")
+                        .HasPrincipalKey("Id", "InspectionCriteriaRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_results_inspection_id_revision_id");
+
+                    b.Navigation("Gage");
+
+                    b.Navigation("Inspection");
+
+                    b.Navigation("InspectionCriterion");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionSecondaryProcess", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Inspections.Inspection", "Inspection")
+                        .WithMany("SecondaryProcesses")
+                        .HasForeignKey("InspectionId", "InspectionCriteriaRevisionId")
+                        .HasPrincipalKey("Id", "InspectionCriteriaRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_secondary_processes_inspection_id_revision_id");
+
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.SecondaryProcessRequirement", "SecondaryProcessRequirement")
+                        .WithMany("InspectionSecondaryProcesses")
+                        .HasForeignKey("SecondaryProcessRequirementId", "InspectionCriteriaRevisionId")
+                        .HasPrincipalKey("Id", "InspectionCriteriaRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inspection_secondary_processes_requirement_id_revision_id");
+
+                    b.Navigation("Inspection");
+
+                    b.Navigation("SecondaryProcessRequirement");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Parts.Part", b =>
@@ -549,14 +1268,46 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", b =>
                 {
+                    b.Navigation("CertificationRequirements");
+
                     b.Navigation("Criteria");
 
+                    b.Navigation("Inspections");
+
                     b.Navigation("SecondaryProcessRequirements");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriterion", b =>
+                {
+                    b.Navigation("InspectionResults");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.SecondaryProcessRequirement", b =>
+                {
+                    b.Navigation("InspectionSecondaryProcesses");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.Inspection", b =>
+                {
+                    b.Navigation("CertificationRequirements");
+
+                    b.Navigation("Certifications");
+
+                    b.Navigation("Results");
+
+                    b.Navigation("SecondaryProcesses");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionCertification", b =>
+                {
+                    b.Navigation("Documents");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Parts.Part", b =>
                 {
                     b.Navigation("InspectionCriteriaRevisions");
+
+                    b.Navigation("Inspections");
                 });
 #pragma warning restore 612, 618
         }

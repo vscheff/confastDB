@@ -1,6 +1,6 @@
 @using Confast.Web.Features.Parts
 
-<EditForm Model="Model" OnValidSubmit="SubmitAsync" FormName="@FormName" class="record-form">
+<EditForm Model="Model" OnValidSubmit="SubmitAsync" FormName="@FormName" class="@FormCssClass">
     <DataAnnotationsValidator />
     <ValidationSummary />
 
@@ -58,6 +58,11 @@
 
     [Parameter]
     public bool IsSaving { get; set; }
+
+    [Parameter]
+    public bool Compact { get; set; }
+
+    private string FormCssClass => Compact ? "record-form part-edit-form" : "record-form";
 
     private Task SubmitAsync() => OnValidSubmit.InvokeAsync();
 }

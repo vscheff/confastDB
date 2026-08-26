@@ -31,14 +31,18 @@ document.addEventListener("drop", event => {
     event.stopPropagation();
     dropZone.classList.remove("master-print-drop-active");
 
-    const droppedFile = event.dataTransfer?.files?.[0];
-    const fileInput = dropZone.querySelector('input[type="file"]');
-    if (!droppedFile || !fileInput || fileInput.disabled) {
+    const droppedFiles = event.dataTransfer?.files;
+    const fileInputId = dropZone.getAttribute("for");
+    const fileInput = fileInputId ? document.getElementById(fileInputId) : null;
+    if (!droppedFiles?.length || !fileInput || fileInput.disabled) {
         return;
     }
 
     const selectedFiles = new DataTransfer();
-    selectedFiles.items.add(droppedFile);
+    const filesToAdd = fileInput.multiple ? droppedFiles : [droppedFiles[0]];
+    for (const file of filesToAdd) {
+        selectedFiles.items.add(file);
+    }
     fileInput.files = selectedFiles.files;
     fileInput.dispatchEvent(new Event("change", { bubbles: true }));
 }, true);

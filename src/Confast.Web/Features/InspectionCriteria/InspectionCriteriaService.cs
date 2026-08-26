@@ -63,6 +63,17 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CertificationTypeChoice>> GetCertificationTypeChoicesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.CertificationTypes
+            .AsNoTracking()
+            .OrderBy(x => x.DisplayOrder)
+            .Select(x => new CertificationTypeChoice(x.Id, x.Name, x.DisplayOrder))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<PartInspectionCriteriaSummary?> GetPartSummaryAsync(
         long partId,
         CancellationToken cancellationToken = default)
@@ -174,6 +185,19 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 x.Version))
             .ToListAsync(cancellationToken);
 
+        var certificationRequirements = await db.RevisionCertificationRequirements
+            .AsNoTracking()
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .OrderBy(x => x.CertificationType.DisplayOrder)
+            .Select(x => new RevisionCertificationRequirementListItem(
+                x.Id,
+                x.CertificationTypeId,
+                x.CertificationTypeName,
+                x.RequirementLevel,
+                x.Notes,
+                x.Version))
+            .ToListAsync(cancellationToken);
+
         return new InspectionCriteriaRevisionDetails(
             revision.Id,
             revision.PartId,
@@ -192,7 +216,8 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             revision.ChangeNote,
             revision.Version,
             criteria,
-            secondaryProcessRequirements);
+            secondaryProcessRequirements,
+            certificationRequirements);
     }
 
     public async Task<InspectionCriterionEditModel?> GetCriterionAsync(
@@ -256,6 +281,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             .AsNoTracking()
             .Include(x => x.Criteria.OrderBy(c => c.DisplayOrder))
             .Include(x => x.SecondaryProcessRequirements.OrderBy(r => r.Id))
+            .Include(x => x.CertificationRequirements.OrderBy(r => r.CertificationType.DisplayOrder))
             .SingleOrDefaultAsync(
                 x => x.PartId == partId
                     && x.PublishedAtUtc != null
@@ -307,6 +333,17 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 {
                     SecondaryProcessTypeId = source.SecondaryProcessTypeId,
                     Specification = source.Specification
+                });
+            }
+
+            foreach (var source in current.CertificationRequirements)
+            {
+                draft.CertificationRequirements.Add(new RevisionCertificationRequirement
+                {
+                    CertificationTypeId = source.CertificationTypeId,
+                    CertificationTypeName = source.CertificationTypeName,
+                    RequirementLevel = source.RequirementLevel,
+                    Notes = source.Notes
                 });
             }
         }
@@ -958,6 +995,108 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         catch (DbUpdateConcurrencyException)
         {
             return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<CriteriaOperationResult> SaveCertificationRequirementsAsync(
+        long partId,
+        long revisionId,
+        IReadOnlyCollection<RevisionCertificationRequirementEditModel> models,
+        CancellationToken cancellationToken = default)
+    {
+        if (models.Any(x => x.CertificationTypeId <= 0)
+            || models.Select(x => x.CertificationTypeId).Distinct().Count() != models.Count
+            || models.Any(x => x.RequirementLevel is not null
+                && !Enum.IsDefined(x.RequirementLevel.Value)))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Certification requirements are invalid. Reload the revision.");
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.PublishedAtUtc is not null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+        }
+
+        var certificationTypes = await db.CertificationTypes
+            .ToDictionaryAsync(x => x.Id, cancellationToken);
+        if (certificationTypes.Count != models.Count
+            || models.Any(x => !certificationTypes.ContainsKey(x.CertificationTypeId)))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.Conflict,
+                Message: "Certification types changed. Reload the revision.");
+        }
+
+        var existingRequirements = await db.RevisionCertificationRequirements
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .ToDictionaryAsync(x => x.CertificationTypeId, cancellationToken);
+
+        foreach (var model in models)
+        {
+            existingRequirements.TryGetValue(model.CertificationTypeId, out var requirement);
+            if (requirement is null)
+            {
+                if (model.Id != 0)
+                {
+                    return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+                }
+
+                if (model.RequirementLevel is not null)
+                {
+                    var type = certificationTypes[model.CertificationTypeId];
+                    db.RevisionCertificationRequirements.Add(new RevisionCertificationRequirement
+                    {
+                        InspectionCriteriaRevisionId = revisionId,
+                        CertificationTypeId = type.Id,
+                        CertificationTypeName = type.Name,
+                        RequirementLevel = model.RequirementLevel.Value,
+                        Notes = NormalizeOptionalText(model.Notes)
+                    });
+                }
+
+                continue;
+            }
+
+            if (model.Id != requirement.Id)
+            {
+                return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+            }
+
+            db.Entry(requirement).Property(x => x.Version).OriginalValue = model.Version;
+            if (model.RequirementLevel is null)
+            {
+                db.RevisionCertificationRequirements.Remove(requirement);
+            }
+            else
+            {
+                requirement.RequirementLevel = model.RequirementLevel.Value;
+                requirement.Notes = NormalizeOptionalText(model.Notes);
+            }
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict, revisionId);
+        }
+        catch (DbUpdateException exception) when (IsIntegrityConflict(exception))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict, revisionId);
         }
     }
 
