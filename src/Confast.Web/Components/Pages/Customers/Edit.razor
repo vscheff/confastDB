@@ -3,6 +3,7 @@
 @using Confast.Web.Features.Parts
 @inject CustomerService CustomerService
 @inject PartService PartService
+@inject CertificationPackageFilenameFormatter FilenameFormatter
 @inject ILogger<Edit> Logger
 
 <PageTitle>@(customer is null ? "Customer" : $"Edit {customer.Name}")</PageTitle>
@@ -89,6 +90,130 @@ else
         </div>
     </EditForm>
 
+    @if (certificationDelivery is not null)
+    {
+        <section class="linked-records certification-delivery" aria-labelledby="certification-delivery-heading">
+            <div class="section-heading">
+                <div>
+                    <h2 id="certification-delivery-heading">Certification Delivery</h2>
+                    <p>Recipients and contents for the customer's single assembled certification package.</p>
+                </div>
+            </div>
+
+            @if (certificationMessage is not null)
+            {
+                <div class="alert @certificationMessageClass" role="status">@certificationMessage</div>
+            }
+
+            <div class="certification-delivery-grid">
+                <div class="certification-delivery-panel certification-recipient-panel">
+                    <h3>Recipients</h3>
+                    @foreach (var recipient in certificationDelivery.Recipients)
+                    {
+                        <EditForm Model="recipient" OnValidSubmit="() => SaveRecipientAsync(recipient)" FormName="@($"certification-recipient-{recipient.Id}")" class="certification-recipient-row">
+                            <DataAnnotationsValidator />
+                            <div class="form-field">
+                                <label for="@($"recipient-name-{recipient.Id}")">Name</label>
+                                <InputText id="@($"recipient-name-{recipient.Id}")" @bind-Value="recipient.Name" autocomplete="name" />
+                            </div>
+                            <div class="form-field certification-recipient-email">
+                                <label for="@($"recipient-email-{recipient.Id}")">Email</label>
+                                <InputText id="@($"recipient-email-{recipient.Id}")" @bind-Value="recipient.EmailAddress" autocomplete="email" />
+                                <ValidationMessage For="() => recipient.EmailAddress" />
+                            </div>
+                            <div class="form-field certification-recipient-type">
+                                <label for="@($"recipient-type-{recipient.Id}")">Type</label>
+                                <InputSelect id="@($"recipient-type-{recipient.Id}")" @bind-Value="recipient.RecipientType">
+                                    <option value="@CertificationRecipientType.To">To</option>
+                                    <option value="@CertificationRecipientType.Cc">Cc</option>
+                                </InputSelect>
+                            </div>
+                            <div class="row-actions certification-recipient-actions">
+                                <button class="button button-primary button-compact" type="submit" disabled="@isSavingCertification">Save</button>
+                                <button class="button button-danger button-compact" type="button" disabled="@isSavingCertification" @onclick="() => DeleteRecipientAsync(recipient)">Remove</button>
+                            </div>
+                        </EditForm>
+                    }
+
+                    <EditForm Model="newRecipient" OnValidSubmit="() => SaveRecipientAsync(newRecipient)" FormName="new-certification-recipient" class="certification-recipient-row certification-recipient-new">
+                        <DataAnnotationsValidator />
+                        <div class="form-field">
+                            <label for="new-recipient-name">Name</label>
+                            <InputText id="new-recipient-name" @bind-Value="newRecipient.Name" autocomplete="name" />
+                        </div>
+                        <div class="form-field certification-recipient-email">
+                            <label for="new-recipient-email">Email</label>
+                            <InputText id="new-recipient-email" @bind-Value="newRecipient.EmailAddress" autocomplete="email" />
+                            <ValidationMessage For="() => newRecipient.EmailAddress" />
+                        </div>
+                        <div class="form-field certification-recipient-type">
+                            <label for="new-recipient-type">Type</label>
+                            <InputSelect id="new-recipient-type" @bind-Value="newRecipient.RecipientType">
+                                <option value="@CertificationRecipientType.To">To</option>
+                                <option value="@CertificationRecipientType.Cc">Cc</option>
+                            </InputSelect>
+                        </div>
+                        <div class="row-actions certification-recipient-actions">
+                            <button class="button button-secondary button-compact" type="submit" disabled="@isSavingCertification">Add recipient</button>
+                        </div>
+                    </EditForm>
+                </div>
+
+                <div class="certification-delivery-panel">
+                    <h3>Required certifications</h3>
+                    <div class="certification-type-checklist">
+                        @foreach (var certificationType in certificationDelivery.CertificationTypes)
+                        {
+                            <label>
+                                <input type="checkbox" @bind="certificationType.IsRequired" />
+                                <span>@certificationType.Name</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                <div class="certification-delivery-panel certification-filename-panel">
+                    <h3>Package filenames</h3>
+                    <div class="filename-template-group">
+                        <div class="form-field">
+                            <label for="certification-filename-template">Single-lot filename template</label>
+                            <InputText id="certification-filename-template" @bind-Value="certificationDelivery.FilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SystemDefaultTemplate" />
+                        </div>
+                        <div class="filename-token-list" aria-label="Supported single-lot filename tokens">
+                            @foreach (var token in CertificationPackageFilenameFormatter.SupportedTokens)
+                            {
+                                <button type="button" class="token-button" @onclick="() => InsertFilenameToken(token)">@token</button>
+                            }
+                        </div>
+                        <p class="filename-preview"><strong>Preview:</strong> @CertificationFilenamePreview</p>
+                        <p class="field-hint">Leave blank to use the system default: <code>@CertificationPackageFilenameFormatter.SystemDefaultTemplate</code></p>
+                    </div>
+
+                    <div class="filename-template-group">
+                        <div class="form-field">
+                            <label for="certification-multi-lot-filename-template">Multiple-lot filename template</label>
+                            <InputText id="certification-multi-lot-filename-template" @bind-Value="certificationDelivery.MultiLotFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.MultiLotSystemDefaultTemplate" />
+                        </div>
+                        <div class="filename-token-list" aria-label="Supported multiple-lot filename tokens">
+                            @foreach (var token in CertificationPackageFilenameFormatter.MultiLotSupportedTokens)
+                            {
+                                <button type="button" class="token-button" @onclick="() => InsertMultiLotFilenameToken(token)">@token</button>
+                            }
+                        </div>
+                        <p class="filename-preview"><strong>Preview:</strong> @MultiLotCertificationFilenamePreview</p>
+                        <p class="field-hint">Used when one package contains multiple lots. Leave blank to use: <code>@CertificationPackageFilenameFormatter.MultiLotSystemDefaultTemplate</code></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions certification-delivery-actions">
+                <button class="button button-primary" type="button" disabled="@isSavingCertification" @onclick="SaveCertificationConfigurationAsync">
+                    @(isSavingCertification ? "Saving…" : "Save certification settings")
+                </button>
+            </div>
+        </section>
+    }
+
     <section class="linked-records" aria-labelledby="customer-parts-heading">
         <div class="section-heading">
             <div>
@@ -136,12 +261,69 @@ else
     public long Id { get; set; }
 
     private CustomerEditModel? customer;
+    private CustomerCertificationDeliveryEditModel? certificationDelivery;
+    private CustomerCertificationRecipientEditModel newRecipient = new();
     private IReadOnlyList<PartListItem> parts = [];
     private bool isLoading = true;
     private bool isSaving;
+    private bool isSavingCertification;
     private string? loadError;
     private string? saveMessage;
     private string saveMessageClass = "alert-success";
+    private string? certificationMessage;
+    private string certificationMessageClass = "alert-success";
+
+    private string CertificationFilenamePreview
+    {
+        get
+        {
+            if (certificationDelivery is null)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return FilenameFormatter.Format(
+                    certificationDelivery.FilenameTemplate,
+                    new CertificationPackageFilenameValues(
+                        customer?.Name ?? "Example Customer",
+                        "ABC123",
+                        "856342",
+                        "PO-1001",
+                        new DateOnly(2026, 8, 28),
+                        new DateOnly(2026, 9, 1)));
+            }
+            catch (CertificationFilenameTemplateException exception)
+            {
+                return exception.Message;
+            }
+        }
+    }
+
+    private string MultiLotCertificationFilenamePreview
+    {
+        get
+        {
+            if (certificationDelivery is null)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return FilenameFormatter.FormatMultiLot(
+                    certificationDelivery.MultiLotFilenameTemplate,
+                    new CertificationMultiLotPackageFilenameValues(
+                        customer?.Name ?? "Example Customer",
+                        new DateOnly(2026, 9, 1)));
+            }
+            catch (CertificationFilenameTemplateException exception)
+            {
+                return exception.Message;
+            }
+        }
+    }
 
     protected override Task OnParametersSetAsync() => LoadCustomerAsync();
 
@@ -155,10 +337,13 @@ else
         {
             var customerTask = CustomerService.GetCustomerAsync(Id);
             var partsTask = PartService.GetPartsForCustomerAsync(Id);
+            var certificationTask = CustomerService.GetCertificationDeliveryAsync(Id);
 
-            await Task.WhenAll(customerTask, partsTask);
+            await Task.WhenAll(customerTask, partsTask, certificationTask);
             customer = await customerTask;
             parts = await partsTask;
+            certificationDelivery = await certificationTask;
+            newRecipient = new CustomerCertificationRecipientEditModel { CustomerId = Id };
         }
         catch (Exception exception)
         {
@@ -214,5 +399,152 @@ else
         {
             isSaving = false;
         }
+    }
+
+    private async Task SaveRecipientAsync(CustomerCertificationRecipientEditModel recipient)
+    {
+        isSavingCertification = true;
+        certificationMessage = null;
+
+        try
+        {
+            var result = await CustomerService.SaveCertificationRecipientAsync(recipient);
+            var isNew = recipient.Id == 0;
+            if (HandleCertificationResult(
+                    result,
+                    isNew ? "Recipient added." : "Recipient saved."))
+            {
+                recipient.Id = result.RecipientId!.Value;
+                recipient.Version = result.Version!.Value;
+                if (isNew)
+                {
+                    certificationDelivery!.Recipients.Add(recipient);
+                    newRecipient = new CustomerCertificationRecipientEditModel { CustomerId = Id };
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save certification recipient for customer {CustomerId}", Id);
+            SetCertificationError("The recipient could not be saved. Please try again.");
+        }
+        finally
+        {
+            isSavingCertification = false;
+        }
+    }
+
+    private async Task DeleteRecipientAsync(CustomerCertificationRecipientEditModel recipient)
+    {
+        isSavingCertification = true;
+        certificationMessage = null;
+
+        try
+        {
+            var result = await CustomerService.DeleteCertificationRecipientAsync(
+                Id,
+                recipient.Id,
+                recipient.Version);
+            if (HandleCertificationResult(result, "Recipient removed."))
+            {
+                certificationDelivery!.Recipients.Remove(recipient);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to remove certification recipient {RecipientId}", recipient.Id);
+            SetCertificationError("The recipient could not be removed. Please try again.");
+        }
+        finally
+        {
+            isSavingCertification = false;
+        }
+    }
+
+    private async Task SaveCertificationConfigurationAsync()
+    {
+        if (certificationDelivery is null)
+        {
+            return;
+        }
+
+        isSavingCertification = true;
+        certificationMessage = null;
+
+        try
+        {
+            var result = await CustomerService.SaveCertificationConfigurationAsync(
+                certificationDelivery,
+                FilenameFormatter);
+            if (HandleCertificationResult(result, "Certification settings saved."))
+            {
+                certificationDelivery.SettingsVersion = result.Version;
+                certificationDelivery.OriginalRequiredCertificationTypeIds = certificationDelivery
+                    .CertificationTypes
+                    .Where(x => x.IsRequired)
+                    .Select(x => x.Id)
+                    .ToHashSet();
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save certification settings for customer {CustomerId}", Id);
+            SetCertificationError("The certification settings could not be saved. Please try again.");
+        }
+        finally
+        {
+            isSavingCertification = false;
+        }
+    }
+
+    private bool HandleCertificationResult(
+        CustomerCertificationOperationResult result,
+        string successMessage)
+    {
+        switch (result.Status)
+        {
+            case CustomerCertificationOperationStatus.Succeeded:
+                certificationMessage = successMessage;
+                certificationMessageClass = "alert-success";
+                return true;
+            case CustomerCertificationOperationStatus.NotFound:
+                SetCertificationError("The customer or recipient no longer exists.");
+                return false;
+            case CustomerCertificationOperationStatus.Conflict:
+                SetCertificationError("Someone else changed these settings. Reload the page before trying again.");
+                return false;
+            case CustomerCertificationOperationStatus.ValidationFailed:
+                SetCertificationError(result.Message ?? "The certification settings are invalid.");
+                return false;
+            default:
+                throw new InvalidOperationException($"Unexpected certification save status: {result.Status}");
+        }
+    }
+
+    private void InsertFilenameToken(string token)
+    {
+        if (certificationDelivery is null)
+        {
+            return;
+        }
+
+        certificationDelivery.FilenameTemplate = $"{certificationDelivery.FilenameTemplate}{token}";
+    }
+
+    private void InsertMultiLotFilenameToken(string token)
+    {
+        if (certificationDelivery is null)
+        {
+            return;
+        }
+
+        certificationDelivery.MultiLotFilenameTemplate =
+            $"{certificationDelivery.MultiLotFilenameTemplate}{token}";
+    }
+
+    private void SetCertificationError(string message)
+    {
+        certificationMessage = message;
+        certificationMessageClass = "alert-error";
     }
 }

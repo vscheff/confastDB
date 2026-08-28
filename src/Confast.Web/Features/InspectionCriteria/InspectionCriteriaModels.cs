@@ -15,10 +15,13 @@ public sealed record InspectionCriteriaRevisionSummary(
     DateTimeOffset? PublishedAtUtc,
     DateTimeOffset? SupersededAtUtc,
     string? ChangeNote,
-    int CriterionCount)
+    int CriterionCount,
+    bool IsUsedByInspection,
+    uint Version)
 {
     public bool IsDraft => PublishedAtUtc is null;
     public bool IsCurrent => PublishedAtUtc is not null && SupersededAtUtc is null;
+    public bool CanEdit => !IsUsedByInspection;
     public string Status => IsDraft ? "Draft" : IsCurrent ? "Current" : "Historical";
 }
 
@@ -38,6 +41,7 @@ public sealed record InspectionCriteriaRevisionDetails(
     DateTimeOffset? PublishedAtUtc,
     DateTimeOffset? SupersededAtUtc,
     string? ChangeNote,
+    bool IsUsedByInspection,
     uint Version,
     IReadOnlyList<InspectionCriterionListItem> Criteria,
     IReadOnlyList<SecondaryProcessRequirementListItem> SecondaryProcessRequirements,
@@ -45,6 +49,7 @@ public sealed record InspectionCriteriaRevisionDetails(
 {
     public bool IsDraft => PublishedAtUtc is null;
     public bool IsCurrent => PublishedAtUtc is not null && SupersededAtUtc is null;
+    public bool CanEdit => !IsUsedByInspection;
     public string Status => IsDraft ? "Draft" : IsCurrent ? "Current" : "Historical";
 }
 
@@ -170,6 +175,7 @@ public enum CriteriaOperationStatus
     Conflict,
     DraftAlreadyExists,
     PublishedRevision,
+    RevisionInUse,
     EmptyRevision,
     ValidationFailed
 }

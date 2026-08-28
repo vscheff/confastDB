@@ -9,6 +9,15 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
 {
     public const long MaximumMasterPrintBytes = 25 * 1024 * 1024;
 
+    private static readonly IReadOnlyDictionary<string, CertificationRequirementLevel>
+        InitialCertificationRequirements =
+            new Dictionary<string, CertificationRequirementLevel>(StringComparer.Ordinal)
+            {
+                ["Supplier Inspection"] = CertificationRequirementLevel.Required,
+                ["Material"] = CertificationRequirementLevel.Required,
+                ["Notes/Misc"] = CertificationRequirementLevel.Optional
+            };
+
     private static readonly string[] DefaultUnitChoices =
     [
         "N/A",
@@ -69,6 +78,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.CertificationTypes
             .AsNoTracking()
+            .Where(x => x.Name != "Inspection Sheet")
             .OrderBy(x => x.DisplayOrder)
             .Select(x => new CertificationTypeChoice(x.Id, x.Name, x.DisplayOrder))
             .ToListAsync(cancellationToken);
@@ -146,6 +156,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 x.PublishedAtUtc,
                 x.SupersededAtUtc,
                 x.ChangeNote,
+                IsUsedByInspection = x.Inspections.Any(),
                 x.Version
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -214,6 +225,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             revision.PublishedAtUtc,
             revision.SupersededAtUtc,
             revision.ChangeNote,
+            revision.IsUsedByInspection,
             revision.Version,
             criteria,
             secondaryProcessRequirements,
@@ -308,7 +320,29 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             ChangeNote = NormalizeOptionalText(changeNote)
         };
 
-        if (current is not null)
+        if (current is null && nextRevisionNumber == 0)
+        {
+            var defaultCertificationTypes = await db.CertificationTypes
+                .Where(x => InitialCertificationRequirements.Keys.Contains(x.Name))
+                .ToListAsync(cancellationToken);
+            if (defaultCertificationTypes.Count != InitialCertificationRequirements.Count)
+            {
+                return new CriteriaOperationResult(
+                    CriteriaOperationStatus.Conflict,
+                    Message: "The default certification types are unavailable.");
+            }
+
+            foreach (var certificationType in defaultCertificationTypes)
+            {
+                draft.CertificationRequirements.Add(new RevisionCertificationRequirement
+                {
+                    CertificationTypeId = certificationType.Id,
+                    CertificationTypeName = certificationType.Name,
+                    RequirementLevel = InitialCertificationRequirements[certificationType.Name]
+                });
+            }
+        }
+        else if (current is not null)
         {
             foreach (var source in current.Criteria)
             {
@@ -439,6 +473,59 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         }
     }
 
+    public async Task<CriteriaOperationResult> DeleteRevisionAsync(
+        long partId,
+        long revisionId,
+        uint version,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (revision.Version != version)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
+        }
+
+        await db.RevisionCertificationRequirements
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.SecondaryProcessRequirements
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.InspectionCriteria
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        db.Entry(revision).Property(x => x.Version).OriginalValue = version;
+        db.InspectionCriteriaRevisions.Remove(revision);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+        catch (DbUpdateException exception) when (IsIntegrityConflict(exception))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
     public async Task<CriteriaOperationResult> SaveRevisionHeaderAsync(
         long partId,
         long revisionId,
@@ -453,9 +540,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         db.Entry(revision).Property(x => x.Version).OriginalValue = model.Version;
@@ -520,9 +607,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         db.Entry(revision).Property(x => x.Version).OriginalValue = version;
@@ -556,9 +643,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         db.Entry(revision).Property(x => x.Version).OriginalValue = version;
@@ -600,9 +687,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         if (await db.InspectionCriteria.AnyAsync(
@@ -675,9 +762,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         var criterion = await db.InspectionCriteria.SingleOrDefaultAsync(
@@ -747,9 +834,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         var criterion = await db.InspectionCriteria.SingleOrDefaultAsync(
@@ -790,9 +877,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         var ordered = await db.InspectionCriteria
@@ -857,9 +944,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         if (!await db.SecondaryProcessTypes.AnyAsync(
@@ -913,9 +1000,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         var requirement = await db.SecondaryProcessRequirements.SingleOrDefaultAsync(
@@ -970,9 +1057,9 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         var requirement = await db.SecondaryProcessRequirements.SingleOrDefaultAsync(
@@ -1022,12 +1109,13 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (revision.PublishedAtUtc is not null)
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
         {
-            return new CriteriaOperationResult(CriteriaOperationStatus.PublishedRevision);
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
         var certificationTypes = await db.CertificationTypes
+            .Where(x => x.Name != "Inspection Sheet")
             .ToDictionaryAsync(x => x.Id, cancellationToken);
         if (certificationTypes.Count != models.Count
             || models.Any(x => !certificationTypes.ContainsKey(x.CertificationTypeId)))
@@ -1110,7 +1198,18 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 x.PublishedAtUtc,
                 x.SupersededAtUtc,
                 x.ChangeNote,
-                x.Criteria.Count));
+                x.Criteria.Count,
+                x.Inspections.Any(),
+                x.Version));
+
+    private static async Task<bool> IsRevisionProtectedAsync(
+        AppDbContext db,
+        InspectionCriteriaRevision revision,
+        CancellationToken cancellationToken) =>
+        revision.PublishedAtUtc is not null
+        && await db.Inspections.AnyAsync(
+            x => x.InspectionCriteriaRevisionId == revision.Id,
+            cancellationToken);
 
     private static Task<InspectionCriteriaRevision?> LockRevisionAsync(
         AppDbContext db,

@@ -1,0 +1,125 @@
+@page "/inspections/{InspectionId:long}/delete"
+@using Confast.Web.Features.Inspections
+@inject InspectionService InspectionService
+@inject NavigationManager Navigation
+@inject ILogger<Delete> Logger
+
+<PageTitle>Delete inspection</PageTitle>
+
+<p><a class="back-link" href="@($"/inspections/{InspectionId}")">← Inspection</a></p>
+
+@if (isLoading)
+{
+    <p class="status-message">Loading inspection…</p>
+}
+else if (loadError is not null)
+{
+    <div class="alert alert-error" role="alert">@loadError</div>
+}
+else if (inspection is null)
+{
+    <div class="empty-state">
+        <h1>Inspection not found</h1>
+        <p>The inspection may already have been deleted.</p>
+    </div>
+}
+else
+{
+    <div class="confirmation-card">
+        <h1>Delete inspection for @inspection.PartNumber?</h1>
+        <p>
+            This inspection belongs to <strong>@inspection.CustomerName</strong>,
+            is dated <strong>@inspection.InspectionDate.ToString("yyyy-MM-dd")</strong>@(inspection.LotNumber is null ? "." : $", and has lot number {inspection.LotNumber}.")
+        </p>
+        <p>
+            Its recorded results, secondary-process entries, certification requirements,
+            and uploaded certification documents will also be deleted. This operation cannot be undone.
+        </p>
+
+        @if (deleteMessage is not null)
+        {
+            <div class="alert @deleteMessageClass" role="alert">@deleteMessage</div>
+        }
+
+        <div class="form-actions">
+            <button class="button button-danger" type="button" @onclick="DeleteInspectionAsync" disabled="@isDeleting">
+                @(isDeleting ? "Deleting…" : "Delete inspection")
+            </button>
+            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")">Cancel</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public long InspectionId { get; set; }
+
+    private InspectionDeleteModel? inspection;
+    private bool isLoading = true;
+    private bool isDeleting;
+    private string? loadError;
+    private string? deleteMessage;
+    private string deleteMessageClass = "alert-error";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        loadError = null;
+
+        try
+        {
+            inspection = await InspectionService.GetInspectionForDeleteAsync(InspectionId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load inspection {InspectionId} for deletion", InspectionId);
+            loadError = "The inspection could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task DeleteInspectionAsync()
+    {
+        if (inspection is null)
+        {
+            return;
+        }
+
+        isDeleting = true;
+        deleteMessage = null;
+
+        try
+        {
+            var result = await InspectionService.DeleteInspectionAsync(
+                inspection.Id,
+                inspection.Version);
+            switch (result.Status)
+            {
+                case InspectionOperationStatus.Succeeded:
+                    Navigation.NavigateTo("/inspections");
+                    return;
+                case InspectionOperationStatus.NotFound:
+                    deleteMessage = "This inspection no longer exists.";
+                    break;
+                case InspectionOperationStatus.Conflict:
+                    deleteMessage = "Someone else changed this inspection or a related record. Reload before deleting it.";
+                    deleteMessageClass = "alert-warning";
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected delete status: {result.Status}");
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to delete inspection {InspectionId}", inspection.Id);
+            deleteMessage = "The inspection could not be deleted. Please try again.";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+}

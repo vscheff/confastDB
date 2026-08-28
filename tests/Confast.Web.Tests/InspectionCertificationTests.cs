@@ -30,19 +30,47 @@ public sealed class InspectionCertificationTests(PostgresTestDatabase database) 
                 "Tensile/Proof Load/Yield", "Torque", "Notes/Misc"
             ],
             types.Select(x => x.Name));
-        Assert.Equal(Enumerable.Range(1, 15), types.Select(x => x.DisplayOrder));
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], types.Select(x => x.DisplayOrder));
 
         await using var db = database.CreateDbContext();
         await using var transaction = await db.Database.BeginTransactionAsync();
         var additionalType = new CertificationType
         {
             Name = "Future Certification",
-            DisplayOrder = 16
+            DisplayOrder = 17
         };
         db.CertificationTypes.Add(additionalType);
         await db.SaveChangesAsync();
         Assert.True(additionalType.Id > 15);
         await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task InitialRevisionHasDefaultCertificationRequirements()
+    {
+        var partId = await CreatePartAsync();
+        var revisionId = (await criteriaService.CreateDraftRevisionAsync(partId, null))
+            .RevisionId!.Value;
+
+        var revision = await criteriaService.GetRevisionAsync(partId, revisionId);
+
+        Assert.Collection(
+            revision!.CertificationRequirements,
+            requirement =>
+            {
+                Assert.Equal("Material", requirement.CertificationTypeName);
+                Assert.Equal(CertificationRequirementLevel.Required, requirement.RequirementLevel);
+            },
+            requirement =>
+            {
+                Assert.Equal("Supplier Inspection", requirement.CertificationTypeName);
+                Assert.Equal(CertificationRequirementLevel.Required, requirement.RequirementLevel);
+            },
+            requirement =>
+            {
+                Assert.Equal("Notes/Misc", requirement.CertificationTypeName);
+                Assert.Equal(CertificationRequirementLevel.Optional, requirement.RequirementLevel);
+            });
     }
 
     [Fact]
@@ -176,6 +204,19 @@ public sealed class InspectionCertificationTests(PostgresTestDatabase database) 
             material.Documents[1].Id);
         Assert.Equal("Chemical Analysis.pdf", downloaded!.OriginalFileName);
         Assert.Equal(secondPdf, downloaded.Content);
+        var pdfDocuments = await inspectionService.GetCertificationDocumentsForPdfAsync(inspectionId);
+        Assert.Collection(
+            pdfDocuments,
+            document =>
+            {
+                Assert.Equal("Mill Certificate.pdf", document.OriginalFileName);
+                Assert.Equal(firstPdf, document.Content);
+            },
+            document =>
+            {
+                Assert.Equal("Chemical Analysis.pdf", document.OriginalFileName);
+                Assert.Equal(secondPdf, document.Content);
+            });
 
         Assert.Equal(
             InspectionOperationStatus.Succeeded,
@@ -234,6 +275,7 @@ public sealed class InspectionCertificationTests(PostgresTestDatabase database) 
             revisionId,
             ("Material", CertificationRequirementLevel.Required, null));
         await PublishAsync(partId, revisionId);
+        await CreateInspectionAsync(partId);
 
         await using var db = database.CreateDbContext();
         var requirement = await db.RevisionCertificationRequirements.SingleAsync();

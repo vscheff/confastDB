@@ -14,6 +14,10 @@ public sealed class CertificationDocument
 
     public byte[] Content { get; set; } = [];
 
+    // This is a separately generated, rasterized PDF used only by the embedded viewer.
+    // The uploaded original in Content is never replaced or rewritten.
+    public byte[]? PreviewContent { get; set; }
+
     public DateTimeOffset UploadedAtUtc { get; set; }
 
     public uint Version { get; set; }

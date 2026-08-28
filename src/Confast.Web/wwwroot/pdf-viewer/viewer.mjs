@@ -21,16 +21,20 @@ let zoomMultiplier = 1;
 let fitWidth = true;
 let renderGeneration = 0;
 
-function getDocumentUrl() {
-    const file = new URLSearchParams(window.location.search).get("file");
+function getDocumentUrl(parameterName = "file") {
+    const file = new URLSearchParams(window.location.search).get(parameterName);
     if (!file) {
+        if (parameterName === "original") {
+            return null;
+        }
+
         throw new Error("No PDF document was specified.");
     }
 
     const url = new URL(file, window.location.origin);
     const allowedPaths = [
         /^\/parts\/\d+\/inspection-criteria\/\d+\/master-print$/,
-        /^\/inspections\/\d+\/certifications\/documents\/\d+$/
+        /^\/inspections\/\d+\/certifications\/documents\/\d+(?:\/preview)?$/
     ];
     if (url.origin !== window.location.origin
         || !allowedPaths.some(pattern => pattern.test(url.pathname))) {
@@ -149,7 +153,7 @@ window.addEventListener("resize", () => {
 
 try {
     const documentUrl = getDocumentUrl();
-    downloadLink.href = documentUrl.href;
+    downloadLink.href = getDocumentUrl("original")?.href ?? documentUrl.href;
     const loadingTask = pdfjsLib.getDocument({
         url: documentUrl.href,
         cMapUrl: "../lib/pdfjs/5.7.284/cmaps/",

@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260828182821_CustomerCertificationDelivery")]
+    partial class CustomerCertificationDelivery
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -147,14 +150,10 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("customer_id");
 
                     b.Property<string>("FilenameTemplate")
+                        .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("filename_template");
-
-                    b.Property<string>("MultiLotFilenameTemplate")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("multi_lot_filename_template");
 
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
@@ -167,8 +166,6 @@ namespace Confast.Web.Data.Migrations
 
                     b.ToTable("customer_certification_settings", null, t =>
                         {
-                            t.HasCheckConstraint("CK_customer_cert_settings_multi_lot_filename_not_blank", "btrim(multi_lot_filename_template) <> ''");
-
                             t.HasCheckConstraint("CK_customer_certification_settings_filename_template_not_blank", "btrim(filename_template) <> ''");
                         });
                 });
@@ -378,6 +375,12 @@ namespace Confast.Web.Data.Migrations
                             Id = 15L,
                             DisplayOrder = 15,
                             Name = "Notes/Misc"
+                        },
+                        new
+                        {
+                            Id = 16L,
+                            DisplayOrder = 16,
+                            Name = "Inspection Sheet"
                         });
                 });
 

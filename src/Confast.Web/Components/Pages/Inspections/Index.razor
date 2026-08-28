@@ -18,6 +18,11 @@
     </div>
 </div>
 
+@if (deleteMessage is not null)
+{
+    <div class="alert @deleteMessageClass" role="alert">@deleteMessage</div>
+}
+
 @if (isLoading)
 {
     <p class="status-message">Loading inspections…</p>
@@ -35,15 +40,15 @@ else if (inspections.Count == 0)
 }
 else
 {
-    <div class="table-shell">
+    <div class="table-shell inspections-table-shell">
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Date</th>
-                    <th>Part</th>
-                    <th>Customer</th>
-                    <th>Criteria revision</th>
-                    <th>Lot number</th>
+                    <th>Lot#</th>
+                    <th>Part Number</th>
+                    <th>Inspection Date</th>
+                    <th>Accepted</th>
+                    <th>Completed</th>
                     <th><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
@@ -51,15 +56,54 @@ else
                 @foreach (var inspection in inspections)
                 {
                     <tr>
-                        <td data-label="Date">@inspection.InspectionDate.ToString("yyyy-MM-dd")</td>
-                        <td data-label="Part">
+                        <td data-label="Lot#">@(inspection.LotNumber ?? "—")</td>
+                        <td data-label="Part Number">
                             <a class="record-link" href="@($"/inspections/{inspection.Id}")">@inspection.PartNumber</a>
                         </td>
-                        <td data-label="Customer">@inspection.CustomerName</td>
-                        <td data-label="Criteria revision">@inspection.RevisionNumber</td>
-                        <td data-label="Lot number">@(inspection.LotNumber ?? "—")</td>
-                        <td class="table-action">
-                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")">Open</a>
+                        <td data-label="Inspection Date">@inspection.InspectionDate.ToString("yyyy-MM-dd")</td>
+                        <td data-label="Accepted">@(inspection.Accepted ? "Yes" : "No")</td>
+                        <td data-label="Completed">@(inspection.Completed ? "Yes" : "No")</td>
+                        <td class="table-action" data-label="Actions">
+                            @if (pendingDeleteId == inspection.Id)
+                            {
+                                <div class="row-actions delete-confirmation">
+                                    <span>Delete?</span>
+                                    <button class="button button-danger button-compact"
+                                            type="button"
+                                            @onclick="() => DeleteInspectionAsync(inspection)"
+                                            disabled="@isDeleting">
+                                        @(isDeleting ? "Deleting…" : "Confirm")
+                                    </button>
+                                    <button class="button button-secondary button-compact"
+                                            type="button"
+                                            @onclick="CancelDelete"
+                                            disabled="@isDeleting">
+                                        Cancel
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="row-actions inspection-list-actions">
+                                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")">Open</a>
+                                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
+                                    <details class="inspection-print-options">
+                                        <summary class="button button-secondary">Print / Download</summary>
+                                        <div class="inspection-print-options-menu">
+                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?autoPrint=true")" target="_blank" rel="noopener">Print</a>
+                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download")" download data-enhance-nav="false">Download</a>
+                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?notesPage=second&autoPrint=true")" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
+                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download?notesPage=second")" download data-enhance-nav="false">Download (Show Extended Notes)</a>
+                                        </div>
+                                    </details>
+                                    <button class="button button-danger-outline"
+                                            type="button"
+                                            @onclick="() => BeginDelete(inspection.Id)"
+                                            disabled="@isDeleting">
+                                        Delete
+                                    </button>
+                                </div>
+                            }
                         </td>
                     </tr>
                 }
@@ -71,7 +115,11 @@ else
 @code {
     private IReadOnlyList<InspectionListItem> inspections = [];
     private bool isLoading = true;
+    private bool isDeleting;
+    private long? pendingDeleteId;
     private string? loadError;
+    private string? deleteMessage;
+    private string deleteMessageClass = "alert-error";
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -79,6 +127,7 @@ else
     {
         isLoading = true;
         loadError = null;
+        deleteMessage = null;
 
         try
         {
@@ -92,6 +141,54 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private void BeginDelete(long inspectionId)
+    {
+        pendingDeleteId = inspectionId;
+        deleteMessage = null;
+    }
+
+    private void CancelDelete() => pendingDeleteId = null;
+
+    private async Task DeleteInspectionAsync(InspectionListItem inspection)
+    {
+        isDeleting = true;
+        deleteMessage = null;
+
+        try
+        {
+            var result = await InspectionService.DeleteInspectionAsync(
+                inspection.Id,
+                inspection.Version);
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                pendingDeleteId = null;
+                await LoadAsync();
+                return;
+            }
+
+            deleteMessage = result.Status switch
+            {
+                InspectionOperationStatus.NotFound => "This inspection no longer exists.",
+                InspectionOperationStatus.Conflict =>
+                    "Someone else changed this inspection. Refresh the list before deleting it.",
+                _ => "The inspection could not be deleted. Please try again."
+            };
+            deleteMessageClass = result.Status == InspectionOperationStatus.Conflict
+                ? "alert-warning"
+                : "alert-error";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to delete inspection {InspectionId}", inspection.Id);
+            deleteMessage = "The inspection could not be deleted. Please try again.";
+            deleteMessageClass = "alert-error";
+        }
+        finally
+        {
+            isDeleting = false;
         }
     }
 }

@@ -540,6 +540,75 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(Npgsql.PostgresErrorCodes.ForeignKeyViolation, postgresException.SqlState);
     }
 
+    [Fact]
+    public async Task DeletingAnInspectionRemovesItsOwnedRecordsAndHonorsConcurrency()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var heatTreatId = (await criteriaService.GetSecondaryProcessTypeChoicesAsync())
+            .Single(x => x.Name == "Heat Treat").Id;
+        var revisionId = await CreateAndPublishRevisionAsync(
+            partId,
+            gageTypeId,
+            "20",
+            "21",
+            secondaryProcesses: [(heatTreatId, "HT-100")]);
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            InspectionDate = new DateOnly(2026, 8, 28)
+        });
+        var inspectionId = create.InspectionId!.Value;
+
+        await using (var db = database.CreateDbContext())
+        {
+            var materialType = await db.CertificationTypes.SingleAsync(x => x.Name == "Material");
+            db.InspectionCertifications.Add(new InspectionCertification
+            {
+                InspectionId = inspectionId,
+                CertificationTypeId = materialType.Id,
+                CertificationTypeName = materialType.Name,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Documents =
+                {
+                    new CertificationDocument
+                    {
+                        OriginalFileName = "material.pdf",
+                        ContentType = "application/pdf",
+                        Content = "%PDF-1.7\nmaterial\n%%EOF"u8.ToArray(),
+                        UploadedAtUtc = DateTimeOffset.UtcNow
+                    }
+                }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var deleteModel = await inspectionService.GetInspectionForDeleteAsync(inspectionId);
+        Assert.NotNull(deleteModel);
+        Assert.Equal("INSPECT-100", deleteModel.PartNumber);
+
+        var conflict = await inspectionService.DeleteInspectionAsync(
+            inspectionId,
+            deleteModel.Version + 1);
+        Assert.Equal(InspectionOperationStatus.Conflict, conflict.Status);
+        Assert.NotNull(await inspectionService.GetInspectionAsync(inspectionId));
+
+        var deleted = await inspectionService.DeleteInspectionAsync(
+            inspectionId,
+            deleteModel.Version);
+        Assert.Equal(InspectionOperationStatus.Succeeded, deleted.Status);
+
+        await using var verification = database.CreateDbContext();
+        Assert.False(await verification.Inspections.AnyAsync(x => x.Id == inspectionId));
+        Assert.False(await verification.InspectionResults.AnyAsync(x => x.InspectionId == inspectionId));
+        Assert.False(await verification.InspectionSecondaryProcesses.AnyAsync(x => x.InspectionId == inspectionId));
+        Assert.False(await verification.InspectionCertificationRequirements.AnyAsync(x => x.InspectionId == inspectionId));
+        Assert.False(await verification.InspectionCertifications.AnyAsync(x => x.InspectionId == inspectionId));
+        Assert.Empty(await verification.CertificationDocuments.ToListAsync());
+        Assert.True(await verification.InspectionCriteriaRevisions.AnyAsync(x => x.Id == revisionId));
+        Assert.True(await verification.CertificationTypes.AnyAsync(x => x.Name == "Material"));
+    }
+
     private async Task<long> CreateAndPublishRevisionAsync(
         long partId,
         long gageTypeId,

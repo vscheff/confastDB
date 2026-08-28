@@ -1,6 +1,7 @@
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
+using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Parts;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,7 @@ namespace Confast.Web.Tests;
 public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
     private readonly InspectionCriteriaService service = new(database);
+    private readonly InspectionService inspectionService = new(database);
 
     public Task InitializeAsync() => database.ResetAsync();
 
@@ -50,6 +52,164 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         Assert.Equal(1, summary!.CurrentRevision!.RevisionNumber);
         Assert.Null(summary.DraftRevision);
         Assert.Equal("1.234567", details.Criteria.Single().Minimum);
+    }
+
+    [Fact]
+    public async Task PublishedRevisionCanBeEditedUntilAnInspectionStarts()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 1,
+            Name = "Length",
+            GageTypeId = gageTypeId
+        });
+        var draft = await service.GetRevisionAsync(partId, revisionId);
+        await service.PublishRevisionAsync(partId, revisionId, draft!.Version);
+
+        var published = await service.GetRevisionAsync(partId, revisionId);
+        Assert.True(published!.CanEdit);
+        Assert.False(published.IsUsedByInspection);
+
+        var headerSave = await service.SaveRevisionHeaderAsync(
+            partId,
+            revisionId,
+            new InspectionCriteriaRevisionHeaderEditModel
+            {
+                PartDescription = "Corrected before receiving",
+                Version = published.Version
+            });
+        Assert.Equal(CriteriaOperationStatus.Succeeded, headerSave.Status);
+
+        published = await service.GetRevisionAsync(partId, revisionId);
+        var criterion = published!.Criteria.Single();
+        var criterionSave = await service.SaveCriterionAsync(
+            partId,
+            revisionId,
+            new InspectionCriterionEditModel
+            {
+                Id = criterion.Id,
+                RevisionId = revisionId,
+                InspectionNumber = criterion.InspectionNumber,
+                Name = "Corrected length",
+                GageTypeId = criterion.GageTypeId,
+                Version = criterion.Version
+            });
+        Assert.Equal(CriteriaOperationStatus.Succeeded, criterionSave.Status);
+
+        await CreateInspectionAsync(partId);
+
+        var protectedRevision = await service.GetRevisionAsync(partId, revisionId);
+        Assert.False(protectedRevision!.CanEdit);
+        Assert.True(protectedRevision.IsUsedByInspection);
+        Assert.False((await service.GetRevisionHistoryAsync(partId)).Single().CanEdit);
+
+        criterion = protectedRevision.Criteria.Single();
+        var blockedSave = await service.SaveCriterionAsync(
+            partId,
+            revisionId,
+            new InspectionCriterionEditModel
+            {
+                Id = criterion.Id,
+                RevisionId = revisionId,
+                InspectionNumber = criterion.InspectionNumber,
+                Name = "Too late",
+                GageTypeId = criterion.GageTypeId,
+                Version = criterion.Version
+            });
+        Assert.Equal(CriteriaOperationStatus.RevisionInUse, blockedSave.Status);
+    }
+
+    [Fact]
+    public async Task DraftRevisionCanBeDeletedWithItsRequirements()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 1,
+            Name = "Length",
+            GageTypeId = gageTypeId
+        });
+        await service.AddSecondaryProcessRequirementAsync(
+            partId,
+            revisionId,
+            new SecondaryProcessRequirementEditModel
+            {
+                SecondaryProcessTypeId = 1,
+                Specification = "SAE J429"
+            });
+
+        await using (var db = database.CreateDbContext())
+        {
+            db.RevisionCertificationRequirements.Add(new RevisionCertificationRequirement
+            {
+                InspectionCriteriaRevisionId = revisionId,
+                CertificationTypeId = 1,
+                CertificationTypeName = "CBP",
+                RequirementLevel = CertificationRequirementLevel.Required
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var revision = await service.GetRevisionAsync(partId, revisionId);
+        var result = await service.DeleteRevisionAsync(partId, revisionId, revision!.Version);
+
+        Assert.Equal(CriteriaOperationStatus.Succeeded, result.Status);
+        await using var verify = database.CreateDbContext();
+        Assert.False(await verify.InspectionCriteriaRevisions.AnyAsync(x => x.Id == revisionId));
+        Assert.False(await verify.InspectionCriteria.AnyAsync(x => x.InspectionCriteriaRevisionId == revisionId));
+        Assert.False(await verify.SecondaryProcessRequirements.AnyAsync(x => x.InspectionCriteriaRevisionId == revisionId));
+        Assert.False(await verify.RevisionCertificationRequirements.AnyAsync(x => x.InspectionCriteriaRevisionId == revisionId));
+        Assert.True(await verify.Parts.AnyAsync(x => x.Id == partId));
+    }
+
+    [Fact]
+    public async Task UnusedPublishedRevisionCanBeDeleted()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 1,
+            Name = "Length",
+            GageTypeId = gageTypeId
+        });
+        var draft = await service.GetRevisionAsync(partId, revisionId);
+        await service.PublishRevisionAsync(partId, revisionId, draft!.Version);
+        var published = await service.GetRevisionAsync(partId, revisionId);
+
+        var result = await service.DeleteRevisionAsync(partId, revisionId, published!.Version);
+
+        Assert.Equal(CriteriaOperationStatus.Succeeded, result.Status);
+        Assert.Null(await service.GetRevisionAsync(partId, revisionId));
+    }
+
+    [Fact]
+    public async Task RevisionUsedByInspectionCannotBeDeleted()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 1,
+            Name = "Length",
+            GageTypeId = gageTypeId
+        });
+        var draft = await service.GetRevisionAsync(partId, revisionId);
+        await service.PublishRevisionAsync(partId, revisionId, draft!.Version);
+        await CreateInspectionAsync(partId);
+        var protectedRevision = await service.GetRevisionAsync(partId, revisionId);
+
+        var result = await service.DeleteRevisionAsync(partId, revisionId, protectedRevision!.Version);
+
+        Assert.Equal(CriteriaOperationStatus.RevisionInUse, result.Status);
+        Assert.NotNull(await service.GetRevisionAsync(partId, revisionId));
     }
 
     [Fact]
@@ -150,6 +310,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         });
         firstDraft = await service.GetRevisionAsync(partId, firstId);
         await service.PublishRevisionAsync(partId, firstId, firstDraft!.Version);
+        await CreateInspectionAsync(partId);
 
         await using (var db = database.CreateDbContext())
         {
@@ -198,7 +359,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
                 PrintRevisionNumber = "Should not save",
                 Version = firstPublished.Version
             });
-        Assert.Equal(CriteriaOperationStatus.PublishedRevision, attemptToEditHistory.Status);
+        Assert.Equal(CriteriaOperationStatus.RevisionInUse, attemptToEditHistory.Status);
 
         await using var bypassContext = database.CreateDbContext();
         var publishedEntity = await bypassContext.InspectionCriteriaRevisions
@@ -258,10 +419,11 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         Assert.Equal(
             CriteriaOperationStatus.Succeeded,
             (await service.PublishRevisionAsync(partId, firstId, firstDraft!.Version)).Status);
+        await CreateInspectionAsync(partId);
 
         var firstPublished = await service.GetRevisionAsync(partId, firstId);
         Assert.Equal(
-            CriteriaOperationStatus.PublishedRevision,
+            CriteriaOperationStatus.RevisionInUse,
             (await service.UploadMasterPrintAsync(
                 partId,
                 firstId,
@@ -269,7 +431,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
                 firstPdf,
                 firstPublished!.Version)).Status);
         Assert.Equal(
-            CriteriaOperationStatus.PublishedRevision,
+            CriteriaOperationStatus.RevisionInUse,
             (await service.DeleteMasterPrintAsync(partId, firstId, firstPublished.Version)).Status);
 
         var secondId = (await service.CreateDraftRevisionAsync(partId, "Updated print")).RevisionId!.Value;
@@ -403,6 +565,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             });
         var firstDraft = await service.GetRevisionAsync(partId, firstId);
         await service.PublishRevisionAsync(partId, firstId, firstDraft!.Version);
+        await CreateInspectionAsync(partId);
 
         var secondId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
         var secondDraft = await service.GetRevisionAsync(partId, secondId);
@@ -435,7 +598,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
                 SecondaryProcessTypeId = sortId,
                 Version = firstPublished.SecondaryProcessRequirements[0].Version
             });
-        Assert.Equal(CriteriaOperationStatus.PublishedRevision, attemptToEditHistory.Status);
+        Assert.Equal(CriteriaOperationStatus.RevisionInUse, attemptToEditHistory.Status);
     }
 
     [Fact]
@@ -463,6 +626,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             });
         var draft = await service.GetRevisionAsync(partId, revisionId);
         await service.PublishRevisionAsync(partId, revisionId, draft!.Version);
+        await CreateInspectionAsync(partId);
 
         await using var db = database.CreateDbContext();
         var requirement = await db.SecondaryProcessRequirements.SingleAsync();
@@ -529,6 +693,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             });
         var firstDraft = await service.GetRevisionAsync(partId, firstId);
         await service.PublishRevisionAsync(partId, firstId, firstDraft!.Version);
+        await CreateInspectionAsync(partId);
 
         var secondId = (await service.CreateDraftRevisionAsync(partId, "Tolerance update")).RevisionId!.Value;
         var secondDraft = await service.GetRevisionAsync(partId, secondId);
@@ -570,7 +735,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
                 GageTypeId = firstPublished.Criteria.Single().GageTypeId,
                 Version = firstPublished.Criteria.Single().Version
             });
-        Assert.Equal(CriteriaOperationStatus.PublishedRevision, attemptToEditHistory.Status);
+        Assert.Equal(CriteriaOperationStatus.RevisionInUse, attemptToEditHistory.Status);
     }
 
     [Fact]
@@ -590,6 +755,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             });
         var draft = await service.GetRevisionAsync(partId, revisionId);
         await service.PublishRevisionAsync(partId, revisionId, draft!.Version);
+        await CreateInspectionAsync(partId);
 
         await using var db = database.CreateDbContext();
         var criterion = await db.InspectionCriteria.SingleAsync();
@@ -653,5 +819,16 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         db.GageTypes.Add(gageType);
         await db.SaveChangesAsync();
         return gageType.Id;
+    }
+
+    private async Task<long> CreateInspectionAsync(long partId)
+    {
+        var result = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            InspectionDate = new DateOnly(2026, 8, 28)
+        });
+        Assert.Equal(InspectionOperationStatus.Succeeded, result.Status);
+        return result.InspectionId!.Value;
     }
 }

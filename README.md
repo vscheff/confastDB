@@ -41,6 +41,22 @@ Core, and PostgreSQL.
 Database migrations are applied explicitly; the web application does not modify the
 schema automatically on startup.
 
+Development startup uses an ephemeral Data Protection key ring and Console logging.
+This keeps local sandboxed runs independent of Windows DPAPI and Event Log permissions;
+production uses the normal persistent Data Protection and logging configuration.
+
+## Certification PDF previews
+
+Certification originals remain byte-for-byte unchanged in the database. The embedded
+viewer uses a separate rasterized preview generated on first view with Poppler's
+`pdftoppm` executable. Install Poppler on the web server and either put `pdftoppm` on
+the process `PATH` or set `PdfPreview:RendererPath` to its full path. Preview settings
+can be adjusted with `PdfPreview:ResolutionDpi` and `PdfPreview:MaximumPages`.
+
+If the renderer is unavailable, uploads and original downloads continue to work, but
+the embedded viewer falls back to the original PDF and may still fail for PDFs that
+PDF.js cannot decode.
+
 ## Integration tests
 
 The inspection-criteria tests use PostgreSQL because they exercise PostgreSQL-specific

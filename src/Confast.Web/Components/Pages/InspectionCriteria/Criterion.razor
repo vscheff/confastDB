@@ -154,6 +154,7 @@ else
             message = result.Status switch
             {
                 CriteriaOperationStatus.PublishedRevision => "This revision has been published and can no longer be changed.",
+                CriteriaOperationStatus.RevisionInUse => "This revision cannot be changed because an inspection uses it.",
                 CriteriaOperationStatus.Conflict => "Another user changed this criterion. Reload before trying again.",
                 CriteriaOperationStatus.NotFound => "The draft or criterion no longer exists.",
                 CriteriaOperationStatus.ValidationFailed => result.Message,

@@ -11,6 +11,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public DbSet<Customer> Customers => Set<Customer>();
 
+    public DbSet<CustomerCertificationRecipient> CustomerCertificationRecipients =>
+        Set<CustomerCertificationRecipient>();
+
+    public DbSet<CustomerCertificationRequirement> CustomerCertificationRequirements =>
+        Set<CustomerCertificationRequirement>();
+
+    public DbSet<CustomerCertificationSettings> CustomerCertificationSettings =>
+        Set<CustomerCertificationSettings>();
+
     public DbSet<Part> Parts => Set<Part>();
 
     public DbSet<GageType> GageTypes => Set<GageType>();
@@ -70,6 +79,101 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         customer.Property(x => x.Version)
             .HasColumnName("xmin")
             .IsRowVersion();
+
+        var customerCertificationRecipient =
+            modelBuilder.Entity<CustomerCertificationRecipient>();
+        customerCertificationRecipient.ToTable("customer_certification_recipients", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_customer_certification_recipients_email_not_blank",
+                "btrim(email_address) <> ''");
+            table.HasCheckConstraint(
+                "CK_customer_certification_recipients_type",
+                "recipient_type IN (1, 2)");
+        });
+        customerCertificationRecipient.HasKey(x => x.Id)
+            .HasName("PK_customer_certification_recipients");
+        customerCertificationRecipient.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityByDefaultColumn();
+        customerCertificationRecipient.Property(x => x.CustomerId)
+            .HasColumnName("customer_id");
+        customerCertificationRecipient.Property(x => x.Name)
+            .HasColumnName("name")
+            .HasMaxLength(200);
+        customerCertificationRecipient.Property(x => x.EmailAddress)
+            .HasColumnName("email_address")
+            .HasMaxLength(320)
+            .IsRequired();
+        customerCertificationRecipient.Property(x => x.RecipientType)
+            .HasColumnName("recipient_type");
+        customerCertificationRecipient.Property(x => x.Version)
+            .HasColumnName("xmin")
+            .IsRowVersion();
+        customerCertificationRecipient.HasOne(x => x.Customer)
+            .WithMany(x => x.CertificationRecipients)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_customer_certification_recipients_customer_id");
+        customerCertificationRecipient.HasIndex(x => x.CustomerId)
+            .HasDatabaseName("IX_customer_certification_recipients_customer_id");
+
+        var customerCertificationRequirement =
+            modelBuilder.Entity<CustomerCertificationRequirement>();
+        customerCertificationRequirement.ToTable("customer_certification_requirements");
+        customerCertificationRequirement.HasKey(x => new
+            {
+                x.CustomerId,
+                x.CertificationTypeId
+            })
+            .HasName("PK_customer_certification_requirements");
+        customerCertificationRequirement.Property(x => x.CustomerId)
+            .HasColumnName("customer_id");
+        customerCertificationRequirement.Property(x => x.CertificationTypeId)
+            .HasColumnName("certification_type_id");
+        customerCertificationRequirement.HasOne(x => x.Customer)
+            .WithMany(x => x.CertificationRequirements)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_customer_certification_requirements_customer_id");
+        customerCertificationRequirement.HasOne(x => x.CertificationType)
+            .WithMany()
+            .HasForeignKey(x => x.CertificationTypeId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_customer_certification_requirements_type_id");
+        customerCertificationRequirement.HasIndex(x => x.CertificationTypeId)
+            .HasDatabaseName("IX_customer_certification_requirements_type_id");
+
+        var customerCertificationSettings =
+            modelBuilder.Entity<CustomerCertificationSettings>();
+        customerCertificationSettings.ToTable("customer_certification_settings", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_customer_certification_settings_filename_template_not_blank",
+                "btrim(filename_template) <> ''");
+            table.HasCheckConstraint(
+                "CK_customer_cert_settings_multi_lot_filename_not_blank",
+                "btrim(multi_lot_filename_template) <> ''");
+        });
+        customerCertificationSettings.HasKey(x => x.CustomerId)
+            .HasName("PK_customer_certification_settings");
+        customerCertificationSettings.Property(x => x.CustomerId)
+            .HasColumnName("customer_id")
+            .ValueGeneratedNever();
+        customerCertificationSettings.Property(x => x.FilenameTemplate)
+            .HasColumnName("filename_template")
+            .HasMaxLength(500);
+        customerCertificationSettings.Property(x => x.MultiLotFilenameTemplate)
+            .HasColumnName("multi_lot_filename_template")
+            .HasMaxLength(500);
+        customerCertificationSettings.Property(x => x.Version)
+            .HasColumnName("xmin")
+            .IsRowVersion();
+        customerCertificationSettings.HasOne(x => x.Customer)
+            .WithOne(x => x.CertificationSettings)
+            .HasForeignKey<CustomerCertificationSettings>(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_customer_certification_settings_customer_id");
 
         var part = modelBuilder.Entity<Part>();
 
@@ -679,6 +783,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         certificationDocument.Property(x => x.Content)
             .HasColumnName("content")
             .IsRequired();
+        certificationDocument.Property(x => x.PreviewContent)
+            .HasColumnName("preview_content");
         certificationDocument.Property(x => x.UploadedAtUtc)
             .HasColumnName("uploaded_at_utc")
             .HasDefaultValueSql("CURRENT_TIMESTAMP");

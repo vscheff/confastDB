@@ -68,6 +68,10 @@ else
                 {
                     <a class="button button-primary" href="@RevisionUrl(criteriaSummary.DraftRevision.Id)">Edit draft</a>
                 }
+                else if (currentRevision?.CanEdit == true)
+                {
+                    <a class="button button-primary" href="@RevisionUrl(currentRevision.Id)">Edit current revision</a>
+                }
                 else
                 {
                     <a class="button button-primary" href="@($"/parts/{Id}/inspection-criteria/create")">
@@ -105,6 +109,13 @@ else
                         aria-selected="@(activeCriteriaTab == PartCriteriaTab.MasterPrint)"
                         @onclick="() => activeCriteriaTab = PartCriteriaTab.MasterPrint">
                     Master Print
+                </button>
+                <button class="subtab @(activeCriteriaTab == PartCriteriaTab.Certifications ? "subtab-active" : null)"
+                        type="button"
+                        role="tab"
+                        aria-selected="@(activeCriteriaTab == PartCriteriaTab.Certifications)"
+                        @onclick="() => activeCriteriaTab = PartCriteriaTab.Certifications">
+                    Certification Requirements
                 </button>
             </div>
 
@@ -190,7 +201,7 @@ else
                     </section>
                 </div>
             }
-            else
+            else if (activeCriteriaTab == PartCriteriaTab.MasterPrint)
             {
                 <section class="master-print-panel">
                     <div class="master-print-toolbar">
@@ -225,6 +236,40 @@ else
                     }
                 </section>
             }
+            else
+            {
+                <section class="revision-certification-section">
+                    <div class="section-heading">
+                        <div>
+                            <h2>Certification Requirements</h2>
+                            <p>Requirements saved with published revision @currentRevision.RevisionNumber.</p>
+                        </div>
+                    </div>
+                    <div class="table-shell">
+                        <table class="data-table certification-requirements-table">
+                            <thead>
+                                <tr>
+                                    <th>Certification type</th>
+                                    <th>Requirement</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var certificationType in certificationTypeChoices)
+                                {
+                                    var requirement = currentRevision.CertificationRequirements
+                                        .SingleOrDefault(x => x.CertificationTypeId == certificationType.Id);
+                                    <tr>
+                                        <td data-label="Certification type">@(requirement?.CertificationTypeName ?? certificationType.Name)</td>
+                                        <td data-label="Requirement">@(requirement?.RequirementLevel.ToString() ?? "Not Applicable")</td>
+                                        <td data-label="Notes">@(requirement?.Notes ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            }
         }
     </section>
 }
@@ -238,6 +283,7 @@ else
     private IReadOnlyList<CustomerOption> customerOptions = [];
     private PartInspectionCriteriaSummary? criteriaSummary;
     private InspectionCriteriaRevisionDetails? currentRevision;
+    private IReadOnlyList<CertificationTypeChoice> certificationTypeChoices = [];
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
@@ -264,11 +310,13 @@ else
             var partTask = PartService.GetPartAsync(Id);
             var optionsTask = PartService.GetCustomerOptionsAsync();
             var criteriaTask = CriteriaService.GetPartSummaryAsync(Id);
+            var certificationTypesTask = CriteriaService.GetCertificationTypeChoicesAsync();
 
-            await Task.WhenAll(partTask, optionsTask, criteriaTask);
+            await Task.WhenAll(partTask, optionsTask, criteriaTask, certificationTypesTask);
             part = await partTask;
             customerOptions = await optionsTask;
             criteriaSummary = await criteriaTask;
+            certificationTypeChoices = await certificationTypesTask;
 
             if (criteriaSummary?.CurrentRevision is not null)
             {
@@ -351,6 +399,7 @@ else
     private enum PartCriteriaTab
     {
         Criteria,
-        MasterPrint
+        MasterPrint,
+        Certifications
     }
 }

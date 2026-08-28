@@ -1,0 +1,244 @@
+@page "/inspections/{InspectionId:long}/print"
+@using Confast.Web.Features.Inspections
+@using Confast.Web.Features.InspectionCriteria
+@inject InspectionService InspectionService
+@inject ILogger<Print> Logger
+@inject IJSRuntime JS
+
+<PageTitle>Inspection @InspectionId - Print</PageTitle>
+
+<div class="inspection-print-page">
+    @if (isLoading)
+    {
+        <p class="status-message print-screen-only">Loading inspection…</p>
+    }
+    else if (loadError is not null)
+    {
+        <div class="alert alert-error print-screen-only" role="alert">@loadError</div>
+    }
+    else if (inspection is null)
+    {
+        <div class="empty-state print-screen-only">
+            <h1>Inspection not found</h1>
+            <p>The inspection may have been removed.</p>
+        </div>
+    }
+    else
+    {
+        <div class="inspection-print-toolbar print-screen-only">
+            <a class="back-link" href="@($"/inspections/{InspectionId}")">← Back to inspection</a>
+            <div class="inspection-print-toolbar-actions">
+                <details class="inspection-print-options">
+                    <summary class="button button-primary">Print / Download</summary>
+                    <div class="inspection-print-options-menu">
+                        <a class="button button-primary" href="@PrintUrl()" target="_blank" rel="noopener">Print</a>
+                        <a class="button button-secondary" href="@DownloadUrl()" download data-enhance-nav="false">Download</a>
+                        <a class="button button-secondary" href="@PrintUrl(secondPageNotes: true)" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
+                        <a class="button button-secondary" href="@DownloadUrl(secondPageNotes: true)" download data-enhance-nav="false">Download (Show Extended Notes)</a>
+                    </div>
+                </details>
+            </div>
+        </div>
+
+        <article class="inspection-print-sheet">
+            <img class="inspection-print-logo" src="/images/conformance-logo.png" alt="Conformance Fasteners logo" />
+            <header class="inspection-print-header">
+                <h1>Conformance Fasteners</h1>
+                <div>6239 American Avenue</div>
+                <div>Portage, Michigan 49002-9302</div>
+                <h2>Certificate of Inspection</h2>
+            </header>
+
+            <section class="inspection-print-summary">
+                <div><strong>Part Number:</strong> @inspection.PartNumber</div>
+                <div><strong>Rev:</strong> @inspection.RevisionNumber</div>
+                <div><strong>Print Rev:</strong> @(inspection.PrintRevisionNumber ?? "—")</div>
+                <div class="inspection-print-wide"><strong>Part Description:</strong> @(inspection.PartDescription ?? "—")</div>
+                <div class="inspection-print-wide"><strong>Spec. Used:</strong> @(inspection.SpecificationUsed ?? "—")</div>
+                <div class="inspection-print-summary-columns">
+                    <div class="inspection-print-summary-column">
+                        <div class="inspection-print-summary-field inspection-print-lot"><strong>Conformance Lot#:</strong> <span>@(inspection.LotNumber ?? "—")</span></div>
+                        <div class="inspection-print-summary-field"><strong>Conformance PO#:</strong> <span>@(inspection.ConformancePoNumber ?? "—")</span></div>
+                        <div class="inspection-print-summary-field inspection-print-manufacturer-lot"><strong>Manufacturer's Lot#:</strong> <span>@(inspection.ManufacturerLotNumber ?? "—")</span></div>
+                    </div>
+                    <div class="inspection-print-summary-column">
+                        <div class="inspection-print-summary-field inspection-print-date-received"><strong>Date Received:</strong> <span>@FormatDate(inspection.DateReceived)</span></div>
+                        <div class="inspection-print-summary-field"><strong>Date Inspected:</strong> <span>@FormatDate(inspection.InspectionDate)</span></div>
+                    </div>
+                    <div class="inspection-print-summary-column">
+                        <div class="inspection-print-summary-field"><strong>Quantity Received:</strong> <span>@FormatQuantity(inspection.QuantityReceived)</span></div>
+                        <div class="inspection-print-summary-field"><strong>Sample Size:</strong> <span>@FormatQuantity(inspection.QuantityInspected)</span></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="inspection-print-results-block">
+                <div class="inspection-print-results-labels" aria-hidden="true">
+                    <span>Dimension / Requirement</span>
+                    <span>Max / Tolerance</span>
+                    <span>Min</span>
+                    <span>Actual Max</span>
+                    <span>Actual Min</span>
+                    <span>Gage ID</span>
+                    <span>Accept</span>
+                </div>
+                <div class="inspection-print-results">
+                    <table>
+                    <colgroup>
+                        <col style="width: 35%" />
+                        <col style="width: 13%" />
+                        <col style="width: 10%" />
+                        <col style="width: 13%" />
+                        <col style="width: 13%" />
+                        <col style="width: 10%" />
+                        <col style="width: 6%" />
+                    </colgroup>
+                    <tbody>
+                        @foreach (var result in inspection.Results)
+                        {
+                            <tr>
+                                <td>@result.InspectionNumber) @result.Name</td>
+                                <td>@(result.SpecifiedMaximum ?? "—")</td>
+                                <td>@(result.SpecifiedMinimum ?? "—")</td>
+                                <td>@(result.ActualMax ?? "—")</td>
+                                <td>@(result.ActualMin ?? "—")</td>
+                                <td>@(result.GageNumber ?? "—")</td>
+                                <td class="inspection-print-accept">@(result.Evaluation == InspectionResultEvaluation.Pass ? "✓" : result.Evaluation == InspectionResultEvaluation.Fail ? "✕" : "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="inspection-print-lower-grid">
+                <div>
+                    <h3>Secondary Processes</h3>
+                    @if (inspection.SecondaryProcesses.Count == 0)
+                    {
+                        <p class="inspection-print-muted">None required</p>
+                    }
+                    else
+                    {
+                        <div class="inspection-print-small-labels" aria-hidden="true">
+                            <span>Process</span>
+                            <span>Specification</span>
+                            <span>Status</span>
+                        </div>
+                        <div class="inspection-print-secondary-table">
+                            <table class="inspection-print-small-table">
+                                <colgroup>
+                                    <col style="width: 30%" />
+                                    <col style="width: 50%" />
+                                    <col style="width: 20%" />
+                                </colgroup>
+                                <tbody>
+                                    @foreach (var process in inspection.SecondaryProcesses)
+                                    {
+                                        <tr>
+                                            <td>@process.ProcessName</td>
+                                            <td>@(process.Specification ?? "—")</td>
+                                            <td>@(process.IsComplete ? "Complete" : "Incomplete")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            @if (!SecondPageNotes)
+            {
+                <section class="inspection-print-notes">
+                    <div><strong>Inspector's Notes:</strong> @(inspection.InspectorNotes ?? "—")</div>
+                </section>
+            }
+
+            <footer class="inspection-print-footer">
+                <span class="inspection-print-form-number">FQ0001</span>
+                <span>Accepted: <strong>@(inspection.InspectionAccepted ? "✓" : "—")</strong></span>
+                <span>Completed: <strong>@(inspection.InspectionCompleted ? "✓" : "—")</strong></span>
+                <span>Inspector: <strong>@(inspection.Inspector ?? "—")</strong></span>
+            </footer>
+        </article>
+
+        @if (SecondPageNotes)
+        {
+            <article class="inspection-print-sheet inspection-print-notes-sheet">
+                <header class="inspection-print-notes-header">
+                    <h1>Inspection Notes</h1>
+                    <div><strong>Part Number:</strong> @inspection.PartNumber</div>
+                    <div><strong>Conformance Lot#:</strong> @(inspection.LotNumber ?? "—")</div>
+                    <div><strong>Date Inspected:</strong> @FormatDate(inspection.InspectionDate)</div>
+                </header>
+                <section class="inspection-print-notes inspection-print-notes-page-content">
+                    <div><strong>Inspector's Notes:</strong> @(inspection.InspectorNotes ?? "—")</div>
+                    <div><strong>In House Notes:</strong> @(inspection.InHouseNotes ?? "—")</div>
+                </section>
+                <footer class="inspection-print-footer">
+                    <span class="inspection-print-form-number">FQ0001</span>
+                </footer>
+            </article>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public long InspectionId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "autoPrint")]
+    public bool AutoPrint { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notesPage")]
+    public string? NotesPage { get; set; }
+
+    private bool SecondPageNotes => string.Equals(NotesPage, "second", StringComparison.OrdinalIgnoreCase);
+
+    private InspectionEditModel? inspection;
+    private bool isLoading = true;
+    private string? loadError;
+    private bool printDialogOpened;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+        try
+        {
+            inspection = await InspectionService.GetInspectionAsync(InspectionId);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load printable inspection {InspectionId}", InspectionId);
+            loadError = "The inspection could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (AutoPrint && inspection is not null && !printDialogOpened)
+        {
+            printDialogOpened = true;
+            await JS.InvokeVoidAsync("window.print");
+        }
+    }
+
+    private static string FormatDate(DateOnly? date) => date?.ToString("MM/dd/yyyy") ?? "—";
+
+    private static string FormatQuantity(int? quantity) => quantity?.ToString("N0") ?? "—";
+
+    private string PrintUrl(bool secondPageNotes = false) =>
+        $"/inspections/{InspectionId}/print{(secondPageNotes ? "?notesPage=second&autoPrint=true" : "?autoPrint=true")}";
+
+    private string DownloadUrl(bool secondPageNotes = false) =>
+        $"/inspections/{InspectionId}/print/download{(secondPageNotes ? "?notesPage=second" : string.Empty)}";
+
+}

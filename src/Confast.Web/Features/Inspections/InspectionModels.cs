@@ -6,6 +6,13 @@ using Confast.Web.Features.InspectionCriteria;
 
 public sealed record InspectionPartOption(long Id, string PartNumber, string CustomerName);
 
+public sealed record CertificationPackageLotOption(
+    long InspectionId,
+    string? LotNumber,
+    string PartNumber,
+    DateOnly InspectionDate,
+    string? Status);
+
 public sealed record InspectionListItem(
     long Id,
     string PartNumber,
@@ -13,7 +20,18 @@ public sealed record InspectionListItem(
     int RevisionNumber,
     string? LotNumber,
     DateOnly InspectionDate,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    uint Version,
+    bool Accepted,
+    bool Completed);
+
+public sealed record InspectionDeleteModel(
+    long Id,
+    string PartNumber,
+    string CustomerName,
+    string? LotNumber,
+    DateOnly InspectionDate,
+    uint Version);
 
 public sealed record InspectionGageChoice(long Id, long GageTypeId, string GageNumber);
 
@@ -54,6 +72,8 @@ public sealed class InspectionEditModel
     public long Id { get; set; }
 
     public long PartId { get; set; }
+
+    public long CustomerId { get; set; }
 
     public string PartNumber { get; set; } = string.Empty;
 
@@ -121,6 +141,13 @@ public sealed class InspectionEditModel
 
     public bool IsMissingRequiredCertifications => Certifications.Any(x => x.IsMissingRequired);
 
+    public bool InspectionAccepted => InspectionStatusEvaluator.IsAccepted(Results);
+
+    public bool InspectionCompleted => InspectionStatusEvaluator.IsCompleted(
+        Results,
+        SecondaryProcesses,
+        Certifications);
+
     public void ApplyGageSelection(InspectionResultEditModel source)
     {
         if (source.GageTypeId is null)
@@ -186,6 +213,23 @@ public static class InspectionCertificationStatus
         CertificationRequirementLevel? requirementLevel,
         int documentCount) =>
         requirementLevel == CertificationRequirementLevel.Required && documentCount == 0;
+}
+
+public static class InspectionStatusEvaluator
+{
+    public static bool IsAccepted(IEnumerable<InspectionResultEditModel> results) =>
+        results.Any()
+        && results.All(x =>
+            x.GageId is not null
+            && x.Evaluation == InspectionResultEvaluation.Pass);
+
+    public static bool IsCompleted(
+        IEnumerable<InspectionResultEditModel> results,
+        IEnumerable<InspectionSecondaryProcessEditModel> secondaryProcesses,
+        IEnumerable<InspectionCertificationListItem> certifications) =>
+        IsAccepted(results)
+        && secondaryProcesses.All(x => x.IsComplete)
+        && certifications.All(x => !x.IsMissingRequired);
 }
 
 public sealed class InspectionSecondaryProcessEditModel

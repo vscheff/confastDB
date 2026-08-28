@@ -6,8 +6,24 @@ using Npgsql;
 
 namespace Confast.Web.Features.Inspections;
 
-public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class InspectionService
 {
+    private readonly IDbContextFactory<AppDbContext> contextFactory;
+    private readonly CertificationPreviewRenderer? certificationPreviewRenderer;
+
+    public InspectionService(IDbContextFactory<AppDbContext> contextFactory)
+    {
+        this.contextFactory = contextFactory;
+    }
+
+    public InspectionService(
+        IDbContextFactory<AppDbContext> contextFactory,
+        CertificationPreviewRenderer certificationPreviewRenderer)
+        : this(contextFactory)
+    {
+        this.certificationPreviewRenderer = certificationPreviewRenderer;
+    }
+
     public const long MaximumCertificationDocumentBytes = 25 * 1024 * 1024;
 
     public async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsync(
@@ -15,7 +31,7 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await db.Inspections
+        var inspections = await db.Inspections
             .AsNoTracking()
             .OrderByDescending(x => x.InspectionDate)
             .ThenByDescending(x => x.Id)
@@ -26,9 +42,90 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
                 x.InspectionCriteriaRevision.RevisionNumber,
                 x.LotNumber,
                 x.InspectionDate,
-                x.CreatedAtUtc))
+                x.CreatedAtUtc,
+                x.Version,
+                false,
+                false))
             .ToListAsync(cancellationToken);
+
+        if (inspections.Count == 0)
+        {
+            return inspections;
+        }
+
+        var inspectionIds = inspections.Select(x => x.Id).ToArray();
+        var resultRows = await db.InspectionResults
+            .AsNoTracking()
+            .Where(x => inspectionIds.Contains(x.InspectionId))
+            .Select(x => new InspectionListResultRow(
+                x.InspectionId,
+                x.GageId,
+                x.ActualMin,
+                x.ActualMax,
+                x.InspectionCriterion.Minimum,
+                x.InspectionCriterion.MaximumOrTolerance))
+            .ToListAsync(cancellationToken);
+        var secondaryProcessRows = await db.InspectionSecondaryProcesses
+            .AsNoTracking()
+            .Where(x => inspectionIds.Contains(x.InspectionId))
+            .Select(x => new { x.InspectionId, x.IsComplete })
+            .ToListAsync(cancellationToken);
+        var missingRequiredCertificationRows = await db.InspectionCertificationRequirements
+            .AsNoTracking()
+            .Where(x => inspectionIds.Contains(x.InspectionId)
+                && x.RequirementLevel == CertificationRequirementLevel.Required)
+            .Select(x => new
+            {
+                x.InspectionId,
+                HasDocument = db.InspectionCertifications
+                    .Where(c => c.InspectionId == x.InspectionId
+                        && c.CertificationTypeId == x.CertificationTypeId)
+                    .SelectMany(c => c.Documents)
+                    .Any()
+            })
+            .ToListAsync(cancellationToken);
+
+        var resultStatusByInspection = resultRows
+            .GroupBy(x => x.InspectionId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Any()
+                    && group.All(x => x.GageId is not null
+                        && InspectionResultEvaluator.Evaluate(
+                            x.Minimum,
+                            x.MaximumOrTolerance,
+                            x.ActualMin,
+                            x.ActualMax) == InspectionResultEvaluation.Pass));
+        var secondaryProcessStatusByInspection = secondaryProcessRows
+            .GroupBy(x => x.InspectionId)
+            .ToDictionary(group => group.Key, group => group.All(x => x.IsComplete));
+        var hasMissingRequiredCertificationByInspection = missingRequiredCertificationRows
+            .GroupBy(x => x.InspectionId)
+            .ToDictionary(group => group.Key, group => group.Any(x => !x.HasDocument));
+
+        return inspections
+            .Select(inspection =>
+            {
+                resultStatusByInspection.TryGetValue(inspection.Id, out var accepted);
+                var completed = accepted
+                    && (!secondaryProcessStatusByInspection.TryGetValue(
+                        inspection.Id,
+                        out var processesComplete) || processesComplete)
+                    && (!hasMissingRequiredCertificationByInspection.TryGetValue(
+                        inspection.Id,
+                        out var missingCertification) || !missingCertification);
+                return inspection with { Accepted = accepted, Completed = completed };
+            })
+            .ToList();
     }
+
+    private sealed record InspectionListResultRow(
+        long InspectionId,
+        long? GageId,
+        string? ActualMin,
+        string? ActualMax,
+        string? Minimum,
+        string? MaximumOrTolerance);
 
     public async Task<IReadOnlyList<InspectionPartOption>> GetPartOptionsAsync(
         CancellationToken cancellationToken = default)
@@ -43,6 +140,43 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
             .ThenBy(x => x.PartNumber)
             .Select(x => new InspectionPartOption(x.Id, x.PartNumber, x.Customer.Name))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CertificationPackageLotOption>> GetCertificationPackageLotOptionsAsync(
+        long customerId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Inspections
+            .AsNoTracking()
+            .Where(x => x.Part.CustomerId == customerId)
+            .OrderByDescending(x => x.InspectionDate)
+            .ThenByDescending(x => x.Id)
+            .Select(x => new CertificationPackageLotOption(
+                x.Id,
+                x.LotNumber,
+                x.Part.PartNumber,
+                x.InspectionDate,
+                x.Certifications.Any(c => c.Documents.Any()) ? "Documents uploaded" : "No documents uploaded"))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<InspectionDeleteModel?> GetInspectionForDeleteAsync(
+        long inspectionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Inspections
+            .AsNoTracking()
+            .Where(x => x.Id == inspectionId)
+            .Select(x => new InspectionDeleteModel(
+                x.Id,
+                x.Part.PartNumber,
+                x.Part.Customer.Name,
+                x.LotNumber,
+                x.InspectionDate,
+                x.Version))
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     public async Task<InspectionOperationResult> CreateInspectionAsync(
@@ -63,19 +197,30 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
             cancellationToken);
 
         var revision = await db.InspectionCriteriaRevisions
-            .Where(x => x.PartId == model.PartId
-                && x.PublishedAtUtc != null
-                && x.SupersededAtUtc == null)
-            .Include(x => x.Criteria)
-            .Include(x => x.SecondaryProcessRequirements)
-                .ThenInclude(x => x.SecondaryProcessType)
-            .Include(x => x.CertificationRequirements)
+            .FromSqlInterpolated($$"""
+                SELECT r.*, r.xmin
+                FROM inspection_criteria_revisions AS r
+                WHERE r.part_id = {{model.PartId}}
+                    AND r.published_at_utc IS NOT NULL
+                    AND r.superseded_at_utc IS NULL
+                FOR UPDATE
+                """)
             .SingleOrDefaultAsync(cancellationToken);
 
         if (revision is null)
         {
             return new InspectionOperationResult(InspectionOperationStatus.NoCurrentRevision);
         }
+
+        await db.Entry(revision).Collection(x => x.Criteria).LoadAsync(cancellationToken);
+        await db.Entry(revision)
+            .Collection(x => x.SecondaryProcessRequirements)
+            .Query()
+            .Include(x => x.SecondaryProcessType)
+            .LoadAsync(cancellationToken);
+        await db.Entry(revision)
+            .Collection(x => x.CertificationRequirements)
+            .LoadAsync(cancellationToken);
 
         var criterionGageTypeIds = revision.Criteria
             .Where(x => x.GageTypeId is not null)
@@ -178,6 +323,7 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
             {
                 Id = x.Id,
                 PartId = x.PartId,
+                CustomerId = x.Part.CustomerId,
                 PartNumber = x.Part.PartNumber,
                 CustomerName = x.Part.Customer.Name,
                 InspectionCriteriaRevisionId = x.InspectionCriteriaRevisionId,
@@ -250,6 +396,7 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
 
         var certificationTypes = await db.CertificationTypes
             .AsNoTracking()
+            .Where(x => x.Name != "Inspection Sheet")
             .OrderBy(x => x.DisplayOrder)
             .Select(x => new CertificationTypeChoice(x.Id, x.Name, x.DisplayOrder))
             .ToListAsync(cancellationToken);
@@ -399,6 +546,13 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
         }
+        catch (PostgresException exception) when (exception.SqlState is
+            PostgresErrorCodes.ForeignKeyViolation
+            or PostgresErrorCodes.RestrictViolation
+            or PostgresErrorCodes.SerializationFailure)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
+        }
     }
 
     public async Task<InspectionCertificationDocumentFile?> GetCertificationDocumentAsync(
@@ -416,6 +570,88 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
                 x.ContentType,
                 x.Content))
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<InspectionCertificationDocumentFile>> GetCertificationDocumentsForPdfAsync(
+        long inspectionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.CertificationDocuments
+            .AsNoTracking()
+            .Where(x => x.InspectionCertification.InspectionId == inspectionId)
+            .OrderBy(x => x.InspectionCertification.CertificationType.DisplayOrder)
+            .ThenBy(x => x.UploadedAtUtc)
+            .ThenBy(x => x.Id)
+            .Select(x => new InspectionCertificationDocumentFile(
+                x.OriginalFileName,
+                x.ContentType,
+                x.Content))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<InspectionCertificationDocumentFile?> GetCertificationDocumentPreviewAsync(
+        long inspectionId,
+        long documentId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var document = await db.CertificationDocuments
+            .SingleOrDefaultAsync(x => x.Id == documentId
+                && x.InspectionCertification.InspectionId == inspectionId,
+                cancellationToken);
+        if (document is null)
+        {
+            return null;
+        }
+
+        if (document.PreviewContent is { Length: > 0 })
+        {
+            return new InspectionCertificationDocumentFile(
+                document.OriginalFileName,
+                "application/pdf",
+                document.PreviewContent);
+        }
+
+        if (certificationPreviewRenderer is null)
+        {
+            return new InspectionCertificationDocumentFile(
+                document.OriginalFileName,
+                document.ContentType,
+                document.Content);
+        }
+
+        var previewContent = await certificationPreviewRenderer.RenderAsync(
+            document.Content,
+            cancellationToken);
+        if (previewContent is null)
+        {
+            return new InspectionCertificationDocumentFile(
+                document.OriginalFileName,
+                document.ContentType,
+                document.Content);
+        }
+
+        document.PreviewContent = previewContent;
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another request may have generated the preview first. The bytes
+            // generated for this request are still safe to return.
+        }
+        catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
+        {
+            // A concurrent request may have generated the preview first. The bytes
+            // generated for this request are still safe to return.
+        }
+
+        return new InspectionCertificationDocumentFile(
+            document.OriginalFileName,
+            "application/pdf",
+            previewContent);
     }
 
     public async Task<InspectionOperationResult> DeleteCertificationDocumentAsync(
@@ -633,6 +869,22 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
         {
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+
+            // Keep the caller's edit model usable for the next autosave. Npgsql
+            // refreshes xmin after SaveChangesAsync, but the DbContext is about
+            // to be disposed and the UI must not reload the whole form just to
+            // obtain the new concurrency tokens.
+            model.Version = inspection.Version;
+            foreach (var result in inspection.Results)
+            {
+                submittedResults[result.Id].Version = result.Version;
+            }
+
+            foreach (var secondaryProcess in inspection.SecondaryProcesses)
+            {
+                submittedSecondaryProcesses[secondaryProcess.Id].Version = secondaryProcess.Version;
+            }
+
             return new InspectionOperationResult(InspectionOperationStatus.Succeeded, inspection.Id);
         }
         catch (DbUpdateConcurrencyException)
@@ -642,6 +894,71 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
         catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspection.Id);
+        }
+    }
+
+    public async Task<InspectionOperationResult> DeleteInspectionAsync(
+        long inspectionId,
+        uint version,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var inspection = await db.Inspections
+            .FromSqlInterpolated($"SELECT i.*, i.xmin FROM inspections AS i WHERE id = {inspectionId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (inspection is null)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.NotFound);
+        }
+
+        if (inspection.Version != version)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
+        }
+
+        var certificationIds = db.InspectionCertifications
+            .Where(x => x.InspectionId == inspectionId)
+            .Select(x => x.Id);
+
+        try
+        {
+            await db.CertificationDocuments
+                .Where(x => certificationIds.Contains(x.InspectionCertificationId))
+                .ExecuteDeleteAsync(cancellationToken);
+            await db.InspectionCertifications
+                .Where(x => x.InspectionId == inspectionId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await db.InspectionCertificationRequirements
+                .Where(x => x.InspectionId == inspectionId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await db.InspectionSecondaryProcesses
+                .Where(x => x.InspectionId == inspectionId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await db.InspectionResults
+                .Where(x => x.InspectionId == inspectionId)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            db.Entry(inspection).Property(x => x.Version).OriginalValue = version;
+            db.Inspections.Remove(inspection);
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new InspectionOperationResult(InspectionOperationStatus.Succeeded, inspectionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
+        }
+        catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
+        }
+        catch (PostgresException exception) when (exception.SqlState is
+            PostgresErrorCodes.ForeignKeyViolation
+            or PostgresErrorCodes.RestrictViolation
+            or PostgresErrorCodes.SerializationFailure)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
         }
     }
 
@@ -759,6 +1076,7 @@ public sealed class InspectionService(IDbContextFactory<AppDbContext> contextFac
         var postgresException = exception.GetBaseException() as PostgresException;
         return postgresException?.SqlState is PostgresErrorCodes.UniqueViolation
             or PostgresErrorCodes.ForeignKeyViolation
+            or PostgresErrorCodes.RestrictViolation
             or PostgresErrorCodes.CheckViolation
             or PostgresErrorCodes.SerializationFailure;
     }

@@ -10,7 +10,7 @@
 <div class="page-heading">
     <div>
         <h1>Inspection criteria history</h1>
-        <p>Published revisions are permanent, read-only snapshots.</p>
+        <p>Published revisions become permanent, read-only snapshots once an inspection uses them.</p>
     </div>
     @if (!isLoading && revisions.All(x => !x.IsDraft))
     {
@@ -28,11 +28,16 @@ else if (loadError is not null)
 {
     <div class="alert alert-error">@loadError</div>
 }
-else if (revisions.Count == 0)
+else if (deleteMessage is not null)
+{
+    <div class="alert @deleteMessageClass" role="alert">@deleteMessage</div>
+}
+
+@if (!isLoading && loadError is null && revisions.Count == 0)
 {
     <div class="empty-state">No inspection criteria revisions exist for this part.</div>
 }
-else
+else if (!isLoading && loadError is null && revisions.Count > 0)
 {
     <div class="table-shell">
         <table class="data-table">
@@ -46,7 +51,21 @@ else
                         <td data-label="Criteria">@revision.CriterionCount</td>
                         <td data-label="Published">@(revision.PublishedAtUtc?.ToString("u") ?? "—")</td>
                         <td data-label="Change note">@(revision.ChangeNote ?? "—")</td>
-                        <td class="table-action"><a class="button button-secondary" href="@RevisionUrl(revision.Id)">@(revision.IsDraft ? "Edit" : "View")</a></td>
+                        <td class="table-action">
+                            @if (pendingDeleteId == revision.Id)
+                            {
+                                <button class="button button-danger" type="button" @onclick="() => DeleteAsync(revision)" disabled="@isDeleting">Confirm</button>
+                                <button class="button button-secondary" type="button" @onclick="CancelDelete" disabled="@isDeleting">Cancel</button>
+                            }
+                            else
+                            {
+                                <a class="button button-secondary" href="@RevisionUrl(revision.Id)">@(revision.CanEdit ? "Edit" : "View")</a>
+                                @if (revision.CanEdit)
+                                {
+                                    <button class="button button-danger" type="button" @onclick="() => BeginDelete(revision.Id)" disabled="@isDeleting">Delete</button>
+                                }
+                            }
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -59,11 +78,16 @@ else
 
     private IReadOnlyList<InspectionCriteriaRevisionSummary> revisions = [];
     private bool isLoading = true;
+    private bool isDeleting;
+    private long? pendingDeleteId;
     private string? loadError;
+    private string? deleteMessage;
+    private string deleteMessageClass = "alert-error";
 
     protected override async Task OnParametersSetAsync()
     {
         isLoading = true;
+        loadError = null;
         try
         {
             revisions = await CriteriaService.GetRevisionHistoryAsync(PartId);
@@ -76,6 +100,60 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private void BeginDelete(long revisionId)
+    {
+        pendingDeleteId = revisionId;
+        deleteMessage = "Delete this entire revision and all of its criteria and requirements?";
+        deleteMessageClass = "alert-warning";
+    }
+
+    private void CancelDelete()
+    {
+        pendingDeleteId = null;
+        deleteMessage = null;
+    }
+
+    private async Task DeleteAsync(InspectionCriteriaRevisionSummary revision)
+    {
+        isDeleting = true;
+        deleteMessage = null;
+        try
+        {
+            var result = await CriteriaService.DeleteRevisionAsync(PartId, revision.Id, revision.Version);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                pendingDeleteId = null;
+                revisions = await CriteriaService.GetRevisionHistoryAsync(PartId);
+                deleteMessage = "Revision deleted.";
+                deleteMessageClass = "alert-success";
+                return;
+            }
+
+            pendingDeleteId = null;
+            deleteMessage = result.Status switch
+            {
+                CriteriaOperationStatus.RevisionInUse => "This revision cannot be deleted because an inspection uses it.",
+                CriteriaOperationStatus.NotFound => "The revision no longer exists.",
+                CriteriaOperationStatus.Conflict => "Another user changed this revision. Reload before trying again.",
+                _ => "The revision could not be deleted."
+            };
+            deleteMessageClass = result.Status == CriteriaOperationStatus.Conflict
+                ? "alert-warning"
+                : "alert-error";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to delete criteria revision {RevisionId}", revision.Id);
+            pendingDeleteId = null;
+            deleteMessage = "The revision could not be deleted. Please try again.";
+            deleteMessageClass = "alert-error";
+        }
+        finally
+        {
+            isDeleting = false;
         }
     }
 

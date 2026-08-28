@@ -1,7 +1,11 @@
 @page "/inspections/{InspectionId:long}"
 @using Confast.Web.Features.Inspections
 @inject InspectionService InspectionService
+@inject ICertificationPackageService CertificationPackageService
+@inject IEmailService EmailService
 @inject ILogger<Edit> Logger
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
 
 <PageTitle>Inspection</PageTitle>
 
@@ -30,7 +34,91 @@ else
             <h1>Inspection · @inspection.PartNumber</h1>
             <p>@inspection.CustomerName · Criteria revision @inspection.RevisionNumber@(inspection.PrintRevisionNumber is null ? null : $" · Print revision {inspection.PrintRevisionNumber}")</p>
         </div>
+        <div class="inspection-indicators" aria-label="Inspection status">
+            <span class="inspection-indicator @(inspection.InspectionAccepted ? "inspection-indicator-positive" : "inspection-indicator-incomplete")">
+                Inspection Accepted: @(inspection.InspectionAccepted ? "Yes" : "No")
+            </span>
+            <span class="inspection-indicator @(inspection.InspectionCompleted ? "inspection-indicator-positive" : "inspection-indicator-incomplete")">
+                Inspection Completed: @(inspection.InspectionCompleted ? "Yes" : "No")
+            </span>
+        </div>
+        <div class="heading-actions">
+            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
+            <details class="inspection-print-options">
+                <summary class="button button-secondary">Print / Download</summary>
+                <div class="inspection-print-options-menu">
+                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?autoPrint=true")" target="_blank" rel="noopener">Print</a>
+                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download")" download data-enhance-nav="false">Download</a>
+                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?notesPage=second&autoPrint=true")" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
+                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download?notesPage=second")" download data-enhance-nav="false">Download (Show Extended Notes)</a>
+                </div>
+            </details>
+            <button class="button button-primary"
+                    type="button"
+                    @onclick="DownloadInspectionSheetPdfAsync"
+                    disabled="@(isSaving || isCertificationWorking)">
+                Archive
+            </button>
+            <button class="button button-primary" type="button" @onclick="OpenCertificationPackageAsync">
+                Certification Package
+            </button>
+            <a class="button button-danger-outline" href="@($"/inspections/{inspection.Id}/delete")">Delete inspection</a>
+        </div>
     </div>
+
+    @if (showCertificationPackage)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal certification-package-modal" role="dialog" aria-modal="true" aria-labelledby="certification-package-title">
+                <div class="page-heading">
+                    <div>
+                        <h2 id="certification-package-title">Certification Package</h2>
+                        <p>@inspection.CustomerName</p>
+                    </div>
+                    <button class="button button-secondary" type="button" @onclick="CloseCertificationPackage">Close</button>
+                </div>
+                <div class="form-field">
+                    <label for="package-ship-date">Ship Date</label>
+                    <InputDate id="package-ship-date" @bind-Value="packageShipDate" />
+                </div>
+                <h3>Lots</h3>
+                @if (packageLots.Count == 0)
+                {
+                    <p class="status-message">No lots are available for this customer.</p>
+                }
+                else
+                {
+                    <div class="certification-package-lots">
+                        @foreach (var lot in packageLots)
+                        {
+                            <label class="certification-package-lot">
+                                <input type="checkbox" checked="@selectedPackageLotIds.Contains(lot.InspectionId)"
+                                       @onchange="eventArgs => SetPackageLotSelected(lot.InspectionId, eventArgs.Value is true)" />
+                                <span><strong>@(lot.LotNumber ?? "(no lot number)")</strong> · @lot.PartNumber · @lot.InspectionDate.ToString("yyyy-MM-dd")</span>
+                                <small>@lot.Status</small>
+                            </label>
+                        }
+                    </div>
+                }
+                @if (generatedPackage is not null)
+                {
+                    <div class="alert alert-success" role="status">
+                        Generated <strong>@generatedPackage.FileName</strong> for @generatedPackage.Lots.Count lot(s).
+                        To: @(generatedPackage.ToRecipients.Count == 0 ? "none configured" : string.Join(", ", generatedPackage.ToRecipients))
+                    </div>
+                }
+                @if (packageMessage is not null)
+                {
+                    <div class="alert @(packageSucceeded ? "alert-success" : "alert-error")" role="alert">@packageMessage</div>
+                }
+                <div class="heading-actions">
+                    <button class="button button-secondary" type="button" @onclick="GenerateCertificationPackageAsync" disabled="@packageWorking">Generate / Validate</button>
+                    <button class="button button-primary" type="button" @onclick="DownloadCertificationPackageAsync" disabled="@(packageWorking || generatedPackage is null)">Download PDF</button>
+                    <button class="button button-primary" type="button" @onclick="EmailCertificationPackageAsync" disabled="@(packageWorking || generatedPackage is null || generatedPackage.ToRecipients.Count == 0)">Email PDF</button>
+                </div>
+            </section>
+        </div>
+    }
 
     @if (saveMessage is not null)
     {
@@ -57,7 +145,11 @@ else
                 role="tab"
                 aria-selected="@(activeTab == InspectionTab.Certifications)"
                 @onclick="ShowCertifications">
-            Certifications@if (inspection.IsMissingRequiredCertifications) { <span class="tab-warning" aria-label="Missing required certifications">!</span> }
+            <span>Certifications</span>
+            @if (inspection.IsMissingRequiredCertifications)
+            {
+                <span class="tab-warning" aria-label="Missing required certifications">!</span>
+            }
         </button>
     </div>
 
@@ -94,40 +186,40 @@ else
             <div class="inspection-header-group inspection-mutable-group" role="group" aria-label="Inspection details">
             <div class="form-field inspection-lot-field">
                 <label for="lot-number">Lot number</label>
-                <InputText id="lot-number" @bind-Value="inspection.LotNumber" />
+                <InputText id="lot-number" @bind-Value="inspection.LotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             <div class="form-field inspection-po-field">
                 <label for="conformance-po-number">Conformance PO#</label>
-                <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" />
+                <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             <div class="form-field inspection-manufacturer-lot-field">
                 <label for="manufacturer-lot-number">Manufacturer's Lot#</label>
-                <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" />
+                <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             <div class="form-field inspection-received-date-field">
                 <label for="date-received">Date Received</label>
-                <InputDate id="date-received" @bind-Value="inspection.DateReceived" />
+                <InputDate id="date-received" @bind-Value="inspection.DateReceived" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             <div class="form-field inspection-date-field">
                 <label for="inspection-date">Inspection date</label>
-                <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" />
+                <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" @bind-Value:after="SaveInspectionAfterEditAsync" />
                 <ValidationMessage For="@(() => inspection.InspectionDate)" />
             </div>
             <div class="form-field inspection-quantity-received-field">
                 <label for="quantity-received">Quantity Received</label>
                 <ThousandsSeparatedIntegerInput id="quantity-received"
                                                 @bind-Value="inspection.QuantityReceived"
-                                                @bind-Value:after="UpdateQuantityInspected" />
+                                                @bind-Value:after="UpdateQuantityInspectedAndSaveAsync" />
                 <ValidationMessage For="@(() => inspection.QuantityReceived)" />
             </div>
             <div class="form-field inspection-quantity-inspected-field">
                 <label for="quantity-inspected">Quantity Inspected</label>
-                <InputNumber id="quantity-inspected" tabindex="-1" @bind-Value="inspection.QuantityInspected" />
+                <InputNumber id="quantity-inspected" tabindex="-1" @bind-Value="inspection.QuantityInspected" @bind-Value:after="SaveInspectionAfterEditAsync" />
                 <ValidationMessage For="@(() => inspection.QuantityInspected)" />
             </div>
             <div class="form-field inspection-inspector-field">
                 <label for="inspector">Inspector</label>
-                <InputText id="inspector" tabindex="-1" @bind-Value="inspection.Inspector" />
+                <InputText id="inspector" tabindex="-1" @bind-Value="inspection.Inspector" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             </div>
         </div>
@@ -162,7 +254,8 @@ else
                                 <select class="inspection-gage-select"
                                         aria-label="Gage number for @result.Name"
                                         @bind="result.GageId"
-                                        @bind:after="() => inspection.ApplyGageSelection(result)"
+                                        @bind:after="() => ApplyGageSelectionAndSaveAsync(result)"
+                                        tabindex="@(result.GageId is not null ? "-1" : "0")"
                                         disabled="@(result.GageChoices.Count == 0)">
                                     <option value="">@(result.GageChoices.Count == 0 ? "No gages available" : "Select gage")</option>
                                     @foreach (var gage in result.GageChoices)
@@ -176,7 +269,7 @@ else
                                        aria-label="Recorded maximum for @result.Name"
                                        @bind="result.ActualMax"
                                        @bind:event="oninput"
-                                       @onchange="() => CommitRecordedMaximum(result)" />
+                                       @onchange="() => CommitRecordedMaximumAndSaveAsync(result)" />
                                 <ValidationMessage For="@(() => result.ActualMax)" />
                                 @if (recordedMaximumMessages.TryGetValue(result.Id, out var maximumMessage))
                                 {
@@ -188,7 +281,8 @@ else
                                        aria-label="Recorded minimum for @result.Name"
                                        @bind="result.ActualMin"
                                        @bind:event="oninput"
-                                       @onchange="() => CommitRecordedMinimum(result)" />
+                                       @onchange="() => CommitRecordedMinimumAndSaveAsync(result)"
+                                       tabindex="@(ShouldSkipRecordedMinimum(result) ? "-1" : "0")" />
                                 <ValidationMessage For="@(() => result.ActualMin)" />
                                 @if (recordedMinimumMessages.TryGetValue(result.Id, out var minimumMessage))
                                 {
@@ -232,7 +326,8 @@ else
                                     <td data-label="PO number">
                                         <InputText class="inspection-process-po-input"
                                                    aria-label="@($"PO number for {process.ProcessName}")"
-                                                   @bind-Value="process.PurchaseOrderNumber" />
+                                                   @bind-Value="process.PurchaseOrderNumber"
+                                                   @bind-Value:after="SaveInspectionAfterEditAsync" />
                                     </td>
                                     <td data-label="Status">
                                         <fieldset class="inspection-process-status">
@@ -241,14 +336,14 @@ else
                                                 <input type="radio"
                                                        name="secondary-process-status-@process.Id"
                                                        checked="@process.IsComplete"
-                                                       @onchange="() => process.IsComplete = true" />
+                                                       @onchange="() => SetSecondaryProcessCompletionAndSaveAsync(process, true)" />
                                                 Complete
                                             </label>
                                             <label>
                                                 <input type="radio"
                                                        name="secondary-process-status-@process.Id"
                                                        checked="@(!process.IsComplete)"
-                                                       @onchange="() => process.IsComplete = false" />
+                                                       @onchange="() => SetSecondaryProcessCompletionAndSaveAsync(process, false)" />
                                                 Incomplete
                                             </label>
                                         </fieldset>
@@ -270,11 +365,11 @@ else
         <section class="inspection-notes-section">
             <div class="form-field">
                 <label for="inspector-notes">Inspector's Notes</label>
-                <InputTextArea id="inspector-notes" @bind-Value="inspection.InspectorNotes" />
+                <InputTextArea id="inspector-notes" @bind-Value="inspection.InspectorNotes" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             <div class="form-field">
                 <label for="in-house-notes">In House Notes</label>
-                <InputTextArea id="in-house-notes" @bind-Value="inspection.InHouseNotes" />
+                <InputTextArea id="in-house-notes" @bind-Value="inspection.InHouseNotes" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
         </section>
 
@@ -380,9 +475,13 @@ else
                                         <small>Uploaded @document.UploadedAtUtc.ToString("u")</small>
                                     </div>
                                     <div class="row-actions">
-                                        <button class="button button-secondary button-compact" type="button" @onclick="() => selectedDocumentId = document.Id">Preview</button>
                                         <a class="button button-secondary button-compact" href="@CertificationDocumentUrl(document.Id)" target="_blank" rel="noopener">Open / Print</a>
-                                        <a class="button button-secondary button-compact" href="@CertificationDocumentDownloadUrl(document.Id)">Download</a>
+                                        <a class="button button-secondary button-compact"
+                                           href="@CertificationDocumentDownloadUrl(document.Id)"
+                                           download
+                                           data-enhance-nav="false">
+                                            Download
+                                        </a>
                                         @if (pendingCertificationDocumentDeleteId == document.Id)
                                         {
                                             <button class="button button-danger button-compact" type="button" @onclick="() => DeleteCertificationDocumentAsync(document)" disabled="@isCertificationWorking">Confirm delete</button>
@@ -423,6 +522,14 @@ else
     private bool isSaving;
     private bool saveSucceeded;
     private bool isCertificationWorking;
+    private bool showCertificationPackage;
+    private bool packageWorking;
+    private bool packageSucceeded;
+    private DateOnly packageShipDate;
+    private string? packageMessage;
+    private IReadOnlyList<CertificationPackageLotOption> packageLots = [];
+    private readonly HashSet<long> selectedPackageLotIds = [];
+    private CertificationPackage? generatedPackage;
     private long? selectedCertificationTypeId;
     private long? selectedDocumentId;
     private long? pendingCertificationDocumentDeleteId;
@@ -444,16 +551,196 @@ else
         $"{CertificationDocumentUrl(documentId)}/download";
 
     private string CertificationDocumentViewerUrl(long documentId) =>
-        $"/pdf-viewer/index.html?file={Uri.EscapeDataString(CertificationDocumentUrl(documentId))}";
+        $"/pdf-viewer/index.html?file={Uri.EscapeDataString($"/inspections/{InspectionId}/certifications/documents/{documentId}/preview")}&original={Uri.EscapeDataString(CertificationDocumentUrl(documentId))}";
 
-    private void UpdateQuantityInspected()
+    private async Task DownloadInspectionSheetPdfAsync()
+    {
+        if (inspection is null || isSaving || isCertificationWorking)
+        {
+            return;
+        }
+
+        isSaving = true;
+        saveMessage = null;
+        saveSucceeded = false;
+        try
+        {
+            var result = await SavePendingInspectionAsync();
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                CaptureCommittedMeasurements();
+                await JS.InvokeVoidAsync(
+                    "confast.downloadFile",
+                    $"/inspections/{InspectionId}/inspection-sheet/download");
+                return;
+            }
+
+            saveMessage = result.Status switch
+            {
+                InspectionOperationStatus.Conflict =>
+                    "Someone else changed this inspection. Reload it before creating the PDF.",
+                InspectionOperationStatus.ValidationFailed => result.Message,
+                InspectionOperationStatus.NotFound => "The inspection no longer exists.",
+                _ => "The inspection could not be saved before creating the PDF."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to create or download the PDF for inspection {InspectionId}", InspectionId);
+            saveMessage = "The inspection PDF could not be downloaded. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task OpenCertificationPackageAsync()
+    {
+        if (inspection is null) return;
+        packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(inspection.CustomerId);
+        selectedPackageLotIds.Clear();
+        selectedPackageLotIds.Add(inspection.Id);
+        packageShipDate = ShipDateCalculator.NextWorkDay(DateOnly.FromDateTime(DateTime.Today));
+        generatedPackage = null;
+        packageMessage = null;
+        packageSucceeded = false;
+        showCertificationPackage = true;
+    }
+
+    private void CloseCertificationPackage() => showCertificationPackage = false;
+
+    private void SetPackageLotSelected(long inspectionId, bool selected)
+    {
+        if (selected) selectedPackageLotIds.Add(inspectionId);
+        else selectedPackageLotIds.Remove(inspectionId);
+        generatedPackage = null;
+        packageMessage = null;
+    }
+
+    private async Task GenerateCertificationPackageAsync()
+    {
+        packageWorking = true;
+        packageSucceeded = false;
+        packageMessage = null;
+        generatedPackage = null;
+        try
+        {
+            if (selectedPackageLotIds.Count == 0)
+            {
+                packageMessage = "Select at least one lot.";
+                return;
+            }
+            generatedPackage = await CertificationPackageService.BuildAsync(
+                new CertificationPackageRequest(inspection!.CustomerId, selectedPackageLotIds, packageShipDate),
+                Navigation.BaseUri);
+            packageSucceeded = true;
+            packageMessage = "Certification package generated and validated.";
+        }
+        catch (CertificationPackageException exception)
+        {
+            packageMessage = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to generate certification package for inspection {InspectionId}", InspectionId);
+            packageMessage = "The certification package could not be generated.";
+        }
+        finally { packageWorking = false; }
+    }
+
+    private async Task DownloadCertificationPackageAsync()
+    {
+        if (generatedPackage is null) return;
+        await JS.InvokeVoidAsync("confast.downloadBytes", generatedPackage.FileName, generatedPackage.Content);
+        packageMessage = "Certification package download started.";
+        packageSucceeded = true;
+    }
+
+    private async Task EmailCertificationPackageAsync()
+    {
+        if (generatedPackage is null) return;
+        packageWorking = true;
+        packageSucceeded = false;
+        try
+        {
+            await EmailService.SendAsync(new EmailMessage(
+                generatedPackage.ToRecipients,
+                generatedPackage.CcRecipients,
+                $"Certification package for {generatedPackage.CustomerName}",
+                $"Attached is the certification package for {string.Join(", ", generatedPackage.Lots.Select(x => x.LotNumber ?? x.InspectionId.ToString()))}. Ship date: {generatedPackage.ShipDate:yyyy-MM-dd}.",
+                generatedPackage.FileName,
+                generatedPackage.Content));
+            packageSucceeded = true;
+            packageMessage = "Certification package emailed successfully.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to email certification package for inspection {InspectionId}", InspectionId);
+            packageMessage = "The certification package could not be emailed.";
+        }
+        finally { packageWorking = false; }
+    }
+
+    private async Task SaveInspectionAfterEditAsync()
+    {
+        if (inspection is null || isSaving || isCertificationWorking)
+        {
+            return;
+        }
+
+        isSaving = true;
+        saveMessage = null;
+        saveSucceeded = false;
+
+        try
+        {
+            var result = await InspectionService.SaveInspectionAsync(inspection);
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                CaptureCommittedMeasurements();
+                return;
+            }
+
+            saveMessage = result.Status switch
+            {
+                InspectionOperationStatus.Conflict =>
+                    "Someone else changed this inspection. Your latest change was not saved; reload before trying again.",
+                InspectionOperationStatus.ValidationFailed => result.Message,
+                InspectionOperationStatus.NotFound => "The inspection no longer exists.",
+                _ => "The inspection could not be saved. Please try again."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to automatically save inspection {InspectionId}", InspectionId);
+            saveMessage = "The inspection could not be saved. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task UpdateQuantityInspectedAndSaveAsync()
     {
         if (inspection is not null)
         {
             inspection.QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(
                 inspection.QuantityReceived);
         }
+
+        await SaveInspectionAfterEditAsync();
     }
+
+    private async Task ApplyGageSelectionAndSaveAsync(InspectionResultEditModel result)
+    {
+        inspection!.ApplyGageSelection(result);
+        await SaveInspectionAfterEditAsync();
+    }
+
+    private static bool ShouldSkipRecordedMinimum(InspectionResultEditModel result) =>
+        InspectionResultEvaluator.TryNormalizePassingEntry(result.ActualMax, out _);
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -552,6 +839,12 @@ else
         committedMaximums[result.Id] = result.ActualMax;
     }
 
+    private async Task CommitRecordedMaximumAndSaveAsync(InspectionResultEditModel result)
+    {
+        CommitRecordedMaximum(result);
+        await SaveInspectionAfterEditAsync();
+    }
+
     private void CommitRecordedMinimum(InspectionResultEditModel result)
     {
         recordedMinimumMessages.Remove(result.Id);
@@ -573,6 +866,20 @@ else
         }
 
         committedMinimums[result.Id] = result.ActualMin;
+    }
+
+    private async Task CommitRecordedMinimumAndSaveAsync(InspectionResultEditModel result)
+    {
+        CommitRecordedMinimum(result);
+        await SaveInspectionAfterEditAsync();
+    }
+
+    private async Task SetSecondaryProcessCompletionAndSaveAsync(
+        InspectionSecondaryProcessEditModel process,
+        bool isComplete)
+    {
+        process.IsComplete = isComplete;
+        await SaveInspectionAfterEditAsync();
     }
 
     private void CaptureCommittedMeasurements()
@@ -612,16 +919,40 @@ else
 
     private async Task UploadCertificationDocumentAsync(InputFileChangeEventArgs eventArgs)
     {
-        if (SelectedCertification is null)
+        if (inspection is null || SelectedCertification is null)
         {
             return;
         }
 
+        var certificationTypeId = SelectedCertification.CertificationTypeId;
         isCertificationWorking = true;
         saveMessage = null;
         saveSucceeded = false;
         try
         {
+            var inspectionSave = await SavePendingInspectionAsync();
+            if (inspectionSave.Status != InspectionOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                activeTab = InspectionTab.Certifications;
+                saveMessage = inspectionSave.Status switch
+                {
+                    InspectionOperationStatus.Conflict =>
+                        "Someone else changed this inspection. Reload it before uploading a document.",
+                    InspectionOperationStatus.ValidationFailed => inspectionSave.Message,
+                    InspectionOperationStatus.NotFound => "The inspection no longer exists.",
+                    _ => "The inspection could not be saved before uploading the document."
+                };
+                return;
+            }
+
+            await LoadAsync();
+            if (SelectedCertification is null)
+            {
+                saveMessage = "The certification requirement could not be loaded. Please try again.";
+                return;
+            }
+
             foreach (var file in eventArgs.GetMultipleFiles(20))
             {
                 await using var stream = file.OpenReadStream(InspectionService.MaximumCertificationDocumentBytes);
@@ -629,7 +960,7 @@ else
                 await stream.CopyToAsync(buffer);
                 var result = await InspectionService.UploadCertificationDocumentAsync(
                     InspectionId,
-                    SelectedCertification.CertificationTypeId,
+                    certificationTypeId,
                     file.Name,
                     buffer.ToArray());
                 if (result.Status != InspectionOperationStatus.Succeeded)
@@ -670,6 +1001,22 @@ else
         saveSucceeded = false;
         try
         {
+            var inspectionSave = await SavePendingInspectionAsync();
+            if (inspectionSave.Status != InspectionOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                activeTab = InspectionTab.Certifications;
+                saveMessage = inspectionSave.Status switch
+                {
+                    InspectionOperationStatus.Conflict =>
+                        "Someone else changed this inspection. Reload it before deleting the document.",
+                    InspectionOperationStatus.ValidationFailed => inspectionSave.Message,
+                    InspectionOperationStatus.NotFound => "The inspection no longer exists.",
+                    _ => "The inspection could not be saved before deleting the document."
+                };
+                return;
+            }
+
             var result = await InspectionService.DeleteCertificationDocumentAsync(
                 InspectionId,
                 document.Id,
@@ -698,6 +1045,19 @@ else
         {
             isCertificationWorking = false;
         }
+    }
+
+    private async Task<InspectionOperationResult> SavePendingInspectionAsync()
+    {
+        if (inspection is null)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.NotFound, InspectionId);
+        }
+
+        // Measurement inputs and the inspection header share this edit model.
+        // Certification actions reload it, so commit pending edits first.
+        var result = await InspectionService.SaveInspectionAsync(inspection);
+        return result;
     }
 
     private static string CertificationStatusIcon(InspectionCertificationListItem certification) =>
