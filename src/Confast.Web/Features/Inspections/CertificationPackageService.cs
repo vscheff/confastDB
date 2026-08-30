@@ -20,7 +20,8 @@ public static class ShipDateCalculator
 public sealed record CertificationPackageRequest(
     long ExpectedCustomerId,
     IReadOnlyCollection<long> InspectionIds,
-    DateOnly ShipDate);
+    DateOnly ShipDate,
+    long PlantId);
 
 public sealed record CertificationPackageLot(
     long InspectionId,
@@ -33,6 +34,8 @@ public sealed record CertificationPackageLot(
 public sealed record CertificationPackage(
     long CustomerId,
     string CustomerName,
+    long PlantId,
+    string PlantName,
     DateOnly ShipDate,
     string FileName,
     byte[] Content,
@@ -75,35 +78,34 @@ public sealed class CertificationPackageService(
             .Select(x => new
             {
                 x.Id,
-                x.Name,
-                FilenameTemplate = x.CertificationSettings == null
-                    ? null
-                    : x.CertificationSettings.MultiLotFilenameTemplate,
-                ToRecipients = x.CertificationRecipients
-                    .Where(r => r.RecipientType == CertificationRecipientType.To)
-                    .OrderBy(r => r.EmailAddress)
-                    .Select(r => r.EmailAddress)
-                    .ToList(),
-                CcRecipients = x.CertificationRecipients
-                    .Where(r => r.RecipientType == CertificationRecipientType.Cc)
-                    .OrderBy(r => r.EmailAddress)
-                    .Select(r => r.EmailAddress)
-                    .ToList(),
-                RequiredTypeIds = x.CertificationRequirements
-                    .Select(r => r.CertificationTypeId)
-                    .ToList()
+                x.Name
             })
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new CertificationPackageException("The customer could not be found.");
 
-        if (customer.RequiredTypeIds.Count == 0)
+        var plant = await db.Plants.AsNoTracking()
+            .Where(x => x.Id == request.PlantId && x.CustomerId == request.ExpectedCustomerId)
+            .Select(x => new
+            {
+                x.Id, x.Name, x.PlantCode,
+                SingleLotFilenameTemplate = x.CertificationSettings == null ? null : x.CertificationSettings.FilenameTemplate,
+                SinglePartMultiLotFilenameTemplate = x.CertificationSettings == null ? null : x.CertificationSettings.SinglePartMultiLotFilenameTemplate,
+                MultiPartFilenameTemplate = x.CertificationSettings == null ? null : x.CertificationSettings.MultiPartFilenameTemplate,
+                ToRecipients = x.CertificationRecipients.Where(r => r.RecipientType == CertificationRecipientType.To).OrderBy(r => r.EmailAddress).Select(r => r.EmailAddress).ToList(),
+                CcRecipients = x.CertificationRecipients.Where(r => r.RecipientType == CertificationRecipientType.Cc).OrderBy(r => r.EmailAddress).Select(r => r.EmailAddress).ToList(),
+                RequiredTypeIds = x.CertificationRequirements.Select(r => r.CertificationTypeId).ToList()
+            })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new CertificationPackageException("Select a destination plant for this customer.");
+
+        if (plant.RequiredTypeIds.Count == 0)
         {
-            throw new CertificationPackageException("No certification requirements are configured for this customer.");
+            throw new CertificationPackageException("No certification requirements are configured for this plant.");
         }
 
         var requiredTypes = await db.CertificationTypes
             .AsNoTracking()
-            .Where(x => customer.RequiredTypeIds.Contains(x.Id))
+            .Where(x => plant.RequiredTypeIds.Contains(x.Id))
             .OrderBy(x => x.DisplayOrder)
             .ThenBy(x => x.Id)
             .Select(x => new { x.Id, x.Name, x.DisplayOrder })
@@ -115,12 +117,13 @@ public sealed class CertificationPackageService(
             .Select(x => new PackageInspectionRow(
                 x.Id,
                 x.Part.CustomerId,
+                x.PartId,
                 x.LotNumber,
                 x.Part.PartNumber,
                 x.InspectionDate,
                 x.ConformancePoNumber,
                 x.Certifications
-                    .Where(c => customer.RequiredTypeIds.Contains(c.CertificationTypeId))
+                    .Where(c => plant.RequiredTypeIds.Contains(c.CertificationTypeId))
                     .SelectMany(c => c.Documents.Select(d => new PackageDocumentRow(
                         c.CertificationTypeId,
                         c.CertificationType.DisplayOrder,
@@ -188,18 +191,29 @@ public sealed class CertificationPackageService(
             throw new CertificationPackageException(details);
         }
 
-        var fileName = filenameFormatter.FormatMultiLot(
-            customer.FilenameTemplate,
-            new CertificationMultiLotPackageFilenameValues(customer.Name, request.ShipDate));
+        var fileName = orderedLots.Length switch
+        {
+            1 => filenameFormatter.Format(
+                plant.SingleLotFilenameTemplate,
+                new CertificationPackageFilenameValues(customer.Name, orderedLots[0].PartNumber, orderedLots[0].LotNumber, orderedLots[0].PoNumber, orderedLots[0].InspectionDate, request.ShipDate, plant.Name, plant.PlantCode)),
+            _ when orderedLots.Select(x => x.PartId).Distinct().Count() == 1 => filenameFormatter.FormatSinglePartMultiLot(
+                plant.SinglePartMultiLotFilenameTemplate,
+                new CertificationSinglePartMultiLotPackageFilenameValues(customer.Name, orderedLots[0].PartNumber, request.ShipDate, plant.Name, plant.PlantCode)),
+            _ => filenameFormatter.FormatMultiPart(
+                plant.MultiPartFilenameTemplate,
+                new CertificationMultiPartPackageFilenameValues(customer.Name, request.ShipDate, plant.Name, plant.PlantCode))
+        };
         return new CertificationPackage(
             customer.Id,
             customer.Name,
+            plant.Id,
+            plant.Name,
             request.ShipDate,
             fileName,
             MergeAll(pdfs),
             packageLots,
-            customer.ToRecipients,
-            customer.CcRecipients);
+            plant.ToRecipients,
+            plant.CcRecipients);
     }
 
     private byte[] MergeAll(IReadOnlyList<byte[]> pdfs)
@@ -217,6 +231,7 @@ public sealed class CertificationPackageService(
     private sealed record PackageInspectionRow(
         long Id,
         long CustomerId,
+        long PartId,
         string? LotNumber,
         string PartNumber,
         DateOnly InspectionDate,

@@ -60,15 +60,50 @@ PDF.js cannot decode.
 ## Integration tests
 
 The inspection-criteria tests use PostgreSQL because they exercise PostgreSQL-specific
-constraints, transactions, triggers, and `xmin` concurrency tokens. Create a disposable
-database whose name contains `test`, then provide its connection string for the test
-process:
+constraints, transactions, triggers, and `xmin` concurrency tokens. They deliberately
+truncate application tables between cases, so they need a disposable database whose name
+contains `test`. Never aim this at the development or production database unless you are
+trying to turn a test run into a postmortem.
+
+### Create the test database and set the login password
+
+From `psql` as the PostgreSQL `postgres` superuser, make sure the application login has
+a password, then create a dedicated test database owned by that login:
+
+```sql
+CREATE ROLE confast_app LOGIN; -- only if the role does not already exist
+\password confast_app
+CREATE DATABASE confast_test OWNER confast_app;
+```
+
+`\password confast_app` prompts for the password and executes the equivalent of
+`ALTER ROLE confast_app PASSWORD ...` without leaving the secret in shell history. Use
+the same password in the test connection string below. If `confast_app` already exists,
+skip `CREATE ROLE`; use `\password confast_app` whenever its password needs to be
+changed to match the connection string.
+
+### Configure the test connection string
+
+On Windows, add a **user** environment variable so new terminals and Codex sessions can
+run the tests without setting it for each individual PowerShell process:
+
+1. Open **Edit environment variables for your account** from the Start menu.
+2. Under **User variables**, select **New**.
+3. Set the variable name to `CONFAST_TEST_CONNECTION_STRING`.
+4. Set its value to the connection string below, replacing `YOUR_PASSWORD` with the
+   password entered through `\password confast_app`.
+5. Close and reopen terminals and Codex so they inherit the new user environment.
+
+```text
+Host=localhost;Port=5432;Database=confast_test;Username=confast_app;Password=YOUR_PASSWORD
+```
+
+Then run:
 
 ```powershell
-$env:CONFAST_TEST_CONNECTION_STRING = "Host=localhost;Port=5432;Database=confast_test;Username=confast_app;Password=YOUR_PASSWORD"
 dotnet test
 ```
 
-The name check is a guard because the tests truncate application tables between cases.
-Do not point this variable at the development or production database. That would be an
-impressively efficient way to ruin the afternoon.
+The test fixture applies the EF Core migrations automatically. Its database-name check
+is only a guardrail, not magic; `confast_prod_test` technically passes it and is still a
+terrible place to run destructive tests.

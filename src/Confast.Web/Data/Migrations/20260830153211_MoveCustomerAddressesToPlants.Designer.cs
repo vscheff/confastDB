@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260830153211_MoveCustomerAddressesToPlants")]
+    partial class MoveCustomerAddressesToPlants
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53,6 +56,106 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("customers", (string)null);
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Customers.CustomerCertificationRecipient", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CustomerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("customer_id");
+
+                    b.Property<string>("EmailAddress")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("email_address");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("RecipientType")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipient_type");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("PK_customer_certification_recipients");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("IX_customer_certification_recipients_customer_id");
+
+                    b.ToTable("customer_certification_recipients", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_customer_certification_recipients_email_not_blank", "btrim(email_address) <> ''");
+
+                            t.HasCheckConstraint("CK_customer_certification_recipients_type", "recipient_type IN (1, 2)");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Customers.CustomerCertificationRequirement", b =>
+                {
+                    b.Property<long>("CustomerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("customer_id");
+
+                    b.Property<long>("CertificationTypeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("certification_type_id");
+
+                    b.HasKey("CustomerId", "CertificationTypeId")
+                        .HasName("PK_customer_certification_requirements");
+
+                    b.HasIndex("CertificationTypeId")
+                        .HasDatabaseName("IX_customer_certification_requirements_type_id");
+
+                    b.ToTable("customer_certification_requirements", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Customers.CustomerCertificationSettings", b =>
+                {
+                    b.Property<long>("CustomerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("customer_id");
+
+                    b.Property<string>("FilenameTemplate")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("filename_template");
+
+                    b.Property<string>("MultiLotFilenameTemplate")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("multi_lot_filename_template");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("CustomerId")
+                        .HasName("PK_customer_certification_settings");
+
+                    b.ToTable("customer_certification_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_customer_cert_settings_multi_lot_filename_not_blank", "btrim(multi_lot_filename_template) <> ''");
+
+                            t.HasCheckConstraint("CK_customer_certification_settings_filename_template_not_blank", "btrim(filename_template) <> ''");
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Customers.Plant", b =>
                 {
                     b.Property<long>("Id")
@@ -69,6 +172,11 @@ namespace Confast.Web.Data.Migrations
                     b.Property<string>("AddressLine2")
                         .HasColumnType("text")
                         .HasColumnName("address_line_2");
+
+                    b.Property<string>("CertificationFileNamePatternOverride")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("certification_filename_pattern_override");
 
                     b.Property<string>("City")
                         .HasColumnType("text")
@@ -115,113 +223,6 @@ namespace Confast.Web.Data.Migrations
                             t.HasCheckConstraint("CK_plants_certification_filename_override_not_blank", "certification_filename_pattern_override IS NULL OR btrim(certification_filename_pattern_override) <> ''");
 
                             t.HasCheckConstraint("CK_plants_name_not_blank", "btrim(name) <> ''");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Customers.PlantCertificationRecipient", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("EmailAddress")
-                        .IsRequired()
-                        .HasMaxLength(320)
-                        .HasColumnType("character varying(320)")
-                        .HasColumnName("email_address");
-
-                    b.Property<string>("Name")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<long>("PlantId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("plant_id");
-
-                    b.Property<int>("RecipientType")
-                        .HasColumnType("integer")
-                        .HasColumnName("recipient_type");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id")
-                        .HasName("PK_plant_certification_recipients");
-
-                    b.HasIndex("PlantId")
-                        .HasDatabaseName("IX_plant_certification_recipients_plant_id");
-
-                    b.ToTable("plant_certification_recipients", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_plant_certification_recipients_email_not_blank", "btrim(email_address) <> ''");
-
-                            t.HasCheckConstraint("CK_plant_certification_recipients_type", "recipient_type IN (1, 2)");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Customers.PlantCertificationRequirement", b =>
-                {
-                    b.Property<long>("PlantId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("plant_id");
-
-                    b.Property<long>("CertificationTypeId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("certification_type_id");
-
-                    b.HasKey("PlantId", "CertificationTypeId")
-                        .HasName("PK_plant_certification_requirements");
-
-                    b.HasIndex("CertificationTypeId")
-                        .HasDatabaseName("IX_plant_certification_requirements_type_id");
-
-                    b.ToTable("plant_certification_requirements", (string)null);
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Customers.PlantCertificationSettings", b =>
-                {
-                    b.Property<long>("PlantId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("plant_id");
-
-                    b.Property<string>("FilenameTemplate")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("filename_template");
-
-                    b.Property<string>("MultiPartFilenameTemplate")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("multi_part_filename_template");
-
-                    b.Property<string>("SinglePartMultiLotFilenameTemplate")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("single_part_multi_lot_filename_template");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("PlantId")
-                        .HasName("PK_plant_certification_settings");
-
-                    b.ToTable("plant_certification_settings", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_plant_certification_settings_filename_template_not_blank", "btrim(filename_template) <> ''");
-
-                            t.HasCheckConstraint("CK_plant_certification_settings_multi_part_filename_not_blank", "btrim(multi_part_filename_template) <> ''");
-
-                            t.HasCheckConstraint("CK_plant_certification_settings_single_part_multi_lot_filename_not_blank", "btrim(single_part_multi_lot_filename_template) <> ''");
                         });
                 });
 
@@ -1159,12 +1160,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
                     b.Property<string>("PartNumber")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1209,6 +1204,51 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("part_plants", (string)null);
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Customers.CustomerCertificationRecipient", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Customers.Customer", "Customer")
+                        .WithMany("CertificationRecipients")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_customer_certification_recipients_customer_id");
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Customers.CustomerCertificationRequirement", b =>
+                {
+                    b.HasOne("Confast.Web.Features.InspectionCriteria.CertificationType", "CertificationType")
+                        .WithMany()
+                        .HasForeignKey("CertificationTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_customer_certification_requirements_type_id");
+
+                    b.HasOne("Confast.Web.Features.Customers.Customer", "Customer")
+                        .WithMany("CertificationRequirements")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_customer_certification_requirements_customer_id");
+
+                    b.Navigation("CertificationType");
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Customers.CustomerCertificationSettings", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Customers.Customer", "Customer")
+                        .WithOne("CertificationSettings")
+                        .HasForeignKey("Confast.Web.Features.Customers.CustomerCertificationSettings", "CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_customer_certification_settings_customer_id");
+
+                    b.Navigation("Customer");
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Customers.Plant", b =>
                 {
                     b.HasOne("Confast.Web.Features.Customers.Customer", "Customer")
@@ -1219,51 +1259,6 @@ namespace Confast.Web.Data.Migrations
                         .HasConstraintName("FK_plants_customers_customer_id");
 
                     b.Navigation("Customer");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Customers.PlantCertificationRecipient", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Customers.Plant", "Plant")
-                        .WithMany("CertificationRecipients")
-                        .HasForeignKey("PlantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_plant_certification_recipients_plant_id");
-
-                    b.Navigation("Plant");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Customers.PlantCertificationRequirement", b =>
-                {
-                    b.HasOne("Confast.Web.Features.InspectionCriteria.CertificationType", "CertificationType")
-                        .WithMany()
-                        .HasForeignKey("CertificationTypeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_plant_certification_requirements_type_id");
-
-                    b.HasOne("Confast.Web.Features.Customers.Plant", "Plant")
-                        .WithMany("CertificationRequirements")
-                        .HasForeignKey("PlantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_plant_certification_requirements_plant_id");
-
-                    b.Navigation("CertificationType");
-
-                    b.Navigation("Plant");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Customers.PlantCertificationSettings", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Customers.Plant", "Plant")
-                        .WithOne("CertificationSettings")
-                        .HasForeignKey("Confast.Web.Features.Customers.PlantCertificationSettings", "PlantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_plant_certification_settings_plant_id");
-
-                    b.Navigation("Plant");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Gages.Gage", b =>
@@ -1517,6 +1512,12 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.Customers.Customer", b =>
                 {
+                    b.Navigation("CertificationRecipients");
+
+                    b.Navigation("CertificationRequirements");
+
+                    b.Navigation("CertificationSettings");
+
                     b.Navigation("Parts");
 
                     b.Navigation("Plants");
@@ -1524,12 +1525,6 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.Customers.Plant", b =>
                 {
-                    b.Navigation("CertificationRecipients");
-
-                    b.Navigation("CertificationRequirements");
-
-                    b.Navigation("CertificationSettings");
-
                     b.Navigation("PartPlants");
                 });
 

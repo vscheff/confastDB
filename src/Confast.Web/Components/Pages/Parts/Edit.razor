@@ -42,6 +42,8 @@ else
 
     <PartForm Model="part"
               CustomerOptions="customerOptions"
+              PlantOptions="plantOptions"
+              OnCustomerChanged="LoadPlantsAsync"
               OnValidSubmit="SavePartAsync"
               FormName="edit-part"
               IsSaving="isSaving"
@@ -281,6 +283,7 @@ else
 
     private PartEditModel? part;
     private IReadOnlyList<CustomerOption> customerOptions = [];
+    private IReadOnlyList<PlantOption> plantOptions = [];
     private PartInspectionCriteriaSummary? criteriaSummary;
     private InspectionCriteriaRevisionDetails? currentRevision;
     private IReadOnlyList<CertificationTypeChoice> certificationTypeChoices = [];
@@ -317,6 +320,10 @@ else
             customerOptions = await optionsTask;
             criteriaSummary = await criteriaTask;
             certificationTypeChoices = await certificationTypesTask;
+            if (part is not null)
+            {
+                plantOptions = await PartService.GetPlantOptionsAsync(part.CustomerId);
+            }
 
             if (criteriaSummary?.CurrentRevision is not null)
             {
@@ -338,6 +345,11 @@ else
 
     private string RevisionUrl(long revisionId) =>
         $"/parts/{Id}/inspection-criteria/{revisionId}";
+
+    private async Task LoadPlantsAsync(long customerId)
+    {
+        plantOptions = customerId > 0 ? await PartService.GetPlantOptionsAsync(customerId) : [];
+    }
 
     private async Task SavePartAsync()
     {

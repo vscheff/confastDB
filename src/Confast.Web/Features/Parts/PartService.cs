@@ -45,6 +45,15 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<PlantOption>> GetPlantOptionsAsync(long customerId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Plants.AsNoTracking().Where(x => x.CustomerId == customerId)
+            .OrderBy(x => x.Name)
+            .Select(x => new PlantOption(x.Id, x.Name, x.PlantCode))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<PartEditModel?> GetPartAsync(
         long id,
         CancellationToken cancellationToken = default)
@@ -61,7 +70,9 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
                 PartNumber = x.PartNumber,
                 Description = x.Description,
                 Revision = x.Revision,
-                Version = x.Version
+                IsActive = x.IsActive,
+                Version = x.Version,
+                PlantIds = x.PartPlants.Select(pp => pp.PlantId).ToList()
             })
             .SingleOrDefaultAsync(cancellationToken);
     }
@@ -105,10 +116,22 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             CustomerId = model.CustomerId,
             PartNumber = model.PartNumber.Trim(),
             Description = NormalizeOptionalText(model.Description),
-            Revision = NormalizeOptionalText(model.Revision)
+            Revision = NormalizeOptionalText(model.Revision),
+            IsActive = model.IsActive
         };
 
         db.Parts.Add(part);
+
+        var selectedPlantIds = model.PlantIds.Distinct().ToArray();
+        var plants = await db.Plants.Where(x => selectedPlantIds.Contains(x.Id)).ToListAsync(cancellationToken);
+        if (plants.Count != selectedPlantIds.Length || plants.Any(x => x.CustomerId != model.CustomerId))
+            return new SavePartResult(SavePartStatus.ValidationFailed, Message: "Each selected plant must belong to the selected customer.");
+        if (plants.Count == 0)
+        {
+            var customerPlants = await db.Plants.Where(x => x.CustomerId == model.CustomerId).Select(x => x.Id).ToListAsync(cancellationToken);
+            if (customerPlants.Count == 1) selectedPlantIds = customerPlants.ToArray();
+        }
+        db.PartPlants.AddRange(selectedPlantIds.Select(plantId => new PartPlant { Part = part, PlantId = plantId }));
 
         try
         {
@@ -141,6 +164,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         }
 
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var part = await db.Parts.SingleOrDefaultAsync(x => x.Id == model.Id, cancellationToken);
 
         if (part is null)
@@ -155,14 +179,34 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
 
         db.Entry(part).Property(x => x.Version).OriginalValue = model.Version;
 
+        var selectedPlantIds = model.PlantIds.Distinct().ToArray();
+        var plants = await db.Plants.Where(x => selectedPlantIds.Contains(x.Id)).ToListAsync(cancellationToken);
+        if (plants.Count != selectedPlantIds.Length || plants.Any(x => x.CustomerId != model.CustomerId))
+            return new SavePartResult(SavePartStatus.ValidationFailed, Message: "Each selected plant must belong to the selected customer.");
+        var existingAssignments = await db.PartPlants.Where(x => x.PartId == part.Id).ToListAsync(cancellationToken);
+        if (part.CustomerId != model.CustomerId)
+        {
+            db.PartPlants.RemoveRange(existingAssignments);
+            await db.SaveChangesAsync(cancellationToken);
+            existingAssignments = [];
+        }
+        else
+        {
+            db.PartPlants.RemoveRange(existingAssignments.Where(x => !selectedPlantIds.Contains(x.PlantId)));
+        }
+
         part.CustomerId = model.CustomerId;
         part.PartNumber = model.PartNumber.Trim();
         part.Description = NormalizeOptionalText(model.Description);
         part.Revision = NormalizeOptionalText(model.Revision);
+        part.IsActive = model.IsActive;
+        db.PartPlants.AddRange(selectedPlantIds.Except(existingAssignments.Select(x => x.PlantId))
+            .Select(plantId => new PartPlant { PartId = part.Id, PlantId = plantId }));
 
         try
         {
             await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return new SavePartResult(SavePartStatus.Saved, part.Id, part.Version);
         }
         catch (DbUpdateConcurrencyException)
@@ -225,7 +269,15 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             x.Customer.Name,
             x.PartNumber,
             x.Revision,
-            x.Description));
+            x.Description,
+            x.IsActive,
+            x.PartPlants
+                .OrderBy(partPlant => partPlant.Plant.Name)
+                .Select(partPlant => new PlantOption(
+                    partPlant.PlantId,
+                    partPlant.Plant.Name,
+                    partPlant.Plant.PlantCode))
+                .ToList()));
 
     private static string? Validate(PartEditModel model)
     {

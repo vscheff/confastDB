@@ -1,6 +1,8 @@
 @page "/inspections/{InspectionId:long}"
 @using Confast.Web.Features.Inspections
+@using Confast.Web.Features.Customers
 @inject InspectionService InspectionService
+@inject CustomerService CustomerService
 @inject ICertificationPackageService CertificationPackageService
 @inject IEmailService EmailService
 @inject ILogger<Edit> Logger
@@ -80,6 +82,13 @@ else
                 <div class="form-field">
                     <label for="package-ship-date">Ship Date</label>
                     <InputDate id="package-ship-date" @bind-Value="packageShipDate" />
+                </div>
+                <div class="form-field">
+                    <label for="package-plant">Destination plant</label>
+                    <InputSelect id="package-plant" @bind-Value="selectedPackagePlantId">
+                        <option value="0">Select a plant</option>
+                        @foreach (var plant in packagePlants) { <option value="@plant.Id">@plant.Name</option> }
+                    </InputSelect>
                 </div>
                 <h3>Lots</h3>
                 @if (packageLots.Count == 0)
@@ -528,6 +537,8 @@ else
     private DateOnly packageShipDate;
     private string? packageMessage;
     private IReadOnlyList<CertificationPackageLotOption> packageLots = [];
+    private IReadOnlyList<PlantEditModel> packagePlants = [];
+    private long selectedPackagePlantId;
     private readonly HashSet<long> selectedPackageLotIds = [];
     private CertificationPackage? generatedPackage;
     private long? selectedCertificationTypeId;
@@ -599,6 +610,8 @@ else
     {
         if (inspection is null) return;
         packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(inspection.CustomerId);
+        packagePlants = await CustomerService.GetPlantsAsync(inspection.CustomerId);
+        selectedPackagePlantId = packagePlants.Count == 1 ? packagePlants[0].Id : 0;
         selectedPackageLotIds.Clear();
         selectedPackageLotIds.Add(inspection.Id);
         packageShipDate = ShipDateCalculator.NextWorkDay(DateOnly.FromDateTime(DateTime.Today));
@@ -631,8 +644,13 @@ else
                 packageMessage = "Select at least one lot.";
                 return;
             }
+            if (selectedPackagePlantId == 0)
+            {
+                packageMessage = "Select a destination plant.";
+                return;
+            }
             generatedPackage = await CertificationPackageService.BuildAsync(
-                new CertificationPackageRequest(inspection!.CustomerId, selectedPackageLotIds, packageShipDate),
+                new CertificationPackageRequest(inspection!.CustomerId, selectedPackageLotIds, packageShipDate, selectedPackagePlantId),
                 Navigation.BaseUri);
             packageSucceeded = true;
             packageMessage = "Certification package generated and validated.";

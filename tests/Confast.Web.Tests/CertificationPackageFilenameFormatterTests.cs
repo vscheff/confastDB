@@ -24,13 +24,31 @@ public sealed class CertificationPackageFilenameFormatterTests
     }
 
     [Fact]
+    public void PlantTokensAreAvailableInEveryFilenameMode()
+    {
+        var singleLot = formatter.Format(
+            "{PlantName}_{PlantCode}",
+            values with { PlantName = "North Plant", PlantCode = "NP" });
+        var singlePartMultiLot = formatter.FormatSinglePartMultiLot(
+            "{PlantName}_{PlantCode}",
+            new CertificationSinglePartMultiLotPackageFilenameValues("Acme Fasteners", "ABC123", PlantName: "North Plant", PlantCode: "NP"));
+        var multiPart = formatter.FormatMultiPart(
+            "{PlantName}_{PlantCode}",
+            new CertificationMultiPartPackageFilenameValues("Acme Fasteners", PlantName: "North Plant", PlantCode: "NP"));
+
+        Assert.Equal("North Plant_NP.pdf", singleLot);
+        Assert.Equal("North Plant_NP.pdf", singlePartMultiLot);
+        Assert.Equal("North Plant_NP.pdf", multiPart);
+    }
+
+    [Fact]
     public void UsesCentralDefaultWhenCustomerTemplateIsMissing()
     {
         Assert.Equal(
-            "ABC123_856342.pdf",
+            "ABC123_Lot#_856342.pdf",
             formatter.Format(null, values));
         Assert.Equal(
-            "ABC123_856342.pdf",
+            "ABC123_Lot#_856342.pdf",
             formatter.Format("   ", values));
     }
 
@@ -73,40 +91,50 @@ public sealed class CertificationPackageFilenameFormatterTests
     }
 
     [Fact]
-    public void MultiLotFilenameUsesItsOwnCustomerOnlyTokenLanguageAndDefault()
+    public void MultiPartFilenameUsesItsOwnCustomerOnlyTokenLanguageAndDefault()
     {
-        var multiLotValues = new CertificationMultiLotPackageFilenameValues(
+        var multiPartValues = new CertificationMultiPartPackageFilenameValues(
             "Acme Fasteners",
             new DateOnly(2026, 9, 1));
 
         Assert.Equal(
             "Acme Fasteners.pdf",
-            formatter.FormatMultiLot(null, multiLotValues));
+            formatter.FormatMultiPart(null, multiPartValues));
         Assert.Equal(
             "Acme Fasteners_090126_COMBINED_CERTS.pdf",
-            formatter.FormatMultiLot("{CustomerName}_{ShipDate}_COMBINED_CERTS", multiLotValues));
+            formatter.FormatMultiPart("{CustomerName}_{ShipDate}_COMBINED_CERTS", multiPartValues));
         Assert.Contains("{ShipDate}", CertificationPackageFilenameFormatter.SupportedTokens);
-        Assert.Contains("{ShipDate}", CertificationPackageFilenameFormatter.MultiLotSupportedTokens);
+        Assert.Contains("{ShipDate}", CertificationPackageFilenameFormatter.MultiPartSupportedTokens);
     }
 
     [Fact]
-    public void MultiLotFilenameRejectsSingleLotTokens()
+    public void MultiPartFilenameRejectsSingleLotTokens()
     {
         var exception = Assert.Throws<CertificationFilenameTemplateException>(() =>
-            formatter.FormatMultiLot(
+            formatter.FormatMultiPart(
                 "{CustomerName}_{LotNumber}",
-                new CertificationMultiLotPackageFilenameValues("Acme Fasteners")));
+                new CertificationMultiPartPackageFilenameValues("Acme Fasteners")));
 
         Assert.Contains("{LotNumber}", exception.Message);
     }
 
     [Fact]
-    public void MultiLotFilenameSanitizesInvalidCustomerNameCharacters()
+    public void MultiPartFilenameSanitizesInvalidCustomerNameCharacters()
     {
         Assert.Equal(
             "ACME_ East_West_CERTS.pdf",
-            formatter.FormatMultiLot(
+            formatter.FormatMultiPart(
                 "{CustomerName}_CERTS",
-                new CertificationMultiLotPackageFilenameValues("ACME: East/West")));
+                new CertificationMultiPartPackageFilenameValues("ACME: East/West")));
+    }
+
+    [Fact]
+    public void SinglePartMultiLotFilenameSupportsTheSharedPartNumber()
+    {
+        var result = formatter.FormatSinglePartMultiLot(
+            "{PartNumber}_{ShipDate}",
+            new CertificationSinglePartMultiLotPackageFilenameValues("Acme Fasteners", "ABC123", new DateOnly(2026, 9, 1)));
+
+        Assert.Equal("ABC123_090126.pdf", result);
     }
 }

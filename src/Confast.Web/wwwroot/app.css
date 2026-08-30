@@ -16,7 +16,7 @@ h1 { margin-bottom: .35rem; font-size: clamp(1.75rem, 4vw, 2.25rem); line-height
 h1:focus { outline: none; }
 
 .app-header { display: flex; align-items: center; gap: 2rem; min-height: 64px; padding: 0 2rem; color: #fff; background: #17324a; box-shadow: 0 1px 3px rgb(0 0 0 / 18%); }
-.brand { color: #fff; font-size: 1.25rem; font-weight: 750; letter-spacing: .02em; text-decoration: none; }
+.brand { color: #fff; font-family: 'Avengeance Heroic Avenger', fantasy; font-size: 1.4rem; font-weight: 400; letter-spacing: .04em; line-height: 1; text-decoration: none; }
 .app-header nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 .25rem; color: #d8e5ef; text-decoration: none; border-bottom: 3px solid transparent; }
 .app-header nav a.active { color: #fff; border-bottom-color: #5fc3f0; }
 .app-main { width: min(100% - 2rem, 1100px); margin: 0 auto; padding: 2rem 0 4rem; }
@@ -342,7 +342,7 @@ h1:focus { outline: none; }
 .certification-delivery-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(12rem, .65fr); gap: .65rem; }
 .certification-delivery-panel { min-width: 0; padding: .55rem; background: #f8fafb; border: 1px solid #dce3e8; border-radius: .45rem; }
 .certification-delivery-panel h3 { margin: 0 0 .45rem; font-size: .92rem; }
-.certification-recipient-panel { grid-row: span 2; }
+.certification-filename-panel { grid-column: 1 / -1; }
 .certification-recipient-row { display: grid; grid-template-columns: minmax(8rem, .75fr) minmax(12rem, 1.35fr) 4.25rem auto; align-items: end; gap: .35rem; padding: .4rem 0; border-bottom: 1px solid #dce3e8; }
 .certification-recipient-row:last-child { border-bottom: 0; }
 .certification-recipient-row .form-field { gap: .1rem; }
@@ -357,7 +357,8 @@ h1:focus { outline: none; }
 .certification-type-checklist input { width: 1rem; height: 1rem; margin: 0; }
 .certification-filename-panel .form-field { gap: .15rem; }
 .certification-filename-panel input { min-height: 36px; padding: .4rem .5rem; }
-.filename-template-group + .filename-template-group { margin-top: .7rem; padding-top: .65rem; border-top: 1px solid #d5dce1; }
+.filename-template-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+.filename-template-group { min-width: 0; }
 .filename-token-list { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .4rem; }
 .token-button { min-height: 28px; padding: .2rem .4rem; color: #175d8d; background: #edf5f9; border: 1px solid #b8d0de; border-radius: .3rem; cursor: pointer; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .7rem; }
 .filename-preview { margin: .45rem 0 .2rem; overflow-wrap: anywhere; font-size: .8rem; }
@@ -369,12 +370,26 @@ h1:focus { outline: none; }
 .part-detail-page .linked-records > .section-heading { align-items: center; margin-bottom: .65rem; }
 .part-detail-page .linked-records > .section-heading h2 { margin-bottom: .2rem; font-size: 1.15rem; }
 .part-detail-page .linked-records > .section-heading p { font-size: .85rem; }
-.part-edit-form { grid-template-columns: minmax(12rem, 1.15fr) minmax(10rem, .8fr) minmax(7rem, .45fr) minmax(18rem, 1.7fr) auto; align-items: end; gap: .45rem .65rem; margin-bottom: .75rem; padding: .55rem .65rem; }
+.part-edit-form { grid-template-columns: minmax(11rem, .85fr) minmax(10rem, .8fr) minmax(5.5rem, .35fr) minmax(18rem, 2fr) auto; align-items: end; gap: .45rem .65rem; margin-bottom: .75rem; padding: .55rem .65rem; }
 .part-edit-form .form-field-wide { grid-column: auto; }
 .part-edit-form .form-field { gap: .18rem; min-width: 0; }
 .part-edit-form .form-field label { color: #526373; font-size: .75rem; font-weight: 700; }
 .part-edit-form .form-field input[type="text"], .part-edit-form .form-field select, .part-edit-form .form-field textarea { min-width: 0; min-height: 34px; padding: .35rem .5rem; }
 .part-edit-form .form-field textarea { height: 34px; resize: vertical; }
+.part-edit-form .part-revision-field { max-width: 8rem; }
+.part-edit-form .part-description-field { min-width: 16rem; }
+.destination-plants-field { padding: 0; margin: 0; border: 0; }
+.destination-plants-field legend { padding: 0; color: #344757; font-weight: 650; }
+.destination-plants-field details { min-width: 0; }
+.destination-plants-field summary { min-height: 44px; padding: .65rem .75rem; color: #1d2935; cursor: pointer; background: #fff; border: 1px solid #9eabb5; border-radius: .35rem; }
+.destination-plants-field details[open] summary { border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
+.destination-plants-field summary:focus { outline: 3px solid rgb(31 124 175 / 20%); outline-offset: 0; border-color: #1f7caf; }
+.destination-plants-options { display: grid; gap: .45rem; padding: .65rem .75rem; background: #f8fafb; border: 1px solid #9eabb5; border-top: 0; border-radius: 0 0 .35rem .35rem; }
+.destination-plants-options .checkbox-field { color: #344757; font-weight: 500; }
+.part-edit-form .destination-plants-field { grid-column: span 2; }
+.part-edit-form .destination-plants-field legend { color: #526373; font-size: .75rem; font-weight: 700; }
+.part-edit-form .destination-plants-field summary { min-height: 34px; padding: .35rem .5rem; font-size: .84rem; }
+.part-edit-form .destination-plants-options { padding: .5rem; }
 .part-edit-form .form-actions { flex-wrap: nowrap; gap: .4rem; padding-top: 0; }
 .part-edit-form .button { min-height: 34px; padding: .4rem .65rem; white-space: nowrap; font-size: .84rem; }
 .part-edit-form .validation-message { font-size: .75rem; }
@@ -401,9 +416,10 @@ h1:focus { outline: none; }
     .inspection-immutable-group { padding-right: 0; padding-bottom: .45rem; border-right: 0; border-bottom: 1px solid #d5dce1; }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 700px) {
     .certification-delivery-grid { grid-template-columns: 1fr; }
-    .certification-recipient-panel { grid-row: auto; }
+    .certification-filename-panel { grid-column: auto; }
+    .filename-template-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {
@@ -451,6 +467,7 @@ h1:focus { outline: none; }
     .inspection-gage-select { width: min(12rem, 100%); }
     .customer-form, .record-form { grid-template-columns: 1fr; padding: 1rem; }
     .form-field-wide { grid-column: auto; }
+    .part-edit-form .destination-plants-field { grid-column: auto; }
     .certification-recipient-row { grid-template-columns: 1fr; }
     .certification-type-checklist { grid-template-columns: 1fr; }
     .form-actions { flex-direction: column; }

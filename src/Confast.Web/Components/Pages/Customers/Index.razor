@@ -11,9 +11,12 @@
         <h1>Customers</h1>
         <p>Select a customer to view or edit its details.</p>
     </div>
-    <button class="button button-secondary" type="button" @onclick="LoadCustomersAsync" disabled="@isLoading">
-        Refresh
-    </button>
+    <div class="heading-actions">
+        <button class="button button-secondary" type="button" @onclick="LoadCustomersAsync" disabled="@isLoading">
+            Refresh
+        </button>
+        <a class="button button-primary" href="/customers/create">Create customer</a>
+    </div>
 </div>
 
 @if (isLoading)
@@ -28,7 +31,7 @@ else if (customers.Count == 0)
 {
     <div class="empty-state">
         <h2>No customers yet</h2>
-        <p>Add development seed data to exercise this proof of concept.</p>
+        <p>Add a new Customer to the database to see it listed here.</p>
     </div>
 }
 else

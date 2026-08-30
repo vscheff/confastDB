@@ -6,7 +6,7 @@
 
     <div class="form-field form-field-wide">
         <label for="part-customer">Customer</label>
-        <InputSelect id="part-customer" @bind-Value="Model.CustomerId">
+        <InputSelect id="part-customer" @bind-Value="Model.CustomerId" @bind-Value:after="CustomerChangedAsync">
             <option value="0">Select a customer</option>
             @foreach (var customer in CustomerOptions)
             {
@@ -22,14 +22,42 @@
         <ValidationMessage For="() => Model.PartNumber" />
     </div>
 
-    <div class="form-field">
+    <div class="form-field part-revision-field">
         <label for="part-revision">Revision</label>
         <input id="part-revision" @bind="Model.Revision" @bind:event="oninput" />
     </div>
 
-    <div class="form-field form-field-wide">
+    <div class="form-field form-field-wide part-description-field">
         <label for="part-description">Description</label>
         <textarea id="part-description" @bind="Model.Description" @bind:event="oninput" rows="4"></textarea>
+    </div>
+
+    <fieldset class="form-field form-field-wide destination-plants-field">
+        <legend>Destination plants</legend>
+        <details>
+            <summary>@SelectedPlantSummary</summary>
+            <div class="destination-plants-options">
+                @if (PlantOptions.Count == 0)
+                {
+                    <p class="field-hint">No plants are available for this customer.</p>
+                }
+                else
+                {
+                    @foreach (var plant in PlantOptions)
+                    {
+                        <label class="checkbox-field">
+                            <input type="checkbox" checked="@Model.PlantIds.Contains(plant.Id)" @onchange="e => SetPlantSelection(plant.Id, e.Value is true)" />
+                            @plant.DisplayName
+                        </label>
+                    }
+                }
+            </div>
+        </details>
+    </fieldset>
+
+    <div class="form-field form-field-wide checkbox-field">
+        <InputCheckbox id="part-is-active" @bind-Value="Model.IsActive" />
+        <label for="part-is-active">Active part</label>
     </div>
 
     <div class="form-actions form-field-wide">
@@ -46,6 +74,12 @@
 
     [Parameter, EditorRequired]
     public IReadOnlyList<CustomerOption> CustomerOptions { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<PlantOption> PlantOptions { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<long> OnCustomerChanged { get; set; }
 
     [Parameter, EditorRequired]
     public EventCallback OnValidSubmit { get; set; }
@@ -64,5 +98,32 @@
 
     private string FormCssClass => Compact ? "record-form part-edit-form" : "record-form";
 
+    private string SelectedPlantSummary
+    {
+        get
+        {
+            var selectedPlants = PlantOptions
+                .Where(plant => Model.PlantIds.Contains(plant.Id))
+                .Select(plant => plant.DisplayName)
+                .ToList();
+
+            return selectedPlants.Count == 0
+                ? "No destination plants selected"
+                : string.Join(", ", selectedPlants);
+        }
+    }
+
     private Task SubmitAsync() => OnValidSubmit.InvokeAsync();
+
+    private async Task CustomerChangedAsync()
+    {
+        Model.PlantIds.Clear();
+        await OnCustomerChanged.InvokeAsync(Model.CustomerId);
+    }
+
+    private void SetPlantSelection(long plantId, bool selected)
+    {
+        if (selected && !Model.PlantIds.Contains(plantId)) Model.PlantIds.Add(plantId);
+        if (!selected) Model.PlantIds.Remove(plantId);
+    }
 }

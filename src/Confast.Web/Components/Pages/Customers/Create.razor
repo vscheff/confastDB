@@ -1,0 +1,71 @@
+@page "/customers/create"
+@using Confast.Web.Features.Customers
+@inject CustomerService CustomerService
+@inject NavigationManager Navigation
+@inject ILogger<Create> Logger
+
+<PageTitle>Create customer</PageTitle>
+
+<p><a class="back-link" href="/customers">← Customers</a></p>
+
+<div class="page-heading">
+    <div>
+        <h1>Create customer</h1>
+        <p>Enter the customer record. Plant-specific addresses can be added after creation.</p>
+    </div>
+</div>
+
+@if (saveMessage is not null)
+{
+    <div class="alert alert-error" role="alert">@saveMessage</div>
+}
+
+<EditForm Model="customer" OnValidSubmit="CreateCustomerAsync" FormName="create-customer" class="customer-form">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-field form-field-wide">
+        <label for="customer-name">Name</label>
+        <InputText id="customer-name" @bind-Value="customer.Name" autocomplete="organization" />
+        <ValidationMessage For="() => customer.Name" />
+    </div>
+
+    <div class="form-field form-field-wide checkbox-field">
+        <InputCheckbox id="is-active" @bind-Value="customer.IsActive" />
+        <label for="is-active">Active customer</label>
+    </div>
+
+    <div class="form-actions form-field-wide">
+        <button class="button button-primary" type="submit" disabled="@isSaving">
+            @(isSaving ? "Creating…" : "Create customer")
+        </button>
+        <a class="button button-secondary" href="/customers">Cancel</a>
+    </div>
+</EditForm>
+
+@code {
+    private readonly CustomerEditModel customer = new() { IsActive = true };
+    private bool isSaving;
+    private string? saveMessage;
+
+    private async Task CreateCustomerAsync()
+    {
+        isSaving = true;
+        saveMessage = null;
+
+        try
+        {
+            var customerId = await CustomerService.CreateCustomerAsync(customer);
+            Navigation.NavigateTo($"/customers/{customerId}/edit");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to create customer");
+            saveMessage = "The customer could not be created. Please try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260830154815_MoveCertificationDeliveryToPlants")]
+    partial class MoveCertificationDeliveryToPlants
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -196,15 +199,10 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("filename_template");
 
-                    b.Property<string>("MultiPartFilenameTemplate")
+                    b.Property<string>("MultiLotFilenameTemplate")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
-                        .HasColumnName("multi_part_filename_template");
-
-                    b.Property<string>("SinglePartMultiLotFilenameTemplate")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("single_part_multi_lot_filename_template");
+                        .HasColumnName("multi_lot_filename_template");
 
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
@@ -219,9 +217,7 @@ namespace Confast.Web.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_plant_certification_settings_filename_template_not_blank", "btrim(filename_template) <> ''");
 
-                            t.HasCheckConstraint("CK_plant_certification_settings_multi_part_filename_not_blank", "btrim(multi_part_filename_template) <> ''");
-
-                            t.HasCheckConstraint("CK_plant_certification_settings_single_part_multi_lot_filename_not_blank", "btrim(single_part_multi_lot_filename_template) <> ''");
+                            t.HasCheckConstraint("CK_plant_certification_settings_multi_lot_filename_not_blank", "btrim(multi_lot_filename_template) <> ''");
                         });
                 });
 
@@ -1158,12 +1154,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text")
                         .HasColumnName("description");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
 
                     b.Property<string>("PartNumber")
                         .IsRequired()

@@ -8,11 +8,18 @@ public sealed record PartListItem(
     string CustomerName,
     string PartNumber,
     string? Revision,
-    string? Description);
+    string? Description,
+    bool IsActive,
+    IReadOnlyList<PlantOption> Plants);
 
 public sealed record CustomerOption(long Id, string Name, bool IsActive)
 {
     public string DisplayName => IsActive ? Name : $"{Name} (inactive)";
+}
+
+public sealed record PlantOption(long Id, string Name, string? PlantCode)
+{
+    public string DisplayName => string.IsNullOrWhiteSpace(PlantCode) ? Name : $"{Name} ({PlantCode})";
 }
 
 public sealed class PartEditModel
@@ -30,7 +37,12 @@ public sealed class PartEditModel
 
     public string? Revision { get; set; }
 
+    [Display(Name = "Active part")]
+    public bool IsActive { get; set; } = true;
+
     public uint Version { get; set; }
+
+    public List<long> PlantIds { get; set; } = [];
 }
 
 public sealed record PartDeleteModel(

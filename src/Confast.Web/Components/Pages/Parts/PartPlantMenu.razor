@@ -1,0 +1,15 @@
+@using Confast.Web.Features.Parts
+
+@if (Plants.Count == 0)
+{
+    <span class="field-hint">No destination plants</span>
+}
+else
+{
+    <span>@string.Join(", ", Plants.Select(plant => plant.DisplayName))</span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PlantOption> Plants { get; set; } = [];
+}

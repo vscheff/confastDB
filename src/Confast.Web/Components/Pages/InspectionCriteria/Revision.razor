@@ -34,10 +34,6 @@ else
             </p>
         </div>
         <div class="heading-actions">
-            @if (revision.CanEdit)
-            {
-                <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add criterion</button>
-            }
             @if (revision.IsDraft)
             {
                 <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Publish revision</button>
@@ -122,15 +118,24 @@ else
             }
     </section>
 
-    @if (revision.Criteria.Count == 0 && editingModel is null)
-    {
-        <div class="empty-state compact-empty-state">
-            @(revision.IsDraft ? "This draft has no criteria. Add at least one before publishing." : "This revision has no criteria.")
+    <section class="criteria-section">
+        <div class="section-heading secondary-process-heading">
+            <h2>Requirements</h2>
+            @if (revision.CanEdit)
+            {
+                <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add criterion</button>
+            }
         </div>
-    }
-    else
-    {
-        <div class="table-shell criteria-table-shell">
+
+        @if (revision.Criteria.Count == 0 && editingModel is null)
+        {
+            <div class="empty-state compact-empty-state">
+                @(revision.IsDraft ? "This draft has no criteria. Add at least one before publishing." : "This revision has no criteria.")
+            </div>
+        }
+        else
+        {
+            <div class="table-shell criteria-table-shell">
             <table class="data-table criteria-table">
                 <thead>
                     <tr>
@@ -264,9 +269,9 @@ else
                     }
                 </tbody>
             </table>
-        </div>
-
-    }
+            </div>
+        }
+    </section>
 
     <div class="revision-lower-grid">
     <section class="secondary-process-section">

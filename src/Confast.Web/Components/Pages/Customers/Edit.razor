@@ -1,6 +1,7 @@
 @page "/customers/{Id:long}/edit"
 @using Confast.Web.Features.Customers
 @using Confast.Web.Features.Parts
+@using Confast.Web.Components.Pages.Parts
 @inject CustomerService CustomerService
 @inject PartService PartService
 @inject CertificationPackageFilenameFormatter FilenameFormatter
@@ -30,7 +31,6 @@ else
     <div class="page-heading">
         <div>
             <h1>@customer.Name</h1>
-            <p>Customer ID @customer.Id</p>
         </div>
         <span class="status-pill @(customer.IsActive ? "status-active" : "status-inactive")">
             @(customer.IsActive ? "Active" : "Inactive")
@@ -52,31 +52,6 @@ else
             <ValidationMessage For="() => customer.Name" />
         </div>
 
-        <div class="form-field form-field-wide">
-            <label for="address-line-1">Address line 1</label>
-            <InputText id="address-line-1" @bind-Value="customer.AddressLine1" autocomplete="address-line1" />
-        </div>
-
-        <div class="form-field form-field-wide">
-            <label for="address-line-2">Address line 2</label>
-            <InputText id="address-line-2" @bind-Value="customer.AddressLine2" autocomplete="address-line2" />
-        </div>
-
-        <div class="form-field">
-            <label for="city">City</label>
-            <InputText id="city" @bind-Value="customer.City" autocomplete="address-level2" />
-        </div>
-
-        <div class="form-field">
-            <label for="state">State</label>
-            <InputText id="state" @bind-Value="customer.State" autocomplete="address-level1" />
-        </div>
-
-        <div class="form-field">
-            <label for="postal-code">Postal code</label>
-            <InputText id="postal-code" @bind-Value="customer.PostalCode" autocomplete="postal-code" />
-        </div>
-
         <div class="form-field form-field-wide checkbox-field">
             <InputCheckbox id="is-active" @bind-Value="customer.IsActive" />
             <label for="is-active">Active customer</label>
@@ -90,13 +65,62 @@ else
         </div>
     </EditForm>
 
-    @if (certificationDelivery is not null)
+    <div class="subtabs customer-tabs" role="tablist" aria-label="Customer sections">
+        <button class="subtab @(activeTab == CustomerTab.Plants ? "subtab-active" : null)" type="button" role="tab" aria-selected="@(activeTab == CustomerTab.Plants)" @onclick="() => activeTab = CustomerTab.Plants">Plants</button>
+        <button class="subtab @(activeTab == CustomerTab.Parts ? "subtab-active" : null)" type="button" role="tab" aria-selected="@(activeTab == CustomerTab.Parts)" @onclick="() => activeTab = CustomerTab.Parts">Parts</button>
+    </div>
+
+    @if (activeTab == CustomerTab.Plants)
     {
-        <section class="linked-records certification-delivery" aria-labelledby="certification-delivery-heading">
+        <section class="linked-records" role="tabpanel" aria-labelledby="customer-plants-heading">
+            <div class="section-heading"><div><h2 id="customer-plants-heading">Plants</h2><p>Destination, address, and certification delivery settings.</p></div></div>
+            <div class="subtabs plant-tabs" role="tablist" aria-label="Plants">
+                @foreach (var plant in plants)
+                {
+                    <button class="subtab @(!showNewPlantEditor && selectedPlantId == plant.Id ? "subtab-active" : null)" type="button" role="tab" aria-selected="@(!showNewPlantEditor && selectedPlantId == plant.Id)" @onclick="() => SelectPlantAsync(plant.Id)">@plant.Name</button>
+                }
+                <button class="subtab @(showNewPlantEditor ? "subtab-active" : null)" type="button" role="tab" aria-label="Create plant" aria-selected="@showNewPlantEditor" @onclick="ShowNewPlantEditor">+</button>
+            </div>
+            @if (plantMessage is not null) { <div class="alert @plantMessageClass" role="status">@plantMessage</div> }
+
+            @if (showNewPlantEditor)
+            {
+                <EditForm Model="newPlant" OnValidSubmit="() => SavePlantAsync(newPlant)" FormName="new-plant" class="certification-recipient-row certification-recipient-new">
+                    <DataAnnotationsValidator />
+                    <div class="form-field"><label>Name</label><InputText @bind-Value="newPlant.Name" /><ValidationMessage For="() => newPlant.Name" /></div>
+                    <div class="form-field"><label>Plant code</label><InputText @bind-Value="newPlant.PlantCode" /></div>
+                    <div class="form-field form-field-wide"><label>Address line 1</label><InputText @bind-Value="newPlant.AddressLine1" autocomplete="address-line1" /></div>
+                    <div class="form-field form-field-wide"><label>Address line 2</label><InputText @bind-Value="newPlant.AddressLine2" autocomplete="address-line2" /></div>
+                    <div class="form-field"><label>City</label><InputText @bind-Value="newPlant.City" autocomplete="address-level2" /></div>
+                    <div class="form-field"><label>State</label><InputText @bind-Value="newPlant.State" autocomplete="address-level1" /></div>
+                    <div class="form-field"><label>Postal code</label><InputText @bind-Value="newPlant.PostalCode" autocomplete="postal-code" /></div>
+                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Create plant</button></div>
+                </EditForm>
+            }
+            else if (SelectedPlant is not null)
+            {
+                <EditForm Model="SelectedPlant" OnValidSubmit="() => SavePlantAsync(SelectedPlant)" FormName="@($"plant-{SelectedPlant.Id}")" class="certification-recipient-row">
+                    <DataAnnotationsValidator />
+                    <div class="form-field"><label>Name</label><InputText @bind-Value="SelectedPlant.Name" /><ValidationMessage For="() => SelectedPlant.Name" /></div>
+                    <div class="form-field"><label>Plant code</label><InputText @bind-Value="SelectedPlant.PlantCode" /></div>
+                    <div class="form-field form-field-wide"><label>Address line 1</label><InputText @bind-Value="SelectedPlant.AddressLine1" autocomplete="address-line1" /></div>
+                    <div class="form-field form-field-wide"><label>Address line 2</label><InputText @bind-Value="SelectedPlant.AddressLine2" autocomplete="address-line2" /></div>
+                    <div class="form-field"><label>City</label><InputText @bind-Value="SelectedPlant.City" autocomplete="address-level2" /></div>
+                    <div class="form-field"><label>State</label><InputText @bind-Value="SelectedPlant.State" autocomplete="address-level1" /></div>
+                    <div class="form-field"><label>Postal code</label><InputText @bind-Value="SelectedPlant.PostalCode" autocomplete="postal-code" /></div>
+                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Save plant</button><button class="button button-danger button-compact" type="button" disabled="@isSavingPlant" @onclick="() => DeletePlantAsync(SelectedPlant)">Remove</button></div>
+                </EditForm>
+            }
+        </section>
+    }
+
+    @if (activeTab == CustomerTab.Plants && !showNewPlantEditor && certificationDelivery is not null)
+    {
+        <section class="linked-records certification-delivery" role="tabpanel" aria-labelledby="certification-delivery-heading">
             <div class="section-heading">
                 <div>
                     <h2 id="certification-delivery-heading">Certification Delivery</h2>
-                    <p>Recipients and contents for the customer's single assembled certification package.</p>
+                    <p>Delivery settings for the selected destination plant.</p>
                 </div>
             </div>
 
@@ -174,34 +198,51 @@ else
 
                 <div class="certification-delivery-panel certification-filename-panel">
                     <h3>Package filenames</h3>
-                    <div class="filename-template-group">
-                        <div class="form-field">
-                            <label for="certification-filename-template">Single-lot filename template</label>
-                            <InputText id="certification-filename-template" @bind-Value="certificationDelivery.FilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SystemDefaultTemplate" />
+                    <div class="filename-template-grid">
+                        <div class="filename-template-group">
+                            <div class="form-field">
+                                <label for="certification-filename-template">Single-Lot filename template</label>
+                                <InputText id="certification-filename-template" @bind-Value="certificationDelivery.FilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SystemDefaultTemplate" />
+                            </div>
+                            <div class="filename-token-list" aria-label="Supported single-lot filename tokens">
+                                @foreach (var token in CertificationPackageFilenameFormatter.SupportedTokens)
+                                {
+                                    <button type="button" class="token-button" @onclick="() => InsertFilenameToken(token)">@token</button>
+                                }
+                            </div>
+                            <p class="filename-preview"><strong>Preview:</strong> @CertificationFilenamePreview</p>
+                            <p class="field-hint">Leave blank to use the system default: <code>@CertificationPackageFilenameFormatter.SystemDefaultTemplate</code></p>
                         </div>
-                        <div class="filename-token-list" aria-label="Supported single-lot filename tokens">
-                            @foreach (var token in CertificationPackageFilenameFormatter.SupportedTokens)
-                            {
-                                <button type="button" class="token-button" @onclick="() => InsertFilenameToken(token)">@token</button>
-                            }
-                        </div>
-                        <p class="filename-preview"><strong>Preview:</strong> @CertificationFilenamePreview</p>
-                        <p class="field-hint">Leave blank to use the system default: <code>@CertificationPackageFilenameFormatter.SystemDefaultTemplate</code></p>
-                    </div>
 
-                    <div class="filename-template-group">
-                        <div class="form-field">
-                            <label for="certification-multi-lot-filename-template">Multiple-lot filename template</label>
-                            <InputText id="certification-multi-lot-filename-template" @bind-Value="certificationDelivery.MultiLotFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.MultiLotSystemDefaultTemplate" />
+                        <div class="filename-template-group">
+                            <div class="form-field">
+                                <label for="certification-single-part-multi-lot-filename-template">Single-Part, Multi-Lot filename template</label>
+                                <InputText id="certification-single-part-multi-lot-filename-template" @bind-Value="certificationDelivery.SinglePartMultiLotFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate" />
+                            </div>
+                            <div class="filename-token-list" aria-label="Supported single-part multi-lot filename tokens">
+                                @foreach (var token in CertificationPackageFilenameFormatter.SinglePartMultiLotSupportedTokens)
+                                {
+                                    <button type="button" class="token-button" @onclick="() => InsertSinglePartMultiLotFilenameToken(token)">@token</button>
+                                }
+                            </div>
+                            <p class="filename-preview"><strong>Preview:</strong> @SinglePartMultiLotCertificationFilenamePreview</p>
+                            <p class="field-hint">Used when one package contains multiple lots for the same part. Leave blank to use: <code>@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate</code></p>
                         </div>
-                        <div class="filename-token-list" aria-label="Supported multiple-lot filename tokens">
-                            @foreach (var token in CertificationPackageFilenameFormatter.MultiLotSupportedTokens)
-                            {
-                                <button type="button" class="token-button" @onclick="() => InsertMultiLotFilenameToken(token)">@token</button>
-                            }
+
+                        <div class="filename-template-group">
+                            <div class="form-field">
+                                <label for="certification-multi-part-filename-template">Multi-Part filename template</label>
+                                <InputText id="certification-multi-part-filename-template" @bind-Value="certificationDelivery.MultiPartFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate" />
+                            </div>
+                            <div class="filename-token-list" aria-label="Supported multi-part filename tokens">
+                                @foreach (var token in CertificationPackageFilenameFormatter.MultiPartSupportedTokens)
+                                {
+                                    <button type="button" class="token-button" @onclick="() => InsertMultiPartFilenameToken(token)">@token</button>
+                                }
+                            </div>
+                            <p class="filename-preview"><strong>Preview:</strong> @MultiPartCertificationFilenamePreview</p>
+                            <p class="field-hint">Used when one package contains more than one part. Leave blank to use: <code>@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate</code></p>
                         </div>
-                        <p class="filename-preview"><strong>Preview:</strong> @MultiLotCertificationFilenamePreview</p>
-                        <p class="field-hint">Used when one package contains multiple lots. Leave blank to use: <code>@CertificationPackageFilenameFormatter.MultiLotSystemDefaultTemplate</code></p>
                     </div>
                 </div>
             </div>
@@ -214,7 +255,9 @@ else
         </section>
     }
 
-    <section class="linked-records" aria-labelledby="customer-parts-heading">
+    @if (activeTab == CustomerTab.Parts)
+    {
+    <section class="linked-records" role="tabpanel" aria-labelledby="customer-parts-heading">
         <div class="section-heading">
             <div>
                 <h2 id="customer-parts-heading">Parts</h2>
@@ -236,6 +279,8 @@ else
                             <th>Part number</th>
                             <th>Revision</th>
                             <th>Description</th>
+                            <th>Destination plants</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -247,6 +292,10 @@ else
                                 </td>
                                 <td data-label="Revision">@(part.Revision ?? "—")</td>
                                 <td data-label="Description">@(part.Description ?? "—")</td>
+                                <td data-label="Destination plants"><PartPlantMenu Plants="part.Plants" /></td>
+                                <td data-label="Status">
+                                    <span class="status-pill @(part.IsActive ? "status-active" : "status-inactive")">@(part.IsActive ? "Active" : "Inactive")</span>
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -254,6 +303,7 @@ else
             </div>
         }
     </section>
+    }
 }
 
 @code {
@@ -261,17 +311,27 @@ else
     public long Id { get; set; }
 
     private CustomerEditModel? customer;
-    private CustomerCertificationDeliveryEditModel? certificationDelivery;
-    private CustomerCertificationRecipientEditModel newRecipient = new();
+    private PlantCertificationDeliveryEditModel? certificationDelivery;
+    private PlantCertificationRecipientEditModel newRecipient = new();
     private IReadOnlyList<PartListItem> parts = [];
+    private List<PlantEditModel> plants = [];
+    private PlantEditModel newPlant = new();
     private bool isLoading = true;
     private bool isSaving;
     private bool isSavingCertification;
+    private bool isSavingPlant;
     private string? loadError;
     private string? saveMessage;
     private string saveMessageClass = "alert-success";
     private string? certificationMessage;
     private string certificationMessageClass = "alert-success";
+    private string? plantMessage;
+    private string plantMessageClass = "alert-success";
+    private CustomerTab activeTab = CustomerTab.Plants;
+    private long selectedPlantId;
+    private bool showNewPlantEditor;
+
+    private PlantEditModel? SelectedPlant => plants.SingleOrDefault(x => x.Id == selectedPlantId);
 
     private string CertificationFilenamePreview
     {
@@ -292,7 +352,9 @@ else
                         "856342",
                         "PO-1001",
                         new DateOnly(2026, 8, 28),
-                        new DateOnly(2026, 9, 1)));
+                        new DateOnly(2026, 9, 1),
+                        SelectedPlant?.Name ?? "Example Plant",
+                        SelectedPlant?.PlantCode ?? "EX"));
             }
             catch (CertificationFilenameTemplateException exception)
             {
@@ -301,7 +363,7 @@ else
         }
     }
 
-    private string MultiLotCertificationFilenamePreview
+    private string SinglePartMultiLotCertificationFilenamePreview
     {
         get
         {
@@ -312,11 +374,40 @@ else
 
             try
             {
-                return FilenameFormatter.FormatMultiLot(
-                    certificationDelivery.MultiLotFilenameTemplate,
-                    new CertificationMultiLotPackageFilenameValues(
+                return FilenameFormatter.FormatSinglePartMultiLot(
+                    certificationDelivery.SinglePartMultiLotFilenameTemplate,
+                    new CertificationSinglePartMultiLotPackageFilenameValues(
                         customer?.Name ?? "Example Customer",
-                        new DateOnly(2026, 9, 1)));
+                        "ABC123",
+                        new DateOnly(2026, 9, 1),
+                        SelectedPlant?.Name ?? "Example Plant",
+                        SelectedPlant?.PlantCode ?? "EX"));
+            }
+            catch (CertificationFilenameTemplateException exception)
+            {
+                return exception.Message;
+            }
+        }
+    }
+
+    private string MultiPartCertificationFilenamePreview
+    {
+        get
+        {
+            if (certificationDelivery is null)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return FilenameFormatter.FormatMultiPart(
+                    certificationDelivery.MultiPartFilenameTemplate,
+                    new CertificationMultiPartPackageFilenameValues(
+                        customer?.Name ?? "Example Customer",
+                        new DateOnly(2026, 9, 1),
+                        SelectedPlant?.Name ?? "Example Plant",
+                        SelectedPlant?.PlantCode ?? "EX"));
             }
             catch (CertificationFilenameTemplateException exception)
             {
@@ -337,13 +428,15 @@ else
         {
             var customerTask = CustomerService.GetCustomerAsync(Id);
             var partsTask = PartService.GetPartsForCustomerAsync(Id);
-            var certificationTask = CustomerService.GetCertificationDeliveryAsync(Id);
+            var plantsTask = CustomerService.GetPlantsAsync(Id);
 
-            await Task.WhenAll(customerTask, partsTask, certificationTask);
+            await Task.WhenAll(customerTask, partsTask, plantsTask);
             customer = await customerTask;
             parts = await partsTask;
-            certificationDelivery = await certificationTask;
-            newRecipient = new CustomerCertificationRecipientEditModel { CustomerId = Id };
+            plants = (await plantsTask).ToList();
+            newPlant = new PlantEditModel { CustomerId = Id };
+            selectedPlantId = plants.FirstOrDefault()?.Id ?? 0;
+            await LoadPlantCertificationAsync();
         }
         catch (Exception exception)
         {
@@ -354,6 +447,53 @@ else
         {
             isLoading = false;
         }
+    }
+
+    private async Task SavePlantAsync(PlantEditModel plant)
+    {
+        isSavingPlant = true; plantMessage = null;
+        try
+        {
+            var isNew = plant.Id == 0;
+            var result = await CustomerService.SavePlantAsync(plant);
+            if (result.Status == PlantOperationStatus.Succeeded)
+            {
+                plant.Id = result.Id!.Value; plant.Version = result.Version!.Value;
+                if (isNew)
+                {
+                    plants.Add(plant);
+                    newPlant = new PlantEditModel { CustomerId = Id };
+                    selectedPlantId = plant.Id;
+                    showNewPlantEditor = false;
+                    await LoadPlantCertificationAsync();
+                }
+                SortPlants();
+                plantMessage = isNew ? "Plant added." : "Plant saved."; plantMessageClass = "alert-success";
+            }
+            else { plantMessage = result.Message ?? (result.Status == PlantOperationStatus.DuplicateName ? "Plant names must be unique for this customer." : "The plant could not be saved."); plantMessageClass = "alert-error"; }
+        }
+        catch (Exception exception) { Logger.LogError(exception, "Failed to save plant for customer {CustomerId}", Id); plantMessage = "The plant could not be saved."; plantMessageClass = "alert-error"; }
+        finally { isSavingPlant = false; }
+    }
+
+    private async Task DeletePlantAsync(PlantEditModel plant)
+    {
+        isSavingPlant = true; plantMessage = null;
+        try
+        {
+            var result = await CustomerService.DeletePlantAsync(Id, plant.Id, plant.Version);
+            if (result.Status == PlantOperationStatus.Succeeded)
+            {
+                plants.Remove(plant);
+                selectedPlantId = plants.FirstOrDefault()?.Id ?? 0;
+                await LoadPlantCertificationAsync();
+                plantMessage = "Plant removed.";
+                plantMessageClass = "alert-success";
+            }
+            else { plantMessage = result.Message ?? "The plant could not be removed."; plantMessageClass = "alert-error"; }
+        }
+        catch (Exception exception) { Logger.LogError(exception, "Failed to remove plant {PlantId}", plant.Id); plantMessage = "The plant could not be removed."; plantMessageClass = "alert-error"; }
+        finally { isSavingPlant = false; }
     }
 
     private async Task SaveAsync()
@@ -401,14 +541,14 @@ else
         }
     }
 
-    private async Task SaveRecipientAsync(CustomerCertificationRecipientEditModel recipient)
+    private async Task SaveRecipientAsync(PlantCertificationRecipientEditModel recipient)
     {
         isSavingCertification = true;
         certificationMessage = null;
 
         try
         {
-            var result = await CustomerService.SaveCertificationRecipientAsync(recipient);
+            var result = await CustomerService.SavePlantCertificationRecipientAsync(recipient);
             var isNew = recipient.Id == 0;
             if (HandleCertificationResult(
                     result,
@@ -419,7 +559,7 @@ else
                 if (isNew)
                 {
                     certificationDelivery!.Recipients.Add(recipient);
-                    newRecipient = new CustomerCertificationRecipientEditModel { CustomerId = Id };
+                    newRecipient = new PlantCertificationRecipientEditModel { PlantId = selectedPlantId };
                 }
             }
         }
@@ -434,15 +574,15 @@ else
         }
     }
 
-    private async Task DeleteRecipientAsync(CustomerCertificationRecipientEditModel recipient)
+    private async Task DeleteRecipientAsync(PlantCertificationRecipientEditModel recipient)
     {
         isSavingCertification = true;
         certificationMessage = null;
 
         try
         {
-            var result = await CustomerService.DeleteCertificationRecipientAsync(
-                Id,
+            var result = await CustomerService.DeletePlantCertificationRecipientAsync(
+                selectedPlantId,
                 recipient.Id,
                 recipient.Version);
             if (HandleCertificationResult(result, "Recipient removed."))
@@ -473,7 +613,7 @@ else
 
         try
         {
-            var result = await CustomerService.SaveCertificationConfigurationAsync(
+            var result = await CustomerService.SavePlantCertificationConfigurationAsync(
                 certificationDelivery,
                 FilenameFormatter);
             if (HandleCertificationResult(result, "Certification settings saved."))
@@ -498,22 +638,22 @@ else
     }
 
     private bool HandleCertificationResult(
-        CustomerCertificationOperationResult result,
+        PlantCertificationOperationResult result,
         string successMessage)
     {
         switch (result.Status)
         {
-            case CustomerCertificationOperationStatus.Succeeded:
+            case PlantCertificationOperationStatus.Succeeded:
                 certificationMessage = successMessage;
                 certificationMessageClass = "alert-success";
                 return true;
-            case CustomerCertificationOperationStatus.NotFound:
-                SetCertificationError("The customer or recipient no longer exists.");
+            case PlantCertificationOperationStatus.NotFound:
+                SetCertificationError("The plant or recipient no longer exists.");
                 return false;
-            case CustomerCertificationOperationStatus.Conflict:
+            case PlantCertificationOperationStatus.Conflict:
                 SetCertificationError("Someone else changed these settings. Reload the page before trying again.");
                 return false;
-            case CustomerCertificationOperationStatus.ValidationFailed:
+            case PlantCertificationOperationStatus.ValidationFailed:
                 SetCertificationError(result.Message ?? "The certification settings are invalid.");
                 return false;
             default:
@@ -531,20 +671,63 @@ else
         certificationDelivery.FilenameTemplate = $"{certificationDelivery.FilenameTemplate}{token}";
     }
 
-    private void InsertMultiLotFilenameToken(string token)
+    private void InsertSinglePartMultiLotFilenameToken(string token)
     {
         if (certificationDelivery is null)
         {
             return;
         }
 
-        certificationDelivery.MultiLotFilenameTemplate =
-            $"{certificationDelivery.MultiLotFilenameTemplate}{token}";
+        certificationDelivery.SinglePartMultiLotFilenameTemplate =
+            $"{certificationDelivery.SinglePartMultiLotFilenameTemplate}{token}";
+    }
+
+    private void InsertMultiPartFilenameToken(string token)
+    {
+        if (certificationDelivery is null)
+        {
+            return;
+        }
+
+        certificationDelivery.MultiPartFilenameTemplate =
+            $"{certificationDelivery.MultiPartFilenameTemplate}{token}";
     }
 
     private void SetCertificationError(string message)
     {
         certificationMessage = message;
         certificationMessageClass = "alert-error";
+    }
+
+    private async Task LoadPlantCertificationAsync()
+    {
+        certificationDelivery = selectedPlantId == 0
+            ? null
+            : await CustomerService.GetPlantCertificationDeliveryAsync(selectedPlantId);
+        newRecipient = new PlantCertificationRecipientEditModel { PlantId = selectedPlantId };
+    }
+
+    private async Task SelectPlantAsync(long plantId)
+    {
+        selectedPlantId = plantId;
+        showNewPlantEditor = false;
+        certificationMessage = null;
+        await LoadPlantCertificationAsync();
+    }
+
+    private void ShowNewPlantEditor()
+    {
+        showNewPlantEditor = true;
+        plantMessage = null;
+        certificationMessage = null;
+    }
+
+    private void SortPlants() =>
+        plants.Sort((left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name));
+
+    private enum CustomerTab
+    {
+        Plants,
+        Parts,
     }
 }

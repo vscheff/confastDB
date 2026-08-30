@@ -6,13 +6,17 @@ namespace Confast.Web.Features.Customers;
 
 public sealed partial class CertificationPackageFilenameFormatter
 {
-    public const string SystemDefaultTemplate = "{PartNumber}_{LotNumber}";
+    public const string SystemDefaultTemplate = "{PartNumber}_Lot#_{LotNumber}";
 
-    public const string MultiLotSystemDefaultTemplate = "{CustomerName}";
+    public const string SinglePartMultiLotSystemDefaultTemplate = "{PartNumber}";
+
+    public const string MultiPartSystemDefaultTemplate = "{CustomerName}";
 
     public static readonly IReadOnlyList<string> SupportedTokens =
     [
         "{CustomerName}",
+        "{PlantName}",
+        "{PlantCode}",
         "{PartNumber}",
         "{LotNumber}",
         "{PONumber}",
@@ -20,9 +24,20 @@ public sealed partial class CertificationPackageFilenameFormatter
         "{ShipDate}"
     ];
 
-    public static readonly IReadOnlyList<string> MultiLotSupportedTokens =
+    public static readonly IReadOnlyList<string> SinglePartMultiLotSupportedTokens =
     [
         "{CustomerName}",
+        "{PlantName}",
+        "{PlantCode}",
+        "{PartNumber}",
+        "{ShipDate}"
+    ];
+
+    public static readonly IReadOnlyList<string> MultiPartSupportedTokens =
+    [
+        "{CustomerName}",
+        "{PlantName}",
+        "{PlantCode}",
         "{ShipDate}"
     ];
 
@@ -38,6 +53,8 @@ public sealed partial class CertificationPackageFilenameFormatter
         var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["CustomerName"] = values.CustomerName,
+            ["PlantName"] = values.PlantName,
+            ["PlantCode"] = values.PlantCode ?? string.Empty,
             ["PartNumber"] = values.PartNumber,
             ["LotNumber"] = values.LotNumber ?? string.Empty,
             ["PONumber"] = values.PONumber ?? string.Empty,
@@ -48,19 +65,39 @@ public sealed partial class CertificationPackageFilenameFormatter
         return FormatTemplate(customerTemplate, SystemDefaultTemplate, replacements);
     }
 
-    public string FormatMultiLot(
+    public string FormatSinglePartMultiLot(
         string? customerTemplate,
-        CertificationMultiLotPackageFilenameValues values)
+        CertificationSinglePartMultiLotPackageFilenameValues values)
     {
         ArgumentNullException.ThrowIfNull(values);
 
         var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["CustomerName"] = values.CustomerName,
+            ["PlantName"] = values.PlantName,
+            ["PlantCode"] = values.PlantCode ?? string.Empty,
+            ["PartNumber"] = values.PartNumber,
             ["ShipDate"] = values.ShipDate?.ToString("MMddyy", CultureInfo.InvariantCulture) ?? string.Empty
         };
 
-        return FormatTemplate(customerTemplate, MultiLotSystemDefaultTemplate, replacements);
+        return FormatTemplate(customerTemplate, SinglePartMultiLotSystemDefaultTemplate, replacements);
+    }
+
+    public string FormatMultiPart(
+        string? customerTemplate,
+        CertificationMultiPartPackageFilenameValues values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
+        var replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["CustomerName"] = values.CustomerName,
+            ["PlantName"] = values.PlantName,
+            ["PlantCode"] = values.PlantCode ?? string.Empty,
+            ["ShipDate"] = values.ShipDate?.ToString("MMddyy", CultureInfo.InvariantCulture) ?? string.Empty
+        };
+
+        return FormatTemplate(customerTemplate, MultiPartSystemDefaultTemplate, replacements);
     }
 
     private static string FormatTemplate(
@@ -130,11 +167,22 @@ public sealed record CertificationPackageFilenameValues(
     string? LotNumber,
     string? PONumber,
     DateOnly InspectionDate,
-    DateOnly? ShipDate = null);
+    DateOnly? ShipDate = null,
+    string PlantName = "",
+    string? PlantCode = null);
 
-public sealed record CertificationMultiLotPackageFilenameValues(
+public sealed record CertificationSinglePartMultiLotPackageFilenameValues(
     string CustomerName,
-    DateOnly? ShipDate = null);
+    string PartNumber,
+    DateOnly? ShipDate = null,
+    string PlantName = "",
+    string? PlantCode = null);
+
+public sealed record CertificationMultiPartPackageFilenameValues(
+    string CustomerName,
+    DateOnly? ShipDate = null,
+    string PlantName = "",
+    string? PlantCode = null);
 
 public sealed class CertificationFilenameTemplateException(string message)
     : ArgumentException(message);

@@ -38,6 +38,8 @@ else
 
     <PartForm Model="part"
               CustomerOptions="customerOptions"
+              PlantOptions="plantOptions"
+              OnCustomerChanged="LoadPlantsAsync"
               OnValidSubmit="CreatePartAsync"
               FormName="create-part"
               SubmitLabel="Create part"
@@ -50,6 +52,7 @@ else
 
     private readonly PartEditModel part = new();
     private IReadOnlyList<CustomerOption> customerOptions = [];
+    private IReadOnlyList<PlantOption> plantOptions = [];
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
@@ -67,6 +70,7 @@ else
             if (CustomerId is not null && customerOptions.Any(x => x.Id == CustomerId))
             {
                 part.CustomerId = CustomerId.Value;
+                plantOptions = await PartService.GetPlantOptionsAsync(part.CustomerId);
             }
         }
         catch (Exception exception)
@@ -78,6 +82,11 @@ else
         {
             isLoading = false;
         }
+    }
+
+    private async Task LoadPlantsAsync(long customerId)
+    {
+        plantOptions = customerId > 0 ? await PartService.GetPlantOptionsAsync(customerId) : [];
     }
 
     private async Task CreatePartAsync()

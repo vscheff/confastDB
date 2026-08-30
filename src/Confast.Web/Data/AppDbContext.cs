@@ -11,16 +11,20 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public DbSet<Customer> Customers => Set<Customer>();
 
-    public DbSet<CustomerCertificationRecipient> CustomerCertificationRecipients =>
-        Set<CustomerCertificationRecipient>();
+    public DbSet<Plant> Plants => Set<Plant>();
 
-    public DbSet<CustomerCertificationRequirement> CustomerCertificationRequirements =>
-        Set<CustomerCertificationRequirement>();
+    public DbSet<PlantCertificationRecipient> PlantCertificationRecipients =>
+        Set<PlantCertificationRecipient>();
 
-    public DbSet<CustomerCertificationSettings> CustomerCertificationSettings =>
-        Set<CustomerCertificationSettings>();
+    public DbSet<PlantCertificationRequirement> PlantCertificationRequirements =>
+        Set<PlantCertificationRequirement>();
+
+    public DbSet<PlantCertificationSettings> PlantCertificationSettings =>
+        Set<PlantCertificationSettings>();
 
     public DbSet<Part> Parts => Set<Part>();
+
+    public DbSet<PartPlant> PartPlants => Set<PartPlant>();
 
     public DbSet<GageType> GageTypes => Set<GageType>();
 
@@ -68,11 +72,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         customer.Property(x => x.Name)
             .HasColumnName("name")
             .IsRequired();
-        customer.Property(x => x.AddressLine1).HasColumnName("address_line_1");
-        customer.Property(x => x.AddressLine2).HasColumnName("address_line_2");
-        customer.Property(x => x.City).HasColumnName("city");
-        customer.Property(x => x.State).HasColumnName("state");
-        customer.Property(x => x.PostalCode).HasColumnName("postal_code");
         customer.Property(x => x.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true);
@@ -80,100 +79,121 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasColumnName("xmin")
             .IsRowVersion();
 
-        var customerCertificationRecipient =
-            modelBuilder.Entity<CustomerCertificationRecipient>();
-        customerCertificationRecipient.ToTable("customer_certification_recipients", table =>
+        var plant = modelBuilder.Entity<Plant>();
+        plant.ToTable("plants", table =>
+        {
+            table.HasCheckConstraint("CK_plants_name_not_blank", "btrim(name) <> ''");
+            table.HasCheckConstraint(
+                "CK_plants_certification_filename_override_not_blank",
+                "certification_filename_pattern_override IS NULL OR btrim(certification_filename_pattern_override) <> ''");
+        });
+        plant.HasKey(x => x.Id).HasName("PK_plants");
+        plant.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        plant.Property(x => x.CustomerId).HasColumnName("customer_id");
+        plant.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+        plant.Property(x => x.PlantCode).HasColumnName("plant_code").HasMaxLength(100);
+        plant.Property(x => x.AddressLine1).HasColumnName("address_line_1");
+        plant.Property(x => x.AddressLine2).HasColumnName("address_line_2");
+        plant.Property(x => x.City).HasColumnName("city");
+        plant.Property(x => x.State).HasColumnName("state");
+        plant.Property(x => x.PostalCode).HasColumnName("postal_code");
+        plant.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+        plant.HasOne(x => x.Customer)
+            .WithMany(x => x.Plants)
+            .HasForeignKey(x => x.CustomerId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_plants_customers_customer_id");
+        plant.HasIndex(x => new { x.CustomerId, x.Name })
+            .IsUnique()
+            .HasDatabaseName("UX_plants_customer_id_name");
+
+        var plantCertificationRecipient = modelBuilder.Entity<PlantCertificationRecipient>();
+        plantCertificationRecipient.ToTable("plant_certification_recipients", table =>
         {
             table.HasCheckConstraint(
-                "CK_customer_certification_recipients_email_not_blank",
+                "CK_plant_certification_recipients_email_not_blank",
                 "btrim(email_address) <> ''");
             table.HasCheckConstraint(
-                "CK_customer_certification_recipients_type",
+                "CK_plant_certification_recipients_type",
                 "recipient_type IN (1, 2)");
         });
-        customerCertificationRecipient.HasKey(x => x.Id)
-            .HasName("PK_customer_certification_recipients");
-        customerCertificationRecipient.Property(x => x.Id)
+        plantCertificationRecipient.HasKey(x => x.Id).HasName("PK_plant_certification_recipients");
+        plantCertificationRecipient.Property(x => x.Id)
             .HasColumnName("id")
             .UseIdentityByDefaultColumn();
-        customerCertificationRecipient.Property(x => x.CustomerId)
-            .HasColumnName("customer_id");
-        customerCertificationRecipient.Property(x => x.Name)
+        plantCertificationRecipient.Property(x => x.PlantId).HasColumnName("plant_id");
+        plantCertificationRecipient.Property(x => x.Name)
             .HasColumnName("name")
             .HasMaxLength(200);
-        customerCertificationRecipient.Property(x => x.EmailAddress)
+        plantCertificationRecipient.Property(x => x.EmailAddress)
             .HasColumnName("email_address")
             .HasMaxLength(320)
             .IsRequired();
-        customerCertificationRecipient.Property(x => x.RecipientType)
-            .HasColumnName("recipient_type");
-        customerCertificationRecipient.Property(x => x.Version)
+        plantCertificationRecipient.Property(x => x.RecipientType).HasColumnName("recipient_type");
+        plantCertificationRecipient.Property(x => x.Version)
             .HasColumnName("xmin")
             .IsRowVersion();
-        customerCertificationRecipient.HasOne(x => x.Customer)
+        plantCertificationRecipient.HasOne(x => x.Plant)
             .WithMany(x => x.CertificationRecipients)
-            .HasForeignKey(x => x.CustomerId)
+            .HasForeignKey(x => x.PlantId)
             .OnDelete(DeleteBehavior.Cascade)
-            .HasConstraintName("FK_customer_certification_recipients_customer_id");
-        customerCertificationRecipient.HasIndex(x => x.CustomerId)
-            .HasDatabaseName("IX_customer_certification_recipients_customer_id");
+            .HasConstraintName("FK_plant_certification_recipients_plant_id");
+        plantCertificationRecipient.HasIndex(x => x.PlantId)
+            .HasDatabaseName("IX_plant_certification_recipients_plant_id");
 
-        var customerCertificationRequirement =
-            modelBuilder.Entity<CustomerCertificationRequirement>();
-        customerCertificationRequirement.ToTable("customer_certification_requirements");
-        customerCertificationRequirement.HasKey(x => new
-            {
-                x.CustomerId,
-                x.CertificationTypeId
-            })
-            .HasName("PK_customer_certification_requirements");
-        customerCertificationRequirement.Property(x => x.CustomerId)
-            .HasColumnName("customer_id");
-        customerCertificationRequirement.Property(x => x.CertificationTypeId)
-            .HasColumnName("certification_type_id");
-        customerCertificationRequirement.HasOne(x => x.Customer)
+        var plantCertificationRequirement = modelBuilder.Entity<PlantCertificationRequirement>();
+        plantCertificationRequirement.ToTable("plant_certification_requirements");
+        plantCertificationRequirement.HasKey(x => new { x.PlantId, x.CertificationTypeId })
+            .HasName("PK_plant_certification_requirements");
+        plantCertificationRequirement.Property(x => x.PlantId).HasColumnName("plant_id");
+        plantCertificationRequirement.Property(x => x.CertificationTypeId).HasColumnName("certification_type_id");
+        plantCertificationRequirement.HasOne(x => x.Plant)
             .WithMany(x => x.CertificationRequirements)
-            .HasForeignKey(x => x.CustomerId)
+            .HasForeignKey(x => x.PlantId)
             .OnDelete(DeleteBehavior.Cascade)
-            .HasConstraintName("FK_customer_certification_requirements_customer_id");
-        customerCertificationRequirement.HasOne(x => x.CertificationType)
+            .HasConstraintName("FK_plant_certification_requirements_plant_id");
+        plantCertificationRequirement.HasOne(x => x.CertificationType)
             .WithMany()
             .HasForeignKey(x => x.CertificationTypeId)
             .OnDelete(DeleteBehavior.Restrict)
-            .HasConstraintName("FK_customer_certification_requirements_type_id");
-        customerCertificationRequirement.HasIndex(x => x.CertificationTypeId)
-            .HasDatabaseName("IX_customer_certification_requirements_type_id");
+            .HasConstraintName("FK_plant_certification_requirements_type_id");
+        plantCertificationRequirement.HasIndex(x => x.CertificationTypeId)
+            .HasDatabaseName("IX_plant_certification_requirements_type_id");
 
-        var customerCertificationSettings =
-            modelBuilder.Entity<CustomerCertificationSettings>();
-        customerCertificationSettings.ToTable("customer_certification_settings", table =>
+        var plantCertificationSettings = modelBuilder.Entity<PlantCertificationSettings>();
+        plantCertificationSettings.ToTable("plant_certification_settings", table =>
         {
             table.HasCheckConstraint(
-                "CK_customer_certification_settings_filename_template_not_blank",
+                "CK_plant_certification_settings_filename_template_not_blank",
                 "btrim(filename_template) <> ''");
             table.HasCheckConstraint(
-                "CK_customer_cert_settings_multi_lot_filename_not_blank",
-                "btrim(multi_lot_filename_template) <> ''");
+                "CK_plant_certification_settings_single_part_multi_lot_filename_not_blank",
+                "btrim(single_part_multi_lot_filename_template) <> ''");
+            table.HasCheckConstraint(
+                "CK_plant_certification_settings_multi_part_filename_not_blank",
+                "btrim(multi_part_filename_template) <> ''");
         });
-        customerCertificationSettings.HasKey(x => x.CustomerId)
-            .HasName("PK_customer_certification_settings");
-        customerCertificationSettings.Property(x => x.CustomerId)
-            .HasColumnName("customer_id")
+        plantCertificationSettings.HasKey(x => x.PlantId).HasName("PK_plant_certification_settings");
+        plantCertificationSettings.Property(x => x.PlantId)
+            .HasColumnName("plant_id")
             .ValueGeneratedNever();
-        customerCertificationSettings.Property(x => x.FilenameTemplate)
+        plantCertificationSettings.Property(x => x.FilenameTemplate)
             .HasColumnName("filename_template")
             .HasMaxLength(500);
-        customerCertificationSettings.Property(x => x.MultiLotFilenameTemplate)
-            .HasColumnName("multi_lot_filename_template")
+        plantCertificationSettings.Property(x => x.SinglePartMultiLotFilenameTemplate)
+            .HasColumnName("single_part_multi_lot_filename_template")
             .HasMaxLength(500);
-        customerCertificationSettings.Property(x => x.Version)
+        plantCertificationSettings.Property(x => x.MultiPartFilenameTemplate)
+            .HasColumnName("multi_part_filename_template")
+            .HasMaxLength(500);
+        plantCertificationSettings.Property(x => x.Version)
             .HasColumnName("xmin")
             .IsRowVersion();
-        customerCertificationSettings.HasOne(x => x.Customer)
+        plantCertificationSettings.HasOne(x => x.Plant)
             .WithOne(x => x.CertificationSettings)
-            .HasForeignKey<CustomerCertificationSettings>(x => x.CustomerId)
+            .HasForeignKey<PlantCertificationSettings>(x => x.PlantId)
             .OnDelete(DeleteBehavior.Cascade)
-            .HasConstraintName("FK_customer_certification_settings_customer_id");
+            .HasConstraintName("FK_plant_certification_settings_plant_id");
 
         var part = modelBuilder.Entity<Part>();
 
@@ -188,6 +208,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .IsRequired();
         part.Property(x => x.Description).HasColumnName("description");
         part.Property(x => x.Revision).HasColumnName("revision");
+        part.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true);
         part.Property(x => x.Version)
             .HasColumnName("xmin")
             .IsRowVersion();
@@ -201,6 +222,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         part.HasIndex(x => new { x.CustomerId, x.PartNumber })
             .IsUnique()
             .HasDatabaseName("UX_parts_customer_id_part_number");
+
+        var partPlant = modelBuilder.Entity<PartPlant>();
+        partPlant.ToTable("part_plants");
+        partPlant.HasKey(x => new { x.PartId, x.PlantId }).HasName("PK_part_plants");
+        partPlant.Property(x => x.PartId).HasColumnName("part_id");
+        partPlant.Property(x => x.PlantId).HasColumnName("plant_id");
+        partPlant.HasOne(x => x.Part)
+            .WithMany(x => x.PartPlants)
+            .HasForeignKey(x => x.PartId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_part_plants_parts_part_id");
+        partPlant.HasOne(x => x.Plant)
+            .WithMany(x => x.PartPlants)
+            .HasForeignKey(x => x.PlantId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_part_plants_plants_plant_id");
+        partPlant.HasIndex(x => x.PlantId).HasDatabaseName("IX_part_plants_plant_id");
 
         var gageType = modelBuilder.Entity<GageType>();
         gageType.ToTable("gage_types");

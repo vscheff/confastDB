@@ -53,24 +53,8 @@ else
         </div>
 
         <div class="form-field">
-            <label for="lot-number">Lot number</label>
+            <label for="lot-number">Lot Number</label>
             <InputText id="lot-number" @bind-Value="inspection.LotNumber" />
-        </div>
-
-        <div class="form-field">
-            <label for="inspection-date">Inspection date</label>
-            <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" />
-            <ValidationMessage For="@(() => inspection.InspectionDate)" />
-        </div>
-
-        <div class="form-field">
-            <label for="conformance-po-number">Conformance PO#</label>
-            <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" />
-        </div>
-
-        <div class="form-field">
-            <label for="manufacturer-lot-number">Manufacturer's Lot#</label>
-            <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" />
         </div>
 
         <div class="form-field">
@@ -79,22 +63,38 @@ else
         </div>
 
         <div class="form-field">
+            <label for="conformance-po-number">Conformance PO#</label>
+            <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" />
+        </div>
+
+        <div class="form-field">
+            <label for="inspection-date">Date Inspected</label>
+            <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" />
+            <ValidationMessage For="@(() => inspection.InspectionDate)" />
+        </div>
+
+        <div class="form-field">
+            <label for="manufacturer-lot-number">Manufacturer's Lot #</label>
+            <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" />
+        </div>
+
+        <div class="form-field">
             <label for="quantity-received">Quantity Received</label>
-            <ThousandsSeparatedIntegerInput id="quantity-received"
-                                            @bind-Value="inspection.QuantityReceived"
-                                            @bind-Value:after="UpdateQuantityInspected" />
+            <InputNumber id="quantity-received"
+                         @bind-Value="inspection.QuantityReceived"
+                         @bind-Value:after="UpdateQuantityInspected" />
             <ValidationMessage For="@(() => inspection.QuantityReceived)" />
+        </div>
+
+        <div class="form-field">
+            <label for="inspector">Inspector</label>
+            <InputText id="inspector" @bind-Value="inspection.Inspector" />
         </div>
 
         <div class="form-field">
             <label for="quantity-inspected">Quantity Inspected</label>
             <InputNumber id="quantity-inspected" @bind-Value="inspection.QuantityInspected" />
             <ValidationMessage For="@(() => inspection.QuantityInspected)" />
-        </div>
-
-        <div class="form-field form-field-wide">
-            <label for="inspector">Inspector</label>
-            <InputText id="inspector" @bind-Value="inspection.Inspector" />
         </div>
 
         <div class="form-actions form-field-wide">

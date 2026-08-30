@@ -18,9 +18,24 @@ public sealed class Part
 
     public string? Revision { get; set; }
 
+    public bool IsActive { get; set; } = true;
+
     public uint Version { get; set; }
 
     public ICollection<InspectionCriteriaRevision> InspectionCriteriaRevisions { get; } = [];
 
     public ICollection<Inspection> Inspections { get; } = [];
+
+    public ICollection<PartPlant> PartPlants { get; } = [];
+}
+
+public sealed class PartPlant
+{
+    public long PartId { get; set; }
+
+    public Part Part { get; set; } = null!;
+
+    public long PlantId { get; set; }
+
+    public Plant Plant { get; set; } = null!;
 }
