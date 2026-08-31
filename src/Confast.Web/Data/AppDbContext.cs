@@ -2,12 +2,16 @@ using Confast.Web.Features.Customers;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Data;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
+    : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<Customer> Customers => Set<Customer>();
 
@@ -21,6 +25,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     public DbSet<PlantCertificationSettings> PlantCertificationSettings =>
         Set<PlantCertificationSettings>();
+
+    public DbSet<CertificationEmailTemplate> CertificationEmailTemplates =>
+        Set<CertificationEmailTemplate>();
+
+    public DbSet<CertificationEmailSettings> CertificationEmailSettings =>
+        Set<CertificationEmailSettings>();
 
     public DbSet<Part> Parts => Set<Part>();
 
@@ -62,6 +72,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+        ConfigureIdentity(modelBuilder);
+
         var customer = modelBuilder.Entity<Customer>();
 
         customer.ToTable("customers");
@@ -194,6 +207,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasForeignKey<PlantCertificationSettings>(x => x.PlantId)
             .OnDelete(DeleteBehavior.Cascade)
             .HasConstraintName("FK_plant_certification_settings_plant_id");
+
+        var certificationEmailTemplate = modelBuilder.Entity<CertificationEmailTemplate>();
+        certificationEmailTemplate.ToTable("certification_email_templates", table =>
+        {
+            table.HasCheckConstraint("CK_certification_email_templates_subject_not_blank", "btrim(subject_template) <> ''");
+            table.HasCheckConstraint("CK_certification_email_templates_body_not_blank", "btrim(html_body_template) <> ''");
+        });
+        certificationEmailTemplate.HasKey(x => x.TemplateType).HasName("PK_certification_email_templates");
+        certificationEmailTemplate.Property(x => x.TemplateType).HasColumnName("template_type");
+        certificationEmailTemplate.Property(x => x.SubjectTemplate).HasColumnName("subject_template").HasMaxLength(500).IsRequired();
+        certificationEmailTemplate.Property(x => x.HtmlBodyTemplate).HasColumnName("html_body_template").IsRequired();
+        certificationEmailTemplate.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc").HasDefaultValueSql("CURRENT_TIMESTAMP");
+        certificationEmailTemplate.Property(x => x.UpdatedByUserId).HasColumnName("updated_by_user_id");
+        certificationEmailTemplate.HasOne(x => x.UpdatedByUser).WithMany().HasForeignKey(x => x.UpdatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull).HasConstraintName("FK_certification_email_templates_updated_by_user_id");
+
+        var certificationEmailSettings = modelBuilder.Entity<CertificationEmailSettings>();
+        certificationEmailSettings.ToTable("certification_email_settings", table =>
+        {
+            table.HasCheckConstraint("CK_certification_email_settings_singleton", "id = 1");
+            table.HasCheckConstraint("CK_certification_email_settings_implicit_cc_not_blank", "implicit_cc_address IS NULL OR btrim(implicit_cc_address) <> ''");
+        });
+        certificationEmailSettings.HasKey(x => x.Id).HasName("PK_certification_email_settings");
+        certificationEmailSettings.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+        certificationEmailSettings.Property(x => x.ImplicitCcAddress).HasColumnName("implicit_cc_address").HasMaxLength(320);
 
         var part = modelBuilder.Entity<Part>();
 
@@ -836,5 +874,90 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasConstraintName("FK_certification_documents_certification_id");
         certificationDocument.HasIndex(x => x.InspectionCertificationId)
             .HasDatabaseName("IX_certification_documents_certification_id");
+    }
+
+    private static void ConfigureIdentity(ModelBuilder modelBuilder)
+    {
+        var user = modelBuilder.Entity<ApplicationUser>();
+        user.ToTable("identity_users");
+        user.Property(x => x.Id).HasColumnName("id");
+        user.Property(x => x.UserName).HasColumnName("user_name");
+        user.Property(x => x.NormalizedUserName).HasColumnName("normalized_user_name");
+        user.Property(x => x.Email).HasColumnName("email");
+        user.Property(x => x.NormalizedEmail).HasColumnName("normalized_email");
+        user.Property(x => x.EmailConfirmed).HasColumnName("email_confirmed");
+        user.Property(x => x.PasswordHash).HasColumnName("password_hash");
+        user.Property(x => x.SecurityStamp).HasColumnName("security_stamp");
+        user.Property(x => x.ConcurrencyStamp).HasColumnName("concurrency_stamp");
+        user.Property(x => x.PhoneNumber).HasColumnName("phone_number");
+        user.Property(x => x.PhoneNumberConfirmed).HasColumnName("phone_number_confirmed");
+        user.Property(x => x.TwoFactorEnabled).HasColumnName("two_factor_enabled");
+        user.Property(x => x.LockoutEnd).HasColumnName("lockout_end");
+        user.Property(x => x.LockoutEnabled).HasColumnName("lockout_enabled");
+        user.Property(x => x.AccessFailedCount).HasColumnName("access_failed_count");
+        user.Property(x => x.DisplayName)
+            .HasColumnName("display_name")
+            .HasMaxLength(200)
+            .IsRequired();
+        user.Property(x => x.JobTitle)
+            .HasColumnName("job_title")
+            .HasMaxLength(200);
+        user.Property(x => x.IsActive)
+            .HasColumnName("is_active")
+            .HasDefaultValue(true);
+        user.HasIndex(x => x.NormalizedEmail)
+            .IsUnique()
+            .HasDatabaseName("UX_identity_users_normalized_email");
+        user.HasIndex(x => x.NormalizedUserName)
+            .IsUnique()
+            .HasDatabaseName("UX_identity_users_normalized_user_name");
+
+        var role = modelBuilder.Entity<IdentityRole>();
+        role.ToTable("identity_roles");
+        role.Property(x => x.Id).HasColumnName("id");
+        role.Property(x => x.Name).HasColumnName("name");
+        role.Property(x => x.NormalizedName).HasColumnName("normalized_name");
+        role.Property(x => x.ConcurrencyStamp).HasColumnName("concurrency_stamp");
+        role.HasIndex(x => x.NormalizedName)
+            .IsUnique()
+            .HasDatabaseName("UX_identity_roles_normalized_name");
+        role.HasData(AppRoles.Seeds);
+
+        var userClaim = modelBuilder.Entity<IdentityUserClaim<string>>();
+        userClaim.ToTable("identity_user_claims");
+        userClaim.Property(x => x.Id).HasColumnName("id");
+        userClaim.Property(x => x.UserId).HasColumnName("user_id");
+        userClaim.Property(x => x.ClaimType).HasColumnName("claim_type");
+        userClaim.Property(x => x.ClaimValue).HasColumnName("claim_value");
+        userClaim.HasIndex(x => x.UserId).HasDatabaseName("IX_identity_user_claims_user_id");
+
+        var roleClaim = modelBuilder.Entity<IdentityRoleClaim<string>>();
+        roleClaim.ToTable("identity_role_claims");
+        roleClaim.Property(x => x.Id).HasColumnName("id");
+        roleClaim.Property(x => x.RoleId).HasColumnName("role_id");
+        roleClaim.Property(x => x.ClaimType).HasColumnName("claim_type");
+        roleClaim.Property(x => x.ClaimValue).HasColumnName("claim_value");
+        roleClaim.HasIndex(x => x.RoleId).HasDatabaseName("IX_identity_role_claims_role_id");
+
+        var userLogin = modelBuilder.Entity<IdentityUserLogin<string>>();
+        userLogin.ToTable("identity_user_logins");
+        userLogin.Property(x => x.LoginProvider).HasColumnName("login_provider");
+        userLogin.Property(x => x.ProviderKey).HasColumnName("provider_key");
+        userLogin.Property(x => x.ProviderDisplayName).HasColumnName("provider_display_name");
+        userLogin.Property(x => x.UserId).HasColumnName("user_id");
+        userLogin.HasIndex(x => x.UserId).HasDatabaseName("IX_identity_user_logins_user_id");
+
+        var userRole = modelBuilder.Entity<IdentityUserRole<string>>();
+        userRole.ToTable("identity_user_roles");
+        userRole.Property(x => x.UserId).HasColumnName("user_id");
+        userRole.Property(x => x.RoleId).HasColumnName("role_id");
+        userRole.HasIndex(x => x.RoleId).HasDatabaseName("IX_identity_user_roles_role_id");
+
+        var userToken = modelBuilder.Entity<IdentityUserToken<string>>();
+        userToken.ToTable("identity_user_tokens");
+        userToken.Property(x => x.UserId).HasColumnName("user_id");
+        userToken.Property(x => x.LoginProvider).HasColumnName("login_provider");
+        userToken.Property(x => x.Name).HasColumnName("name");
+        userToken.Property(x => x.Value).HasColumnName("value");
     }
 }

@@ -13,13 +13,15 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
 {
     private DbContextOptions<AppDbContext> options = null!;
 
+    public string ConnectionString { get; private set; } = null!;
+
     public async Task InitializeAsync()
     {
-        var connectionString = Environment.GetEnvironmentVariable("CONFAST_TEST_CONNECTION_STRING")
+        ConnectionString = Environment.GetEnvironmentVariable("CONFAST_TEST_CONNECTION_STRING")
             ?? throw new InvalidOperationException(
                 "Set CONFAST_TEST_CONNECTION_STRING to a disposable PostgreSQL test database.");
 
-        var connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+        var connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder(ConnectionString);
         if (string.IsNullOrWhiteSpace(connectionBuilder.Database)
             || !connectionBuilder.Database.Contains("test", StringComparison.OrdinalIgnoreCase))
         {
@@ -28,7 +30,7 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
         }
 
         options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(ConnectionString)
             .Options;
 
         await using var db = CreateDbContext();
@@ -47,6 +49,14 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
     {
         await using var db = CreateDbContext();
         await db.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE certification_documents, inspection_certifications, inspection_certification_requirements, inspection_secondary_processes, inspection_results, inspections, revision_certification_requirements, secondary_process_requirements, inspection_criteria, inspection_criteria_revisions, gages, gage_types, part_plants, parts, plants, customers RESTART IDENTITY CASCADE");
+            "TRUNCATE TABLE identity_users, certification_documents, inspection_certifications, inspection_certification_requirements, inspection_secondary_processes, inspection_results, inspections, revision_certification_requirements, secondary_process_requirements, inspection_criteria, inspection_criteria_revisions, gages, gage_types, part_plants, parts, plants, customers RESTART IDENTITY CASCADE");
+        await db.Database.ExecuteSqlRawAsync("""
+            INSERT INTO certification_email_templates (template_type, subject_template, html_body_template)
+            VALUES
+                (0, 'Certification package for {{CustomerName}} - {{PartNumber}}, Lot {{LotNumber}}', '<p>Attached is the certification package for <strong>{{PartNumber}}</strong>, lot <strong>{{LotNumber}}</strong>.</p><p>Ship date: {{ShipDate}}.</p>'),
+                (1, 'Certification package for {{CustomerName}} - {{PartNumber}}', '<p>Attached is the certification package for <strong>{{PartNumber}}</strong>.</p><p>Lots: {{LotNumbers}}</p><p>Ship date: {{ShipDate}}.</p>'),
+                (2, 'Certification package for {{CustomerName}}', '<p>Attached is the certification package for the following parts and lots.</p>{{PartLotSummary}}<p>Ship date: {{ShipDate}}.</p>')
+            ON CONFLICT (template_type) DO NOTHING;
+            """);
     }
 }

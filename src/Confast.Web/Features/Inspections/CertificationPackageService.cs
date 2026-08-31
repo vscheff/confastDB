@@ -18,6 +18,7 @@ public static class ShipDateCalculator
 }
 
 public sealed record CertificationPackageRequest(
+    long ActiveInspectionId,
     long ExpectedCustomerId,
     IReadOnlyCollection<long> InspectionIds,
     DateOnly ShipDate,
@@ -25,6 +26,7 @@ public sealed record CertificationPackageRequest(
 
 public sealed record CertificationPackageLot(
     long InspectionId,
+    long PartId,
     string? LotNumber,
     string PartNumber,
     DateOnly InspectionDate,
@@ -41,7 +43,8 @@ public sealed record CertificationPackage(
     byte[] Content,
     IReadOnlyList<CertificationPackageLot> Lots,
     IReadOnlyList<string> ToRecipients,
-    IReadOnlyList<string> CcRecipients);
+    IReadOnlyList<string> CcRecipients,
+    string? PlantCode = null);
 
 public sealed class CertificationPackageException(string message) : InvalidOperationException(message);
 
@@ -57,7 +60,8 @@ public sealed class CertificationPackageService(
     IDbContextFactory<AppDbContext> contextFactory,
     InspectionPdfRenderer inspectionPdfRenderer,
     PdfDocumentMerger pdfMerger,
-    CertificationPackageFilenameFormatter filenameFormatter) : ICertificationPackageService
+    CertificationPackageFilenameFormatter filenameFormatter,
+    InspectionPrintRenderTokenService renderTokenService) : ICertificationPackageService
 {
     public async Task<CertificationPackage> BuildAsync(
         CertificationPackageRequest request,
@@ -84,7 +88,10 @@ public sealed class CertificationPackageService(
             ?? throw new CertificationPackageException("The customer could not be found.");
 
         var plant = await db.Plants.AsNoTracking()
-            .Where(x => x.Id == request.PlantId && x.CustomerId == request.ExpectedCustomerId)
+            .Where(x => x.Id == request.PlantId
+                && x.CustomerId == request.ExpectedCustomerId
+                && x.PartPlants.Any(partPlant => partPlant.Part.Inspections.Any(
+                    inspection => inspection.Id == request.ActiveInspectionId)))
             .Select(x => new
             {
                 x.Id, x.Name, x.PlantCode,
@@ -96,7 +103,7 @@ public sealed class CertificationPackageService(
                 RequiredTypeIds = x.CertificationRequirements.Select(r => r.CertificationTypeId).ToList()
             })
             .SingleOrDefaultAsync(cancellationToken)
-            ?? throw new CertificationPackageException("Select a destination plant for this customer.");
+            ?? throw new CertificationPackageException("Select a destination plant assigned to this inspection's part.");
 
         if (plant.RequiredTypeIds.Count == 0)
         {
@@ -160,6 +167,7 @@ public sealed class CertificationPackageService(
                 .ToArray();
             packageLots.Add(new CertificationPackageLot(
                 lot.Id,
+                lot.PartId,
                 lot.LotNumber,
                 lot.PartNumber,
                 lot.InspectionDate,
@@ -172,8 +180,16 @@ public sealed class CertificationPackageService(
 
             if (requiredTypes.Any(type => type.Name == "Inspection Sheet"))
             {
-                var previewUrl = $"{applicationBaseUrl.TrimEnd('/')}/inspections/{lot.Id}/print";
-                pdfs.Add(await inspectionPdfRenderer.RenderAsync(previewUrl, cancellationToken));
+                var renderToken = Uri.EscapeDataString(renderTokenService.Create(lot.Id));
+                var previewUrl = $"{applicationBaseUrl.TrimEnd('/')}/inspections/{lot.Id}/print?renderToken={renderToken}";
+                try
+                {
+                    pdfs.Add(await inspectionPdfRenderer.RenderAsync(previewUrl, cancellationToken));
+                }
+                catch (InspectionPdfRenderException exception)
+                {
+                    throw new CertificationPackageException($"The Inspection Sheet for lot {lot.LotNumber ?? lot.Id.ToString()} could not be rendered: {exception.Message}");
+                }
             }
             foreach (var typeId in requiredTypes.Select(x => x.Id))
             {
@@ -213,7 +229,8 @@ public sealed class CertificationPackageService(
             MergeAll(pdfs),
             packageLots,
             plant.ToRecipients,
-            plant.CcRecipients);
+            plant.CcRecipients,
+            plant.PlantCode);
     }
 
     private byte[] MergeAll(IReadOnlyList<byte[]> pdfs)

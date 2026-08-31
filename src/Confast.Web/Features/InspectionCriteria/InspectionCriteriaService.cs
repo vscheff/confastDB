@@ -1261,6 +1261,13 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return "Inspection method is required.";
         }
 
+        if (InspectionCriterionRangeValidator.HasInvalidNumericOrder(
+                model.Minimum,
+                model.MaximumOrTolerance))
+        {
+            return "Minimum cannot be greater than maximum.";
+        }
+
         return null;
     }
 

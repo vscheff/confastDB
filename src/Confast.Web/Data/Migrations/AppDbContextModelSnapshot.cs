@@ -304,6 +304,103 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("gage_types", (string)null);
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Identity.ApplicationUser", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AccessFailedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("access_failed_count");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text")
+                        .HasColumnName("concurrency_stamp");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("email");
+
+                    b.Property<bool>("EmailConfirmed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("email_confirmed");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("JobTitle")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("job_title");
+
+                    b.Property<bool>("LockoutEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("lockout_enabled");
+
+                    b.Property<DateTimeOffset?>("LockoutEnd")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lockout_end");
+
+                    b.Property<string>("NormalizedEmail")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("normalized_email");
+
+                    b.Property<string>("NormalizedUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("normalized_user_name");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text")
+                        .HasColumnName("password_hash");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("phone_number");
+
+                    b.Property<bool>("PhoneNumberConfirmed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("phone_number_confirmed");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text")
+                        .HasColumnName("security_stamp");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("two_factor_enabled");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("user_name");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedEmail")
+                        .IsUnique()
+                        .HasDatabaseName("UX_identity_users_normalized_email");
+
+                    b.HasIndex("NormalizedUserName")
+                        .IsUnique()
+                        .HasDatabaseName("UX_identity_users_normalized_user_name");
+
+                    b.ToTable("identity_users", (string)null);
+                });
+
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.CertificationType", b =>
                 {
                     b.Property<long>("Id")
@@ -817,6 +914,68 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("certification_documents", (string)null);
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Inspections.CertificationEmailSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ImplicitCcAddress")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("implicit_cc_address");
+
+                    b.HasKey("Id")
+                        .HasName("PK_certification_email_settings");
+
+                    b.ToTable("certification_email_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_certification_email_settings_implicit_cc_not_blank", "implicit_cc_address IS NULL OR btrim(implicit_cc_address) <> ''");
+
+                            t.HasCheckConstraint("CK_certification_email_settings_singleton", "id = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Inspections.CertificationEmailTemplate", b =>
+                {
+                    b.Property<int>("TemplateType")
+                        .HasColumnType("integer")
+                        .HasColumnName("template_type");
+
+                    b.Property<string>("HtmlBodyTemplate")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("html_body_template");
+
+                    b.Property<string>("SubjectTemplate")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("subject_template");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("updated_by_user_id");
+
+                    b.HasKey("TemplateType")
+                        .HasName("PK_certification_email_templates");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("certification_email_templates", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_certification_email_templates_body_not_blank", "btrim(html_body_template) <> ''");
+
+                            t.HasCheckConstraint("CK_certification_email_templates_subject_not_blank", "btrim(subject_template) <> ''");
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Inspections.Inspection", b =>
                 {
                     b.Property<long>("Id")
@@ -1209,6 +1368,194 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("part_plants", (string)null);
                 });
 
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text")
+                        .HasColumnName("concurrency_stamp");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("normalized_name");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("UX_identity_roles_normalized_name");
+
+                    b.ToTable("identity_roles", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            ConcurrencyStamp = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            Name = "Administrator",
+                            NormalizedName = "ADMINISTRATOR"
+                        },
+                        new
+                        {
+                            Id = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            ConcurrencyStamp = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            Name = "Quality",
+                            NormalizedName = "QUALITY"
+                        },
+                        new
+                        {
+                            Id = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            ConcurrencyStamp = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            Name = "Production",
+                            NormalizedName = "PRODUCTION"
+                        },
+                        new
+                        {
+                            Id = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            ConcurrencyStamp = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            Name = "ReadOnly",
+                            NormalizedName = "READONLY"
+                        });
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text")
+                        .HasColumnName("claim_type");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text")
+                        .HasColumnName("claim_value");
+
+                    b.Property<string>("RoleId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("role_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId")
+                        .HasDatabaseName("IX_identity_role_claims_role_id");
+
+                    b.ToTable("identity_role_claims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ClaimType")
+                        .HasColumnType("text")
+                        .HasColumnName("claim_type");
+
+                    b.Property<string>("ClaimValue")
+                        .HasColumnType("text")
+                        .HasColumnName("claim_value");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_identity_user_claims_user_id");
+
+                    b.ToTable("identity_user_claims", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text")
+                        .HasColumnName("login_provider");
+
+                    b.Property<string>("ProviderKey")
+                        .HasColumnType("text")
+                        .HasColumnName("provider_key");
+
+                    b.Property<string>("ProviderDisplayName")
+                        .HasColumnType("text")
+                        .HasColumnName("provider_display_name");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("LoginProvider", "ProviderKey");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_identity_user_logins_user_id");
+
+                    b.ToTable("identity_user_logins", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("role_id");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("RoleId")
+                        .HasDatabaseName("IX_identity_user_roles_role_id");
+
+                    b.ToTable("identity_user_roles", (string)null);
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("LoginProvider")
+                        .HasColumnType("text")
+                        .HasColumnName("login_provider");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("text")
+                        .HasColumnName("value");
+
+                    b.HasKey("UserId", "LoginProvider", "Name");
+
+                    b.ToTable("identity_user_tokens", (string)null);
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Customers.Plant", b =>
                 {
                     b.HasOne("Confast.Web.Features.Customers.Customer", "Customer")
@@ -1364,6 +1711,17 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("InspectionCertification");
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Inspections.CertificationEmailTemplate", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("FK_certification_email_templates_updated_by_user_id");
+
+                    b.Navigation("UpdatedByUser");
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Inspections.Inspection", b =>
                 {
                     b.HasOne("Confast.Web.Features.Parts.Part", "Part")
@@ -1513,6 +1871,57 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("Part");
 
                     b.Navigation("Plant");
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<string>", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<string>", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
+                {
+                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<string>", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Customers.Customer", b =>

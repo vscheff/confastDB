@@ -1,8 +1,11 @@
 @page "/inspections/create"
 @using Confast.Web.Features.Inspections
+@using System.Globalization
 @inject InspectionService InspectionService
 @inject NavigationManager Navigation
 @inject ILogger<Create> Logger
+@inject IJSRuntime Js
+@implements IAsyncDisposable
 
 <PageTitle>Create inspection</PageTitle>
 
@@ -59,7 +62,12 @@ else
 
         <div class="form-field">
             <label for="date-received">Date Received</label>
-            <InputDate id="date-received" @bind-Value="inspection.DateReceived" />
+            <span @ref="dateReceivedField">
+                <InputDate id="date-received"
+                           @bind-Value="inspection.DateReceived"
+                           max="@Today" />
+            </span>
+            <ValidationMessage For="@(() => inspection.DateReceived)" />
         </div>
 
         <div class="form-field">
@@ -69,7 +77,12 @@ else
 
         <div class="form-field">
             <label for="inspection-date">Date Inspected</label>
-            <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" />
+            <span @ref="inspectionDateField">
+                <InputDate id="inspection-date"
+                           @bind-Value="inspection.InspectionDate"
+                           min="@DateReceived"
+                           max="@Today" />
+            </span>
             <ValidationMessage For="@(() => inspection.InspectionDate)" />
         </div>
 
@@ -80,9 +93,9 @@ else
 
         <div class="form-field">
             <label for="quantity-received">Quantity Received</label>
-            <InputNumber id="quantity-received"
-                         @bind-Value="inspection.QuantityReceived"
-                         @bind-Value:after="UpdateQuantityInspected" />
+            <ThousandsSeparatedIntegerInput id="quantity-received"
+                                            @bind-Value="inspection.QuantityReceived"
+                                            @bind-Value:after="UpdateQuantityInspected" />
             <ValidationMessage For="@(() => inspection.QuantityReceived)" />
         </div>
 
@@ -93,7 +106,7 @@ else
 
         <div class="form-field">
             <label for="quantity-inspected">Quantity Inspected</label>
-            <InputNumber id="quantity-inspected" @bind-Value="inspection.QuantityInspected" />
+            <ThousandsSeparatedIntegerInput id="quantity-inspected" @bind-Value="inspection.QuantityInspected" />
             <ValidationMessage For="@(() => inspection.QuantityInspected)" />
         </div>
 
@@ -113,6 +126,16 @@ else
     private bool isSaving;
     private string? loadError;
     private string? saveMessage;
+    private ElementReference dateReceivedField;
+    private ElementReference inspectionDateField;
+    private IJSObjectReference? dateInputNavigationModule;
+    private bool isDateInputNavigationConfigured;
+
+    private string Today => DateOnly.FromDateTime(DateTime.Today)
+        .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private string? DateReceived => inspection.DateReceived?
+        .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private void UpdateQuantityInspected() =>
         inspection.QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(
@@ -132,6 +155,30 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (isLoading || loadError is not null || partOptions.Count == 0 || isDateInputNavigationConfigured)
+        {
+            return;
+        }
+
+        dateInputNavigationModule = await Js.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./date-input-tab-navigation.js");
+
+        await dateInputNavigationModule.InvokeVoidAsync("skipNativePickerOnTab", dateReceivedField);
+        await dateInputNavigationModule.InvokeVoidAsync("skipNativePickerOnTab", inspectionDateField);
+        isDateInputNavigationConfigured = true;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (dateInputNavigationModule is not null)
+        {
+            await dateInputNavigationModule.DisposeAsync();
         }
     }
 

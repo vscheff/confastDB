@@ -1,6 +1,7 @@
 // Set up event handlers
 const reconnectModal = document.getElementById("components-reconnect-modal");
 reconnectModal.addEventListener("components-reconnect-state-changed", handleReconnectStateChanged);
+let sessionCheckInProgress = false;
 
 const retryButton = document.getElementById("components-reconnect-button");
 retryButton.addEventListener("click", retry);
@@ -8,15 +9,46 @@ retryButton.addEventListener("click", retry);
 const resumeButton = document.getElementById("components-resume-button");
 resumeButton.addEventListener("click", resume);
 
-function handleReconnectStateChanged(event) {
+async function handleReconnectStateChanged(event) {
     if (event.detail.state === "show") {
         reconnectModal.showModal();
     } else if (event.detail.state === "hide") {
         reconnectModal.close();
+    } else if (event.detail.state === "retrying") {
+        await reloadIfSessionExpired();
     } else if (event.detail.state === "failed") {
+        if (await reloadIfSessionExpired()) {
+            return;
+        }
+
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
     } else if (event.detail.state === "rejected") {
         location.reload();
+    }
+}
+
+async function reloadIfSessionExpired() {
+    if (sessionCheckInProgress) {
+        return false;
+    }
+
+    sessionCheckInProgress = true;
+    try {
+        const response = await fetch("/account/session", {
+            cache: "no-store",
+            credentials: "same-origin"
+        });
+        if (response.status === 401) {
+            location.reload();
+            return true;
+        }
+
+        return false;
+    } catch {
+        // The server is actually unavailable. Preserve the normal reconnect flow.
+        return false;
+    } finally {
+        sessionCheckInProgress = false;
     }
 }
 

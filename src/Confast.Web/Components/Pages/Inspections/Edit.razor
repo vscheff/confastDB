@@ -1,10 +1,14 @@
 @page "/inspections/{InspectionId:long}"
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.Customers
+@using System.Globalization
 @inject InspectionService InspectionService
-@inject CustomerService CustomerService
 @inject ICertificationPackageService CertificationPackageService
-@inject IEmailService EmailService
+@inject ICertificationEmailService CertificationEmailService
+@inject ICurrentEmailSender CurrentEmailSender
+@inject ICertificationEmailTemplateResolver EmailTemplateResolver
+@inject CertificationEmailTemplateRenderer EmailTemplateRenderer
+@inject CertificationEmailHtmlSanitizer EmailHtmlSanitizer
 @inject ILogger<Edit> Logger
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
@@ -33,7 +37,7 @@ else
 {
     <div class="page-heading">
         <div>
-            <h1>Inspection · @inspection.PartNumber</h1>
+            <h1>Inspection <span class="inspection-heading-identifiers">Part# @inspection.PartNumber · Lot# @(inspection.LotNumber ?? "—")</span></h1>
             <p>@inspection.CustomerName · Criteria revision @inspection.RevisionNumber@(inspection.PrintRevisionNumber is null ? null : $" · Print revision {inspection.PrintRevisionNumber}")</p>
         </div>
         <div class="inspection-indicators" aria-label="Inspection status">
@@ -79,35 +83,63 @@ else
                     </div>
                     <button class="button button-secondary" type="button" @onclick="CloseCertificationPackage">Close</button>
                 </div>
-                <div class="form-field">
-                    <label for="package-ship-date">Ship Date</label>
-                    <InputDate id="package-ship-date" @bind-Value="packageShipDate" />
+                <div class="certification-package-controls">
+                    <div class="form-field">
+                        <label for="package-ship-date">Ship Date</label>
+                        <InputDate id="package-ship-date" @bind-Value="packageShipDate" />
+                    </div>
+                    <div class="form-field">
+                        <label for="package-plant">Destination plant</label>
+                        <InputSelect id="package-plant" @bind-Value="selectedPackagePlantId">
+                            <option value="0">Select a plant</option>
+                            @foreach (var plant in packagePlants) { <option value="@plant.Id">@plant.Name</option> }
+                        </InputSelect>
+                    </div>
+                    <div class="certification-package-selection-summary" aria-live="polite">
+                        <span>Lots selected</span>
+                        <strong>@selectedPackageLotIds.Count</strong>
+                        <small>@(SelectedPackageLots.Count == 0 ? "Choose one or more lots below." : string.Join(", ", SelectedPackageLots.Select(lot => lot.LotNumber ?? "(no lot number)")))</small>
+                    </div>
                 </div>
-                <div class="form-field">
-                    <label for="package-plant">Destination plant</label>
-                    <InputSelect id="package-plant" @bind-Value="selectedPackagePlantId">
-                        <option value="0">Select a plant</option>
-                        @foreach (var plant in packagePlants) { <option value="@plant.Id">@plant.Name</option> }
-                    </InputSelect>
-                </div>
-                <h3>Lots</h3>
                 @if (packageLots.Count == 0)
                 {
                     <p class="status-message">No lots are available for this customer.</p>
                 }
                 else
                 {
-                    <div class="certification-package-lots">
+                    <section class="certification-package-lot-picker" aria-labelledby="certification-package-lots-title">
+                        <div class="certification-package-lot-picker-heading">
+                            <div>
+                                <h3 id="certification-package-lots-title">Lots to include</h3>
+                                <p>Choose the completed lots that belong in this package.</p>
+                            </div>
+                            <div class="certification-package-lot-picker-actions">
+                                <button class="button button-secondary button-compact" type="button" @onclick="SelectAllPackageLots">All</button>
+                                <button class="button button-secondary button-compact" type="button" @onclick="ClearPackageLots" disabled="@(selectedPackageLotIds.Count == 0)">Clear</button>
+                            </div>
+                        </div>
+                        <div class="certification-package-lots" role="group" aria-label="Lots to include">
+                            <div class="certification-package-lot-columns" aria-hidden="true">
+                                <span></span>
+                                <span>Lot</span>
+                                <span>Part number</span>
+                                <span>Inspection date</span>
+                                <span>Documents</span>
+                            </div>
                         @foreach (var lot in packageLots)
                         {
-                            <label class="certification-package-lot">
+                            <label class="certification-package-lot @(selectedPackageLotIds.Contains(lot.InspectionId) ? "certification-package-lot-selected" : null)">
                                 <input type="checkbox" checked="@selectedPackageLotIds.Contains(lot.InspectionId)"
                                        @onchange="eventArgs => SetPackageLotSelected(lot.InspectionId, eventArgs.Value is true)" />
-                                <span><strong>@(lot.LotNumber ?? "(no lot number)")</strong> · @lot.PartNumber · @lot.InspectionDate.ToString("yyyy-MM-dd")</span>
+                                <span class="certification-package-lot-check" aria-hidden="true"></span>
+                                <span class="certification-package-lot-number">@(lot.LotNumber ?? "(no lot number)")</span>
+                                <span class="certification-package-lot-part">@lot.PartNumber</span>
+                                <time datetime="@lot.InspectionDate.ToString("yyyy-MM-dd")">@lot.InspectionDate.ToString("MMM d, yyyy")</time>
                                 <small>@lot.Status</small>
                             </label>
                         }
-                    </div>
+                        </div>
+                    </section>
                 }
                 @if (generatedPackage is not null)
                 {
@@ -123,7 +155,42 @@ else
                 <div class="heading-actions">
                     <button class="button button-secondary" type="button" @onclick="GenerateCertificationPackageAsync" disabled="@packageWorking">Generate / Validate</button>
                     <button class="button button-primary" type="button" @onclick="DownloadCertificationPackageAsync" disabled="@(packageWorking || generatedPackage is null)">Download PDF</button>
-                    <button class="button button-primary" type="button" @onclick="EmailCertificationPackageAsync" disabled="@(packageWorking || generatedPackage is null || generatedPackage.ToRecipients.Count == 0)">Email PDF</button>
+                    <button class="button button-primary" type="button" @onclick="ComposeCertificationEmailAsync" disabled="@(packageWorking || generatedPackage is null || generatedPackage.ToRecipients.Count == 0)">Email PDF</button>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (showCertificationEmailCompose && composedEmail is not null)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal certification-package-modal certification-email-compose-modal" role="dialog" aria-modal="true" aria-labelledby="compose-certification-email-title">
+                <div class="page-heading">
+                    <div>
+                        <h2 id="compose-certification-email-title">Compose Certification Email</h2>
+                        <p>Review the rendered message. Changes here apply only to this email.</p>
+                    </div>
+                    <div class="heading-actions">
+                        <button class="button button-secondary" type="button" disabled="@packageWorking" @onclick="CancelCertificationEmailCompose">Back</button>
+                        <button class="button button-primary" type="button" disabled="@packageWorking" @onclick="SendComposedCertificationEmailAsync">Send Email</button>
+                    </div>
+                </div>
+                @if (composeMessage is not null)
+                {
+                    <div class="alert @(composeSucceeded ? "alert-success" : "alert-error")" role="alert">@composeMessage</div>
+                }
+                <div class="certification-email-metadata">
+                    <div><strong>To:</strong> @(composedEmail.ToRecipients.Count == 0 ? "none configured" : string.Join(", ", composedEmail.ToRecipients))</div>
+                    @if (composedEmail.CcRecipients.Count > 0) { <div><strong>Cc:</strong> @string.Join(", ", composedEmail.CcRecipients)</div> }
+                    <div><strong>Attachment:</strong> @composedEmail.AttachmentName</div>
+                </div>
+                <div class="form-field">
+                    <label for="compose-certification-subject">Subject</label>
+                    <InputText id="compose-certification-subject" @bind-Value="composedEmail.Subject" />
+                </div>
+                <div class="form-field">
+                    <label>Message</label>
+                    <RichTextEditor Value="@composedEmail.HtmlBody" ValueChanged="@(html => composedEmail.HtmlBody = html)" />
                 </div>
             </section>
         </div>
@@ -207,11 +274,19 @@ else
             </div>
             <div class="form-field inspection-received-date-field">
                 <label for="date-received">Date Received</label>
-                <InputDate id="date-received" @bind-Value="inspection.DateReceived" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputDate id="date-received"
+                           @bind-Value="inspection.DateReceived"
+                           @bind-Value:after="SaveInspectionAfterEditAsync"
+                           max="@Today" />
+                <ValidationMessage For="@(() => inspection.DateReceived)" />
             </div>
             <div class="form-field inspection-date-field">
                 <label for="inspection-date">Inspection date</label>
-                <InputDate id="inspection-date" @bind-Value="inspection.InspectionDate" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputDate id="inspection-date"
+                           @bind-Value="inspection.InspectionDate"
+                           @bind-Value:after="SaveInspectionAfterEditAsync"
+                           min="@DateReceived"
+                           max="@Today" />
                 <ValidationMessage For="@(() => inspection.InspectionDate)" />
             </div>
             <div class="form-field inspection-quantity-received-field">
@@ -537,16 +612,29 @@ else
     private DateOnly packageShipDate;
     private string? packageMessage;
     private IReadOnlyList<CertificationPackageLotOption> packageLots = [];
-    private IReadOnlyList<PlantEditModel> packagePlants = [];
+    private IReadOnlyList<CertificationPackagePlantOption> packagePlants = [];
     private long selectedPackagePlantId;
     private readonly HashSet<long> selectedPackageLotIds = [];
     private CertificationPackage? generatedPackage;
+    private bool showCertificationEmailCompose;
+    private ComposedCertificationEmail? composedEmail;
+    private string? composeMessage;
+    private bool composeSucceeded;
     private long? selectedCertificationTypeId;
     private long? selectedDocumentId;
     private long? pendingCertificationDocumentDeleteId;
     private string? loadError;
     private string? saveMessage;
     private InspectionTab activeTab;
+
+    private string Today => DateOnly.FromDateTime(DateTime.Today)
+        .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private string? DateReceived => inspection?.DateReceived?
+        .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private IReadOnlyList<CertificationPackageLotOption> SelectedPackageLots =>
+        packageLots.Where(lot => selectedPackageLotIds.Contains(lot.InspectionId)).ToArray();
 
     private string MasterPrintViewerUrl => inspection is null
         ? string.Empty
@@ -610,7 +698,7 @@ else
     {
         if (inspection is null) return;
         packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(inspection.CustomerId);
-        packagePlants = await CustomerService.GetPlantsAsync(inspection.CustomerId);
+        packagePlants = await InspectionService.GetCertificationPackagePlantOptionsAsync(inspection.Id);
         selectedPackagePlantId = packagePlants.Count == 1 ? packagePlants[0].Id : 0;
         selectedPackageLotIds.Clear();
         selectedPackageLotIds.Add(inspection.Id);
@@ -627,6 +715,24 @@ else
     {
         if (selected) selectedPackageLotIds.Add(inspectionId);
         else selectedPackageLotIds.Remove(inspectionId);
+        generatedPackage = null;
+        packageMessage = null;
+    }
+
+    private void SelectAllPackageLots()
+    {
+        selectedPackageLotIds.Clear();
+        foreach (var lot in packageLots)
+        {
+            selectedPackageLotIds.Add(lot.InspectionId);
+        }
+        generatedPackage = null;
+        packageMessage = null;
+    }
+
+    private void ClearPackageLots()
+    {
+        selectedPackageLotIds.Clear();
         generatedPackage = null;
         packageMessage = null;
     }
@@ -650,7 +756,7 @@ else
                 return;
             }
             generatedPackage = await CertificationPackageService.BuildAsync(
-                new CertificationPackageRequest(inspection!.CustomerId, selectedPackageLotIds, packageShipDate, selectedPackagePlantId),
+                new CertificationPackageRequest(inspection!.Id, inspection.CustomerId, selectedPackageLotIds, packageShipDate, selectedPackagePlantId),
                 Navigation.BaseUri);
             packageSucceeded = true;
             packageMessage = "Certification package generated and validated.";
@@ -675,29 +781,75 @@ else
         packageSucceeded = true;
     }
 
-    private async Task EmailCertificationPackageAsync()
+    private async Task ComposeCertificationEmailAsync()
     {
         if (generatedPackage is null) return;
         packageWorking = true;
         packageSucceeded = false;
         try
         {
-            await EmailService.SendAsync(new EmailMessage(
-                generatedPackage.ToRecipients,
-                generatedPackage.CcRecipients,
-                $"Certification package for {generatedPackage.CustomerName}",
-                $"Attached is the certification package for {string.Join(", ", generatedPackage.Lots.Select(x => x.LotNumber ?? x.InspectionId.ToString()))}. Ship date: {generatedPackage.ShipDate:yyyy-MM-dd}.",
-                generatedPackage.FileName,
-                generatedPackage.Content));
-            packageSucceeded = true;
-            packageMessage = "Certification package emailed successfully.";
+            var type = EmailTemplateRenderer.GetTemplateType(generatedPackage);
+            var template = await EmailTemplateResolver.ResolveEmailTemplateAsync(type);
+            var sender = await CurrentEmailSender.GetAsync();
+            var draft = EmailTemplateRenderer.Render(generatedPackage, template, sender);
+            composedEmail = new ComposedCertificationEmail(draft.Subject, draft.HtmlBody, draft.ToRecipients, draft.CcRecipients, draft.AttachmentName);
+            composeMessage = null;
+            composeSucceeded = false;
+            showCertificationEmailCompose = true;
+        }
+        catch (CertificationEmailTemplateException exception)
+        {
+            packageMessage = exception.Message;
         }
         catch (Exception exception)
         {
-            Logger.LogError(exception, "Failed to email certification package for inspection {InspectionId}", InspectionId);
-            packageMessage = "The certification package could not be emailed.";
+            Logger.LogError(exception, "Failed to compose certification package email for inspection {InspectionId}", InspectionId);
+            packageMessage = "The certification email could not be prepared.";
         }
         finally { packageWorking = false; }
+    }
+
+    private void CancelCertificationEmailCompose()
+    {
+        showCertificationEmailCompose = false;
+        composedEmail = null;
+        composeMessage = null;
+    }
+
+    private async Task SendComposedCertificationEmailAsync()
+    {
+        if (generatedPackage is null || composedEmail is null) return;
+        packageWorking = true;
+        composeMessage = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(composedEmail.Subject)) throw new EmailDeliveryException("Email subject is required.");
+            var body = EmailHtmlSanitizer.SanitizeForEmail(composedEmail.HtmlBody);
+            if (string.IsNullOrWhiteSpace(body)) throw new EmailDeliveryException("Email body contains no supported content.");
+            await CertificationEmailService.SendAsync(new EmailMessage(await CurrentEmailSender.GetAsync(), composedEmail.ToRecipients,
+                composedEmail.CcRecipients, composedEmail.Subject.Trim(), body, generatedPackage.FileName, generatedPackage.Content));
+            composeSucceeded = true;
+            composeMessage = "Certification package emailed successfully.";
+            packageSucceeded = true;
+            packageMessage = "Certification package emailed successfully.";
+        }
+        catch (EmailDeliveryException exception) { composeSucceeded = false; composeMessage = exception.Message; }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to email certification package for inspection {InspectionId}", InspectionId);
+            composeSucceeded = false;
+            composeMessage = "The certification package could not be emailed.";
+        }
+        finally { packageWorking = false; }
+    }
+
+    private sealed class ComposedCertificationEmail(string subject, string htmlBody, IReadOnlyList<string> toRecipients, IReadOnlyList<string> ccRecipients, string attachmentName)
+    {
+        public string Subject { get; set; } = subject;
+        public string HtmlBody { get; set; } = htmlBody;
+        public IReadOnlyList<string> ToRecipients { get; } = toRecipients;
+        public IReadOnlyList<string> CcRecipients { get; } = ccRecipients;
+        public string AttachmentName { get; } = attachmentName;
     }
 
     private async Task SaveInspectionAfterEditAsync()
@@ -778,7 +930,7 @@ else
                     .FirstOrDefault(x => x.IsMissingRequired)?.CertificationTypeId
                     ?? inspection.Certifications.FirstOrDefault()?.CertificationTypeId;
             }
-            CaptureCommittedMeasurements();
+            CaptureCommittedMeasurements(clearValidationMessages: true);
         }
         catch (Exception exception)
         {
@@ -808,7 +960,7 @@ else
             if (result.Status == InspectionOperationStatus.Succeeded)
             {
                 inspection = await InspectionService.GetInspectionAsync(InspectionId);
-                CaptureCommittedMeasurements();
+                CaptureCommittedMeasurements(clearValidationMessages: true);
                 saveSucceeded = true;
                 saveMessage = "Inspection saved.";
                 return;
@@ -900,12 +1052,19 @@ else
         await SaveInspectionAfterEditAsync();
     }
 
-    private void CaptureCommittedMeasurements()
+    private void CaptureCommittedMeasurements(bool clearValidationMessages = false)
     {
         committedMinimums.Clear();
         committedMaximums.Clear();
-        recordedMinimumMessages.Clear();
-        recordedMaximumMessages.Clear();
+
+        // Autosave refreshes the committed values after a rejected measurement
+        // has been restored. Keep that field's explanation visible until the
+        // user edits it again; a real load replaces the whole edit state.
+        if (clearValidationMessages)
+        {
+            recordedMinimumMessages.Clear();
+            recordedMaximumMessages.Clear();
+        }
 
         if (inspection is null)
         {

@@ -1,0 +1,50 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="rich-text-editor" @ref="host"></div>
+
+@code {
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private ElementReference host;
+    private DotNetObjectReference<RichTextEditor>? reference;
+    private bool initialized;
+    private string? lastValue;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            reference = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("confastRichText.create", host, reference, Value);
+            initialized = true;
+            lastValue = Value;
+        }
+        else if (initialized && Value != lastValue)
+        {
+            await JS.InvokeVoidAsync("confastRichText.setHtml", host, Value);
+            lastValue = Value;
+        }
+    }
+
+    [JSInvokable]
+    public async Task Changed(string html)
+    {
+        lastValue = html;
+        await ValueChanged.InvokeAsync(html);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (initialized) await JS.InvokeVoidAsync("confastRichText.dispose", host);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is already gone; there is no browser editor left to clean up.
+        }
+        reference?.Dispose();
+    }
+}

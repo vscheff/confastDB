@@ -1,0 +1,164 @@
+@page "/admin/certification-email-templates"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@using Confast.Web.Features.Inspections
+@inject ICertificationEmailTemplateService TemplateService
+@inject CertificationEmailTemplateRenderer Renderer
+@inject CertificationEmailHtmlSanitizer Sanitizer
+
+<PageTitle>Certification Email Templates</PageTitle>
+
+<div class="certification-email-templates-page">
+    <div class="page-heading">
+        <div>
+            <h1>Certification Email Templates</h1>
+            <p>These application-wide templates are expanded before the sender reviews each certification email.</p>
+        </div>
+    </div>
+
+    @if (editors.Count == 0)
+    {
+        <p>Loading templates…</p>
+    }
+    else
+    {
+        <section class="email-template-settings">
+            <h2>Implicit CC</h2>
+            <p>Optional application-wide recipient added as a CC to every certification email. Leave blank to add none.</p>
+            <div class="form-field">
+                <label for="implicit-cc-address">Email address</label>
+                <InputText id="implicit-cc-address" type="email" @bind-Value="implicitCcAddress" />
+            </div>
+            <div class="form-actions">
+                <button class="button button-primary" type="button" disabled="@savingSettings" @onclick="SaveSettingsAsync">Save implicit CC</button>
+                @if (settingsMessage is not null)
+                {
+                    <div class="alert @(settingsSucceeded ? "alert-success" : "alert-error") email-template-save-message" role="alert">@settingsMessage</div>
+                }
+            </div>
+        </section>
+        <div class="revision-tabs" role="tablist" aria-label="Certification email template type">
+            @foreach (var editor in editors)
+            {
+                <button class="subtab @(editor.Type == selectedType ? "subtab-active" : null)" type="button" role="tab"
+                        aria-selected="@(editor.Type == selectedType)" @onclick="() => selectedType = editor.Type">@Label(editor.Type)</button>
+            }
+        </div>
+        <section class="email-template-editor">
+            <div class="email-template-fields">
+                <div class="form-field">
+                    <label for="template-subject">Subject template</label>
+                    <InputText id="template-subject" @bind-Value="Current.Subject" />
+                </div>
+                <div class="template-token-reference">
+                    <strong>Available tokens</strong>
+                    <div class="filename-token-list">
+                    @foreach (var token in CertificationEmailTemplateRenderer.SubjectTokensFor(Current.Type))
+                        {
+                            <button class="token-button" type="button" @onclick="() => InsertIntoSubject(Current, token)">@token</button>
+                        }
+                    </div>
+                    <p class="field-hint">Subject token buttons append to the subject. Body-only user tokens appear below the editor.</p>
+                </div>
+                <div class="form-field form-field-wide">
+                    <label>HTML body template</label>
+                    <RichTextEditor Value="@Current.HtmlBody" ValueChanged="@(html => Current.HtmlBody = html)" />
+                    <div class="filename-token-list">
+                        @foreach (var token in CertificationEmailTemplateRenderer.BodyTokensFor(Current.Type))
+                        {
+                            <button class="token-button" type="button" @onclick="() => InsertIntoBody(Current, token)">@token</button>
+                        }
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button class="button button-primary" type="button" disabled="@saving" @onclick="SaveAsync">Save template</button>
+                    @if (message is not null)
+                    {
+                        <div class="alert @(succeeded ? "alert-success" : "alert-error") email-template-save-message" role="alert">@message</div>
+                    }
+                </div>
+            </div>
+            <aside class="email-template-preview">
+                <h2>Sample preview</h2>
+                <div><strong>Subject:</strong> @Preview(Current).Subject</div>
+                <div class="email-html-preview">@((MarkupString)Sanitizer.SanitizeForEmail(Preview(Current).HtmlBody))</div>
+            </aside>
+        </section>
+    }
+</div>
+
+@code {
+    private readonly List<TemplateEditor> editors = [];
+    private CertificationEmailTemplateType selectedType;
+    private string? message;
+    private bool succeeded;
+    private bool saving;
+    private string? implicitCcAddress;
+    private string? settingsMessage;
+    private bool settingsSucceeded;
+    private bool savingSettings;
+    private TemplateEditor Current => editors.Single(x => x.Type == selectedType);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var templatesTask = TemplateService.GetAllAsync();
+        var settingsTask = TemplateService.GetSettingsAsync();
+        await Task.WhenAll(templatesTask, settingsTask);
+        editors.AddRange(templatesTask.Result.Select(x => new TemplateEditor(x)));
+        implicitCcAddress = settingsTask.Result.ImplicitCcAddress;
+        selectedType = editors[0].Type;
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        savingSettings = true; settingsMessage = null;
+        try
+        {
+            await TemplateService.SaveSettingsAsync(new CertificationEmailSettingsEditModel(implicitCcAddress));
+            implicitCcAddress = string.IsNullOrWhiteSpace(implicitCcAddress) ? null : implicitCcAddress.Trim();
+            settingsMessage = "Implicit certification CC saved."; settingsSucceeded = true;
+        }
+        catch (CertificationEmailTemplateException exception) { settingsMessage = exception.Message; settingsSucceeded = false; }
+        finally { savingSettings = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true; message = null;
+        try
+        {
+            await TemplateService.SaveAsync(new CertificationEmailTemplateEditModel(Current.Type, Current.Subject, Current.HtmlBody, Current.UpdatedAtUtc, Current.UpdatedByUserId));
+            message = "Certification email template saved."; succeeded = true;
+        }
+        catch (CertificationEmailTemplateException exception) { message = exception.Message; succeeded = false; }
+        finally { saving = false; }
+    }
+
+    private CertificationEmailDraft Preview(TemplateEditor editor)
+    {
+        try
+        {
+            return Renderer.Render(SamplePackage(editor.Type), new CertificationEmailTemplateEditModel(editor.Type, editor.Subject, editor.HtmlBody, default, null), new EmailSenderIdentity("Quality Person", "quality@example.com", "Quality Manager"));
+        }
+        catch (CertificationEmailTemplateException)
+        {
+            return new CertificationEmailDraft(editor.Type, "Preview unavailable", "<p>Preview unavailable until the template tokens are valid.</p>", [], [], "");
+        }
+    }
+    private static CertificationPackage SamplePackage(CertificationEmailTemplateType type) => new(1, "Acme Fasteners", 1, "North Plant", new DateOnly(2026, 9, 1), "Acme_Certification_Package.pdf", [], type switch
+    {
+        CertificationEmailTemplateType.SingleLot => [new CertificationPackageLot(1, 10, "ABC123", "Part 12345", new DateOnly(2026, 8, 28), [], [])],
+        CertificationEmailTemplateType.SinglePartMultiLot => [new CertificationPackageLot(1, 10, "ABC123", "Part 12345", new DateOnly(2026, 8, 28), [], []), new CertificationPackageLot(2, 10, "ABC124", "Part 12345", new DateOnly(2026, 8, 29), [], [])],
+        _ => [new CertificationPackageLot(1, 10, "ABC123", "Part 12345", new DateOnly(2026, 8, 28), [], []), new CertificationPackageLot(2, 11, "DEF456", "Part 54321", new DateOnly(2026, 8, 29), [], [])]
+    }, ["quality@acme.example"], []);
+    private static string Label(CertificationEmailTemplateType type) => type switch { CertificationEmailTemplateType.SingleLot => "Single Lot", CertificationEmailTemplateType.SinglePartMultiLot => "Single Part / Multiple Lots", _ => "Multiple Parts" };
+    private static void InsertIntoSubject(TemplateEditor editor, string token) => editor.Subject += token;
+    private static void InsertIntoBody(TemplateEditor editor, string token) => editor.HtmlBody += token;
+    private sealed class TemplateEditor(CertificationEmailTemplateEditModel model)
+    {
+        public CertificationEmailTemplateType Type { get; } = model.TemplateType;
+        public string Subject { get; set; } = model.SubjectTemplate;
+        public string HtmlBody { get; set; } = model.HtmlBodyTemplate;
+        public DateTimeOffset UpdatedAtUtc { get; } = model.UpdatedAtUtc;
+        public string? UpdatedByUserId { get; } = model.UpdatedByUserId;
+    }
+}

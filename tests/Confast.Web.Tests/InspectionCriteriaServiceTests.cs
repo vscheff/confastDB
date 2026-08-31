@@ -239,6 +239,30 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
     }
 
     [Fact]
+    public async Task CriterionMinimumCannotExceedMaximum()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+
+        var result = await service.AddCriterionAsync(
+            partId,
+            revisionId,
+            new InspectionCriterionEditModel
+            {
+                InspectionNumber = 1,
+                Name = "Length",
+                GageTypeId = gageTypeId,
+                Minimum = "21",
+                MaximumOrTolerance = "20"
+            });
+
+        Assert.Equal(CriteriaOperationStatus.ValidationFailed, result.Status);
+        Assert.Equal("Minimum cannot be greater than maximum.", result.Message);
+        Assert.Empty((await service.GetRevisionAsync(partId, revisionId))!.Criteria);
+    }
+
+    [Fact]
     public async Task UnitChoicesIncludeDefaultsAndSavedCustomUnits()
     {
         var partId = await CreatePartAsync();

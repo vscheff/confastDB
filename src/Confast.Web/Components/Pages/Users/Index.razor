@@ -1,0 +1,305 @@
+@page "/admin/users"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@inject UserAdministrationService UserService
+@inject ICurrentUser CurrentUser
+@inject NavigationManager Navigation
+
+<PageTitle>Users</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <h1>Users</h1>
+        <p>Create accounts, assign roles, disable access, or permanently delete an account.</p>
+    </div>
+</div>
+
+@if (users is null)
+{
+    <p>Loading users…</p>
+}
+else
+{
+    @if (errors.Count > 0)
+    {
+        <div class="alert alert-error">
+            @foreach (var error in errors)
+            {
+                <div>@error</div>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(resetLink))
+    {
+        <div class="status-message password-reset-link">
+            <strong>Password reset link</strong>
+            <p>Give this link to the user through a trusted channel. It becomes invalid after the password is reset.</p>
+            <input type="text" readonly value="@resetLink" aria-label="Password reset link" />
+        </div>
+    }
+
+    <section class="user-admin-grid">
+        <div class="table-shell">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Roles</th>
+                        <th>Status</th>
+                        <th><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in users)
+                    {
+                        <tr>
+                            <td data-label="User">
+                                <strong>@user.DisplayName</strong><br />
+                                @if (!string.IsNullOrWhiteSpace(user.JobTitle))
+                                {
+                                    <span>@user.JobTitle</span><br />
+                                }
+                                <span class="muted">@user.Username · @user.Email</span>
+                            </td>
+                            <td data-label="Roles">@(user.Roles.Count == 0 ? "None" : string.Join(", ", user.Roles))</td>
+                            <td data-label="Status">
+                                <span class="status-pill @(user.IsActive ? "status-active" : "status-inactive")">
+                                    @(user.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </td>
+                            <td class="table-action">
+                                <button class="button button-secondary button-compact" type="button" @onclick="() => SelectUserAsync(user.Id)">Edit</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="user-editor">
+            @if (editModel is null)
+            {
+                <h2>Create user</h2>
+                <EditForm Model="createModel" OnValidSubmit="CreateUserAsync" class="record-form user-form">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+                    <div class="form-field">
+                        <label for="create-username">Username</label>
+                        <InputText id="create-username" autocomplete="username" @bind-Value="createModel.Username" />
+                    </div>
+                    <div class="form-field">
+                        <label for="create-display-name">Display name</label>
+                        <InputText id="create-display-name" @bind-Value="createModel.DisplayName" />
+                    </div>
+                    <div class="form-field">
+                        <label for="create-job-title">Job title</label>
+                        <InputText id="create-job-title" @bind-Value="createModel.JobTitle" />
+                    </div>
+                    <div class="form-field">
+                        <label for="create-email">Email</label>
+                        <InputText id="create-email" type="email" @bind-Value="createModel.Email" />
+                    </div>
+                    <RoleCheckboxes SelectedRoles="createModel.Roles" />
+                    <div class="form-actions form-field-wide">
+                        <button class="button button-primary" type="submit" disabled="@saving">Create user</button>
+                    </div>
+                </EditForm>
+                <p class="field-help">No password is assigned at creation. The generated reset link lets the user choose one privately.</p>
+            }
+            else
+            {
+                <div class="section-heading">
+                    <h2>Edit user</h2>
+                    <button class="button button-secondary button-compact" type="button" @onclick="CancelEdit">New user</button>
+                </div>
+                @if (confirmingDelete)
+                {
+                    <div class="confirmation-card user-delete-confirmation">
+                        <h3>Delete @editModel.Username?</h3>
+                        <p>This permanently removes the account and its Identity role, claim, login, and token records. This cannot be undone.</p>
+                        <div class="form-actions">
+                            <button class="button button-danger" type="button" disabled="@saving" @onclick="ConfirmDeleteUserAsync">Delete permanently</button>
+                            <button class="button button-secondary" type="button" disabled="@saving" @onclick="CancelDelete">Cancel</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <EditForm Model="editModel" OnValidSubmit="UpdateUserAsync" class="record-form user-form">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <div class="form-field">
+                            <label for="edit-username">Username</label>
+                            <InputText id="edit-username" autocomplete="username" @bind-Value="editModel.Username" />
+                        </div>
+                        <div class="form-field">
+                            <label for="edit-display-name">Display name</label>
+                            <InputText id="edit-display-name" @bind-Value="editModel.DisplayName" />
+                        </div>
+                        <div class="form-field">
+                            <label for="edit-job-title">Job title</label>
+                            <InputText id="edit-job-title" @bind-Value="editModel.JobTitle" />
+                        </div>
+                        <div class="form-field">
+                            <label for="edit-email">Email</label>
+                            <InputText id="edit-email" type="email" @bind-Value="editModel.Email" />
+                        </div>
+                        <label class="checkbox-field form-field-wide">
+                            <InputCheckbox @bind-Value="editModel.IsActive" />
+                            Active
+                        </label>
+                        <RoleCheckboxes SelectedRoles="editModel.Roles" />
+                        <div class="form-actions form-field-wide">
+                            <button class="button button-primary" type="submit" disabled="@saving">Save changes</button>
+                            <button class="button button-secondary" type="button" disabled="@saving" @onclick="GenerateResetLinkAsync">Generate password reset link</button>
+                            <button class="button button-danger-outline"
+                                    type="button"
+                                    disabled="@(saving || editModel.Id == currentUserId)"
+                                    title="@(editModel.Id == currentUserId ? "You cannot delete your own account." : null)"
+                                    @onclick="BeginDelete">Delete user</button>
+                        </div>
+                    </EditForm>
+                }
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<UserListItem>? users;
+    private CreateUserInput createModel = new();
+    private EditUserInput? editModel;
+    private readonly List<string> errors = [];
+    private string? resetLink;
+    private string? currentUserId;
+    private bool saving;
+    private bool confirmingDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        currentUserId = await CurrentUser.GetUserIdAsync();
+        await ReloadUsersAsync();
+    }
+
+    private async Task SelectUserAsync(string userId)
+    {
+        ClearMessages();
+        confirmingDelete = false;
+        editModel = await UserService.GetUserForEditAsync(userId);
+        if (editModel is null)
+        {
+            errors.Add("The user no longer exists.");
+            await ReloadUsersAsync();
+        }
+    }
+
+    private async Task CreateUserAsync()
+    {
+        saving = true;
+        ClearMessages();
+        try
+        {
+            var result = await UserService.CreateUserAsync(createModel);
+            if (!result.Succeeded)
+            {
+                errors.AddRange(result.Errors);
+                return;
+            }
+
+            createModel = new CreateUserInput();
+            await ReloadUsersAsync();
+            await GenerateResetLinkAsync(result.UserId!);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task UpdateUserAsync()
+    {
+        saving = true;
+        ClearMessages();
+        try
+        {
+            var result = await UserService.UpdateUserAsync(editModel!);
+            if (!result.Succeeded)
+            {
+                errors.AddRange(result.Errors);
+                return;
+            }
+
+            await ReloadUsersAsync();
+            editModel = await UserService.GetUserForEditAsync(editModel!.Id);
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private Task GenerateResetLinkAsync() => GenerateResetLinkAsync(editModel!.Id);
+
+    private void BeginDelete()
+    {
+        ClearMessages();
+        confirmingDelete = true;
+    }
+
+    private void CancelDelete() => confirmingDelete = false;
+
+    private async Task ConfirmDeleteUserAsync()
+    {
+        saving = true;
+        ClearMessages();
+        try
+        {
+            var result = await UserService.DeleteUserAsync(
+                editModel!.Id,
+                currentUserId);
+            if (!result.Succeeded)
+            {
+                errors.AddRange(result.Errors);
+                confirmingDelete = false;
+                return;
+            }
+
+            editModel = null;
+            confirmingDelete = false;
+            await ReloadUsersAsync();
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private async Task GenerateResetLinkAsync(string userId)
+    {
+        ClearMessages();
+        var result = await UserService.GeneratePasswordResetTokenAsync(userId);
+        if (result.Token is null)
+        {
+            errors.AddRange(result.Errors);
+            return;
+        }
+
+        var relativeUrl = $"reset-password?userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(result.Token)}";
+        resetLink = new Uri(new Uri(Navigation.BaseUri), relativeUrl).AbsoluteUri;
+    }
+
+    private async Task ReloadUsersAsync() => users = await UserService.GetUsersAsync();
+
+    private void CancelEdit()
+    {
+        ClearMessages();
+        confirmingDelete = false;
+        editModel = null;
+    }
+
+    private void ClearMessages()
+    {
+        errors.Clear();
+        resetLink = null;
+    }
+}

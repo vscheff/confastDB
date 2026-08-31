@@ -167,10 +167,18 @@ else
                                     <input class="table-input requirement-input" aria-label="Requirement" @ref="requirementInput" @bind="editingModel!.Name" @bind:event="oninput" />
                                 </td>
                                 <td data-label="Maximum / tolerance">
-                                    <input class="table-input tolerance-input" aria-label="Maximum or tolerance" @bind="editingModel!.MaximumOrTolerance" @bind:event="oninput" />
+                                    <input class="table-input tolerance-input" aria-label="Maximum or tolerance" @bind="editingModel!.MaximumOrTolerance" @bind:event="oninput" @onchange="CommitMaximum" />
+                                    @if (maximumValidationMessage is not null)
+                                    {
+                                        <div class="validation-message" role="status">@maximumValidationMessage</div>
+                                    }
                                 </td>
                                 <td data-label="Minimum">
-                                    <input class="table-input tolerance-input" aria-label="Minimum" @bind="editingModel!.Minimum" @bind:event="oninput" />
+                                    <input class="table-input tolerance-input" aria-label="Minimum" @bind="editingModel!.Minimum" @bind:event="oninput" @onchange="CommitMinimum" />
+                                    @if (minimumValidationMessage is not null)
+                                    {
+                                        <div class="validation-message" role="status">@minimumValidationMessage</div>
+                                    }
                                 </td>
                                 <td data-label="Inspection method">
                                     <select class="table-input" aria-label="Inspection method" @bind="editingModel!.GageTypeId">
@@ -182,7 +190,10 @@ else
                                     </select>
                                 </td>
                                 <td data-label="Unit">
-                                    <EditableUnitSelect CssClass="table-input unit-input" Choices="unitChoices" @bind-Value="editingModel!.Unit" />
+                                    <EditableUnitSelect CssClass="table-input unit-input"
+                                                        Choices="unitChoices"
+                                                        Value="@editingModel!.Unit"
+                                                        ValueChanged="SetEditingUnitAsync" />
                                 </td>
                                 <td data-label="Notes">
                                     <textarea class="table-input table-notes" aria-label="Notes" title="Tab to save and add another criterion" @onkeydown="NotesKeyDownAsync" @bind="editingModel!.Notes" @bind:event="oninput"></textarea>
@@ -239,10 +250,18 @@ else
                                 <input class="table-input requirement-input" aria-label="Requirement" placeholder="Required" @ref="requirementInput" @bind="editingModel.Name" @bind:event="oninput" />
                             </td>
                             <td data-label="Maximum / tolerance">
-                                <input class="table-input tolerance-input" aria-label="Maximum or tolerance" @bind="editingModel.MaximumOrTolerance" @bind:event="oninput" />
+                                <input class="table-input tolerance-input" aria-label="Maximum or tolerance" @bind="editingModel.MaximumOrTolerance" @bind:event="oninput" @onchange="CommitMaximum" />
+                                @if (maximumValidationMessage is not null)
+                                {
+                                    <div class="validation-message" role="status">@maximumValidationMessage</div>
+                                }
                             </td>
                             <td data-label="Minimum">
-                                <input class="table-input tolerance-input" aria-label="Minimum" @bind="editingModel.Minimum" @bind:event="oninput" />
+                                <input class="table-input tolerance-input" aria-label="Minimum" @bind="editingModel.Minimum" @bind:event="oninput" @onchange="CommitMinimum" />
+                                @if (minimumValidationMessage is not null)
+                                {
+                                    <div class="validation-message" role="status">@minimumValidationMessage</div>
+                                }
                             </td>
                                 <td data-label="Inspection method">
                                 <select class="table-input" aria-label="Inspection method" @bind="editingModel.GageTypeId">
@@ -254,7 +273,10 @@ else
                                 </select>
                             </td>
                             <td data-label="Unit">
-                                <EditableUnitSelect CssClass="table-input unit-input" Choices="unitChoices" @bind-Value="editingModel.Unit" />
+                                <EditableUnitSelect CssClass="table-input unit-input"
+                                                    Choices="unitChoices"
+                                                    Value="@editingModel.Unit"
+                                                    ValueChanged="SetEditingUnitAsync" />
                             </td>
                             <td data-label="Notes">
                                 <textarea class="table-input table-notes" aria-label="Notes" title="Tab to save and add another criterion" @onkeydown="NotesKeyDownAsync" @bind="editingModel.Notes" @bind:event="oninput"></textarea>
@@ -536,6 +558,11 @@ else
     private RevisionTab activeTab;
     private string? loadError;
     private string? message;
+    private string? committedMinimum;
+    private string? committedMaximum;
+    private string? minimumValidationMessage;
+    private string? maximumValidationMessage;
+    private string? preferredCriterionUnit;
     private string messageClass = "alert-error";
 
     private string StatusClass => revision?.IsCurrent == true
@@ -577,6 +604,11 @@ else
                     Notes = revision.Notes,
                     Version = revision.Version
                 };
+
+                preferredCriterionUnit = revision.Criteria
+                    .OrderByDescending(x => x.DisplayOrder)
+                    .Select(x => x.Unit)
+                    .FirstOrDefault(IsStandardCriterionUnit);
             }
             await LoadMethodChoicesAsync();
             unitChoices = await CriteriaService.GetUnitChoicesAsync();
@@ -623,8 +655,10 @@ else
         editingModel = new InspectionCriterionEditModel
         {
             RevisionId = RevisionId,
-            InspectionNumber = NextInspectionNumber
+            InspectionNumber = NextInspectionNumber,
+            Unit = preferredCriterionUnit
         };
+        CaptureCommittedRange();
     }
 
     private async Task BeginEdit(InspectionCriterionListItem criterion)
@@ -645,6 +679,7 @@ else
             Notes = criterion.Notes,
             Version = criterion.Version
         };
+        CaptureCommittedRange();
         await LoadMethodChoicesAsync(criterion.GageTypeId);
     }
 
@@ -662,8 +697,87 @@ else
     private void CancelEdit()
     {
         editingModel = null;
+        ClearRangeValidation();
         message = null;
     }
+
+    private Task SetEditingUnitAsync(string? unit)
+    {
+        if (editingModel is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        editingModel.Unit = unit;
+        if (IsStandardCriterionUnit(unit))
+        {
+            preferredCriterionUnit = unit;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static bool IsStandardCriterionUnit(string? unit) =>
+        string.Equals(unit, "IN", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(unit, "MM", StringComparison.OrdinalIgnoreCase);
+
+    private void CommitMaximum()
+    {
+        maximumValidationMessage = null;
+        if (editingModel is null)
+        {
+            return;
+        }
+
+        if (InspectionCriterionRangeValidator.HasInvalidNumericOrder(
+                editingModel.Minimum,
+                editingModel.MaximumOrTolerance))
+        {
+            editingModel.MaximumOrTolerance = committedMaximum;
+            maximumValidationMessage =
+                $"Reverted to {DescribeRangeValue(committedMaximum)} because Maximum cannot be less than Minimum.";
+            return;
+        }
+
+        committedMaximum = editingModel.MaximumOrTolerance;
+    }
+
+    private void CommitMinimum()
+    {
+        minimumValidationMessage = null;
+        if (editingModel is null)
+        {
+            return;
+        }
+
+        if (InspectionCriterionRangeValidator.HasInvalidNumericOrder(
+                editingModel.Minimum,
+                editingModel.MaximumOrTolerance))
+        {
+            editingModel.Minimum = committedMinimum;
+            minimumValidationMessage =
+                $"Reverted to {DescribeRangeValue(committedMinimum)} because Minimum cannot be greater than Maximum.";
+            return;
+        }
+
+        committedMinimum = editingModel.Minimum;
+    }
+
+    private void CaptureCommittedRange()
+    {
+        committedMinimum = editingModel?.Minimum;
+        committedMaximum = editingModel?.MaximumOrTolerance;
+        ClearRangeValidation();
+    }
+
+    private void ClearRangeValidation()
+    {
+        minimumValidationMessage = null;
+        maximumValidationMessage = null;
+    }
+
+    private static string DescribeRangeValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "blank" : $"'{value}'";
 
     private Task SaveEditAsync() => SaveEditAsync(addAnother: false);
 

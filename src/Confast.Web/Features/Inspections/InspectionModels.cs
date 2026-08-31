@@ -13,6 +13,8 @@ public sealed record CertificationPackageLotOption(
     DateOnly InspectionDate,
     string? Status);
 
+public sealed record CertificationPackagePlantOption(long Id, string Name);
+
 public sealed record InspectionListItem(
     long Id,
     string PartNumber,
@@ -35,7 +37,7 @@ public sealed record InspectionDeleteModel(
 
 public sealed record InspectionGageChoice(long Id, long GageTypeId, string GageNumber);
 
-public sealed class CreateInspectionModel
+public sealed class CreateInspectionModel : IValidatableObject
 {
     [Range(1, long.MaxValue, ErrorMessage = "Part is required.")]
     public long PartId { get; set; }
@@ -65,9 +67,48 @@ public sealed class CreateInspectionModel
     [Required(ErrorMessage = "Inspection date is required.")]
     [Display(Name = "Inspection date")]
     public DateOnly? InspectionDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
+        InspectionDateValidator.Validate(DateReceived, InspectionDate);
 }
 
-public sealed class InspectionEditModel
+internal static class InspectionDateValidator
+{
+    public static IEnumerable<ValidationResult> Validate(
+        DateOnly? dateReceived,
+        DateOnly? inspectionDate)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        if (dateReceived > today)
+        {
+            yield return new ValidationResult(
+                "Date received cannot be in the future.",
+                [nameof(CreateInspectionModel.DateReceived)]);
+        }
+
+        if (inspectionDate > today)
+        {
+            yield return new ValidationResult(
+                "Date inspected cannot be in the future.",
+                [nameof(CreateInspectionModel.InspectionDate)]);
+        }
+
+        if (dateReceived is not null
+            && inspectionDate is not null
+            && inspectionDate < dateReceived)
+        {
+            yield return new ValidationResult(
+                "Date inspected cannot be before Date Received.",
+                [nameof(CreateInspectionModel.InspectionDate)]);
+        }
+    }
+
+    public static string? GetError(DateOnly? dateReceived, DateOnly? inspectionDate) =>
+        Validate(dateReceived, inspectionDate).FirstOrDefault()?.ErrorMessage;
+}
+
+public sealed class InspectionEditModel : IValidatableObject
 {
     public long Id { get; set; }
 
@@ -128,6 +169,9 @@ public sealed class InspectionEditModel
     [Required(ErrorMessage = "Inspection date is required.")]
     [Display(Name = "Inspection date")]
     public DateOnly? InspectionDate { get; set; }
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
+        InspectionDateValidator.Validate(DateReceived, InspectionDate);
 
     public DateTimeOffset CreatedAtUtc { get; set; }
 

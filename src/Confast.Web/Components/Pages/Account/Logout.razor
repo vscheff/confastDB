@@ -1,0 +1,17 @@
+@page "/logout"
+@attribute [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+
+<PageTitle>Log out</PageTitle>
+
+<div class="account-page">
+    <section class="account-card">
+        <h1>Log out</h1>
+        <p>End your Confast DB session on this device?</p>
+        <form method="post" action="/account/logout" class="account-form">
+            <AntiforgeryToken />
+            <input type="hidden" name="ReturnUrl" value="/login" />
+            <button class="button button-primary" type="submit">Log out</button>
+            <a class="button button-secondary" href="/">Cancel</a>
+        </form>
+    </section>
+</div>

@@ -1,0 +1,54 @@
+@page "/login"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@attribute [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+
+<PageTitle>Log in</PageTitle>
+
+<div class="account-page">
+    <section class="account-card">
+        <h1>Log in</h1>
+        <p>Use your Confast DB company account.</p>
+
+        @if (PasswordReset)
+        {
+            <div class="status-message status-message-success">Your password was reset. You can log in now.</div>
+        }
+        else if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="alert alert-error">
+                @(Error == "locked"
+                    ? "This account is temporarily locked. Try again later or contact an administrator."
+                    : "The username or password is incorrect, or the account is inactive.")
+            </div>
+        }
+
+        <form method="post" action="/account/login" class="account-form">
+            <AntiforgeryToken />
+            <input type="hidden" name="ReturnUrl" value="@ReturnUrl" />
+            <div class="form-field">
+                <label for="login-username">Username</label>
+                <input id="login-username" name="Username" type="text" autocomplete="username" required autofocus />
+            </div>
+            <div class="form-field">
+                <label for="login-password">Password</label>
+                <input id="login-password" name="Password" type="password" autocomplete="current-password" required />
+            </div>
+            <label class="checkbox-field">
+                <input name="RememberMe" type="checkbox" value="true" />
+                Keep me signed in on this device
+            </label>
+            <button class="button button-primary" type="submit">Log in</button>
+        </form>
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    public string? Error { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    public string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "passwordReset")]
+    public bool PasswordReset { get; set; }
+}

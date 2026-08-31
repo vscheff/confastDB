@@ -161,6 +161,20 @@ public sealed class InspectionService
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CertificationPackagePlantOption>> GetCertificationPackagePlantOptionsAsync(
+        long inspectionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.PartPlants
+            .AsNoTracking()
+            .Where(x => x.Part.Inspections.Any(inspection => inspection.Id == inspectionId))
+            .OrderBy(x => x.Plant.Name)
+            .ThenBy(x => x.PlantId)
+            .Select(x => new CertificationPackagePlantOption(x.PlantId, x.Plant.Name))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<InspectionDeleteModel?> GetInspectionForDeleteAsync(
         long inspectionId,
         CancellationToken cancellationToken = default)
@@ -974,6 +988,14 @@ public sealed class InspectionService
             return "Inspection date is required.";
         }
 
+        var dateError = InspectionDateValidator.GetError(
+            model.DateReceived,
+            model.InspectionDate);
+        if (dateError is not null)
+        {
+            return dateError;
+        }
+
         if (model.QuantityReceived is <= 0)
         {
             return "Quantity received must be greater than zero.";
@@ -989,6 +1011,14 @@ public sealed class InspectionService
         if (model.InspectionDate is null)
         {
             return "Inspection date is required.";
+        }
+
+        var dateError = InspectionDateValidator.GetError(
+            model.DateReceived,
+            model.InspectionDate);
+        if (dateError is not null)
+        {
+            return dateError;
         }
 
         if (model.QuantityInspected is <= 0)

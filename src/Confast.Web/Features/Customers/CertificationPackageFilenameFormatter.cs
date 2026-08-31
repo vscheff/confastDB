@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Confast.Web.Features.Customers;
 
@@ -109,26 +108,20 @@ public sealed partial class CertificationPackageFilenameFormatter
             ? systemDefaultTemplate
             : customerTemplate.Trim();
 
-        var unknownTokens = TokenPattern().Matches(template)
-            .Select(match => match.Value)
-            .Where(token => !replacements.ContainsKey(token[1..^1]))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (unknownTokens.Length > 0)
+        string rendered;
+        try
         {
-            throw new CertificationFilenameTemplateException(
-                $"Unknown filename token{(unknownTokens.Length == 1 ? string.Empty : "s")}: {string.Join(", ", unknownTokens)}.");
+            rendered = CertificationTemplateTokens.Render(
+                template,
+                replacements.ToDictionary(x => x.Key, x => SanitizeFilenameText(x.Value), StringComparer.Ordinal),
+                "filename template");
+        }
+        catch (CertificationTemplateException exception)
+        {
+            throw new CertificationFilenameTemplateException(exception.Message);
         }
 
-        var unresolvedBrace = TokenPattern().Replace(template, string.Empty);
-        if (unresolvedBrace.Contains('{') || unresolvedBrace.Contains('}'))
-        {
-            throw new CertificationFilenameTemplateException("The filename template contains an invalid token or unmatched brace.");
-        }
-
-        var formatted = TokenPattern().Replace(
-            template,
-            match => SanitizeFilenameText(replacements[match.Value[1..^1]]));
+        var formatted = rendered;
         formatted = SanitizeFilenameText(formatted).Trim().TrimEnd('.', ' ');
 
         if (formatted.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
@@ -157,8 +150,6 @@ public sealed partial class CertificationPackageFilenameFormatter
         return result.ToString();
     }
 
-    [GeneratedRegex("\\{[^{}]+\\}", RegexOptions.CultureInvariant)]
-    private static partial Regex TokenPattern();
 }
 
 public sealed record CertificationPackageFilenameValues(

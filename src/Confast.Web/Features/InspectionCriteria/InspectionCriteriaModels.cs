@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.ComponentModel.DataAnnotations;
 
 namespace Confast.Web.Features.InspectionCriteria;
@@ -166,6 +167,14 @@ public sealed class InspectionCriterionEditModel
     public string? Notes { get; set; }
 
     public uint Version { get; set; }
+}
+
+public static class InspectionCriterionRangeValidator
+{
+    public static bool HasInvalidNumericOrder(string? minimum, string? maximum) =>
+        decimal.TryParse(minimum?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedMinimum)
+        && decimal.TryParse(maximum?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedMaximum)
+        && parsedMinimum > parsedMaximum;
 }
 
 public enum CriteriaOperationStatus

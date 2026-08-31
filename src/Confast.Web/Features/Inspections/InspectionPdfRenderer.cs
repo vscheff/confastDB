@@ -2,6 +2,9 @@ using Microsoft.Playwright;
 
 namespace Confast.Web.Features.Inspections;
 
+public sealed class InspectionPdfRenderException(string message, Exception? innerException = null)
+    : InvalidOperationException(message, innerException);
+
 /// <summary>
 /// Creates PDFs by asking Chromium to print the same route the user sees in the
 /// printable preview. The preview and download therefore share one layout.
@@ -29,11 +32,20 @@ public sealed class InspectionPdfRenderer : IAsyncDisposable
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = RenderTimeoutMilliseconds
             });
-        await page.Locator(".inspection-print-sheet").First.WaitForAsync(new LocatorWaitForOptions
+        var expectedPath = new Uri(previewUrl, UriKind.Absolute).AbsolutePath;
+        if (!Uri.TryCreate(page.Url, UriKind.Absolute, out var renderedUrl)
+            || !string.Equals(renderedUrl.AbsolutePath, expectedPath, StringComparison.OrdinalIgnoreCase))
         {
-            State = WaitForSelectorState.Visible,
-            Timeout = RenderTimeoutMilliseconds
-        });
+            throw new InspectionPdfRenderException("The print renderer was redirected before it could load the inspection.");
+        }
+        await page.WaitForFunctionAsync(
+            "() => document.querySelector('.inspection-print-sheet, .inspection-print-authorization-error') !== null",
+            null,
+            new PageWaitForFunctionOptions { Timeout = RenderTimeoutMilliseconds });
+        if (await page.Locator(".inspection-print-authorization-error").First.IsVisibleAsync())
+        {
+            throw new InspectionPdfRenderException("The print renderer was not authorized to load the inspection.");
+        }
         await page.EvaluateAsync("async () => { await document.fonts.ready; await document.fonts.load('20pt \\\"Avengeance Heroic Avenger\\\"'); }");
 
         cancellationToken.ThrowIfCancellationRequested();

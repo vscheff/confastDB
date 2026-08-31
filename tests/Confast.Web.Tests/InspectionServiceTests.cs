@@ -3,6 +3,7 @@ using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Parts;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Tests;
@@ -142,6 +143,64 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal("21", secondResult.SpecifiedMinimum);
         Assert.Equal("22", secondResult.SpecifiedMaximum);
         Assert.Equal(InspectionResultEvaluation.Incomplete, secondResult.Evaluation);
+    }
+
+    [Fact]
+    public async Task CertificationPackagePlantsAreLimitedToTheActiveInspectionsPart()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            InspectionDate = new DateOnly(2026, 8, 31)
+        });
+
+        long customerId;
+        long selectedPlantId;
+        long unselectedPlantId;
+        await using (var db = database.CreateDbContext())
+        {
+            customerId = await db.Parts
+                .Where(x => x.Id == partId)
+                .Select(x => x.CustomerId)
+                .SingleAsync();
+            var selectedPlant = new Plant { CustomerId = customerId, Name = "Selected Plant" };
+            var unselectedPlant = new Plant { CustomerId = customerId, Name = "Unselected Plant" };
+            db.Plants.AddRange(selectedPlant, unselectedPlant);
+            db.PartPlants.Add(new PartPlant { PartId = partId, Plant = selectedPlant });
+            await db.SaveChangesAsync();
+            selectedPlantId = selectedPlant.Id;
+            unselectedPlantId = unselectedPlant.Id;
+        }
+
+        var options = await inspectionService.GetCertificationPackagePlantOptionsAsync(
+            create.InspectionId!.Value);
+
+        var option = Assert.Single(options);
+        Assert.Equal(selectedPlantId, option.Id);
+        Assert.Equal("Selected Plant", option.Name);
+        Assert.DoesNotContain(options, x => x.Id == unselectedPlantId);
+
+        var packageService = new CertificationPackageService(
+            database,
+            null!,
+            null!,
+            new CertificationPackageFilenameFormatter(),
+            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()));
+        var exception = await Assert.ThrowsAsync<CertificationPackageException>(() =>
+            packageService.BuildAsync(
+                new CertificationPackageRequest(
+                    create.InspectionId.Value,
+                    customerId,
+                    [create.InspectionId.Value],
+                    new DateOnly(2026, 9, 1),
+                    unselectedPlantId),
+                "https://localhost/"));
+        Assert.Equal(
+            "Select a destination plant assigned to this inspection's part.",
+            exception.Message);
     }
 
     [Fact]
@@ -437,6 +496,74 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             var postgresException = Assert.IsType<Npgsql.PostgresException>(exception!.GetBaseException());
             Assert.Equal(Npgsql.PostgresErrorCodes.CheckViolation, postgresException.SqlState);
         }
+    }
+
+    [Fact]
+    public async Task CreateRejectsFutureAndOutOfOrderDates()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        var futureReceived = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            DateReceived = today.AddDays(1),
+            InspectionDate = today
+        });
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, futureReceived.Status);
+        Assert.Equal("Date received cannot be in the future.", futureReceived.Message);
+
+        var futureInspected = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            DateReceived = today,
+            InspectionDate = today.AddDays(1)
+        });
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, futureInspected.Status);
+        Assert.Equal("Date inspected cannot be in the future.", futureInspected.Message);
+
+        var outOfOrder = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            DateReceived = today,
+            InspectionDate = today.AddDays(-1)
+        });
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, outOfOrder.Status);
+        Assert.Equal("Date inspected cannot be before Date Received.", outOfOrder.Message);
+    }
+
+    [Fact]
+    public async Task SaveRejectsFutureAndOutOfOrderDates()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            DateReceived = today,
+            InspectionDate = today
+        });
+        var inspection = await inspectionService.GetInspectionAsync(create.InspectionId!.Value);
+
+        inspection!.DateReceived = today.AddDays(1);
+        var futureReceived = await inspectionService.SaveInspectionAsync(inspection);
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, futureReceived.Status);
+        Assert.Equal("Date received cannot be in the future.", futureReceived.Message);
+
+        inspection.DateReceived = today;
+        inspection.InspectionDate = today.AddDays(1);
+        var futureInspected = await inspectionService.SaveInspectionAsync(inspection);
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, futureInspected.Status);
+        Assert.Equal("Date inspected cannot be in the future.", futureInspected.Message);
+
+        inspection.InspectionDate = today.AddDays(-1);
+        var outOfOrder = await inspectionService.SaveInspectionAsync(inspection);
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, outOfOrder.Status);
+        Assert.Equal("Date inspected cannot be before Date Received.", outOfOrder.Message);
     }
 
     [Fact]

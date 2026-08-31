@@ -1,0 +1,29 @@
+<fieldset class="role-options form-field-wide">
+    <legend>Roles</legend>
+    @foreach (var role in AppRoles.All)
+    {
+        <label class="checkbox-field">
+            <input type="checkbox"
+                   checked="@SelectedRoles.Contains(role)"
+                   @onchange="eventArgs => SetRole(role, eventArgs.Value as bool? == true)" />
+            @role
+        </label>
+    }
+</fieldset>
+
+@code {
+    [Parameter, EditorRequired]
+    public HashSet<string> SelectedRoles { get; set; } = null!;
+
+    private void SetRole(string role, bool selected)
+    {
+        if (selected)
+        {
+            SelectedRoles.Add(role);
+        }
+        else
+        {
+            SelectedRoles.Remove(role);
+        }
+    }
+}
