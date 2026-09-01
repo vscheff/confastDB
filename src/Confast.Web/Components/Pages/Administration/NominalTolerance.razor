@@ -1,0 +1,73 @@
+@page "/admin/nominal-tolerance"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@using Confast.Web.Features.Inspections
+@inject NominalToleranceSettingsService SettingsService
+
+<PageTitle>Nominal Tolerance</PageTitle>
+
+<div class="page-heading">
+    <div>
+        <h1>Nominal Tolerance</h1>
+        <p>Application-wide limits for dimensions specified as Nom or Nominal.</p>
+    </div>
+</div>
+
+@if (model is null)
+{
+    <p>Loading settings…</p>
+}
+else
+{
+    <EditForm Model="model" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="form-field">
+            <label for="tolerance-floor">Tolerance floor</label>
+            <InputNumber id="tolerance-floor" @bind-Value="model.ToleranceFloor" step="0.01" />
+            <div class="field-hint">The minimum plus-or-minus tolerance, regardless of dimension size.</div>
+        </div>
+        <div class="form-field">
+            <label for="large-dimension-divisor">Large-dimension divisor</label>
+            <InputNumber id="large-dimension-divisor" @bind-Value="model.LargeDimensionDivisor" step="0.01" />
+            <div class="field-hint">For larger dimensions, tolerance is the nominal dimension divided by this value.</div>
+        </div>
+        <p class="field-hint">Formula: max(nominal ÷ large-dimension divisor, tolerance floor).</p>
+        <div class="form-actions">
+            <button class="button button-primary" type="submit" disabled="@saving">@(saving ? "Saving…" : "Save settings")</button>
+            @if (message is not null)
+            {
+                <div class="alert @(succeeded ? "alert-success" : "alert-error")" role="alert">@message</div>
+            }
+        </div>
+    </EditForm>
+}
+
+@code {
+    private NominalToleranceSettingsEditModel? model;
+    private bool saving;
+    private bool succeeded;
+    private string? message;
+
+    protected override async Task OnInitializedAsync() => model = await SettingsService.GetAsync();
+
+    private async Task SaveAsync()
+    {
+        saving = true;
+        message = null;
+        try
+        {
+            await SettingsService.SaveAsync(model!);
+            message = "Nominal tolerance settings saved.";
+            succeeded = true;
+        }
+        catch (NominalToleranceSettingsException exception)
+        {
+            message = exception.Message;
+            succeeded = false;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

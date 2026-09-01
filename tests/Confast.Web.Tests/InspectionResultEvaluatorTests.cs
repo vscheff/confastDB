@@ -28,6 +28,39 @@ public sealed class InspectionResultEvaluatorTests
         Assert.Equal(InspectionResultEvaluation.Fail, evaluation);
     }
 
+    [Fact]
+    public void ApprovedDeviationOverridesAnOutOfToleranceMeasurement()
+    {
+        var evaluation = InspectionResultEvaluator.Evaluate(
+            "20",
+            "21",
+            "19.9",
+            "21.1",
+            deviationApproved: true);
+
+        Assert.Equal(InspectionResultEvaluation.Pass, evaluation);
+    }
+
+    [Theory]
+    [InlineData(null, "21.1")]
+    [InlineData("19.9", null)]
+    [InlineData("not a measurement", "21.1")]
+    [InlineData("19.9", "not a measurement")]
+    [InlineData("Pass", null)]
+    public void ApprovedDeviationWithoutTwoValidRecordedEntriesIsIncomplete(
+        string? actualMin,
+        string? actualMax)
+    {
+        var evaluation = InspectionResultEvaluator.Evaluate(
+            "20",
+            "21",
+            actualMin,
+            actualMax,
+            deviationApproved: true);
+
+        Assert.Equal(InspectionResultEvaluation.Incomplete, evaluation);
+    }
+
     [Theory]
     [InlineData(null, "20.9")]
     [InlineData("20.1", null)]
@@ -114,10 +147,10 @@ public sealed class InspectionResultEvaluatorTests
     }
 
     [Theory]
-    [InlineData("0.3 Nominal", "0.2", "0.4", InspectionResultEvaluation.Pass)]
-    [InlineData("0.3 nom", "0.1999", "0.4", InspectionResultEvaluation.Fail)]
-    [InlineData("0.3 NOM.", "0.2", "0.4001", InspectionResultEvaluation.Fail)]
-    [InlineData("(Nominal) 0.15", "0.05", "0.25", InspectionResultEvaluation.Pass)]
+    [InlineData("0.3 Nominal", "-0.03", "0.63", InspectionResultEvaluation.Pass)]
+    [InlineData("0.3 nom", "-0.0301", "0.63", InspectionResultEvaluation.Fail)]
+    [InlineData("0.3 NOM.", "-0.03", "0.6301", InspectionResultEvaluation.Fail)]
+    [InlineData("(Nominal) 0.15", "-0.18", "0.48", InspectionResultEvaluation.Pass)]
     public void NominalToleranceUsesInclusiveCalculatedRange(
         string specification,
         string recordedMin,
@@ -141,6 +174,34 @@ public sealed class InspectionResultEvaluatorTests
             null,
             "0.4",
             "0.8");
+
+        Assert.Equal(InspectionResultEvaluation.Pass, evaluation);
+    }
+
+    [Fact]
+    public void NominalToleranceUsesConfiguredLargeDimensionDivisor()
+    {
+        var evaluation = InspectionResultEvaluator.Evaluate(
+            null,
+            "6 Nom",
+            "4.4",
+            "7.6",
+            nominalToleranceFloor: 0.5m,
+            nominalToleranceDivisor: 5m);
+
+        Assert.Equal(InspectionResultEvaluation.Fail, evaluation);
+    }
+
+    [Fact]
+    public void NominalToleranceUsesConfiguredFloor()
+    {
+        var evaluation = InspectionResultEvaluator.Evaluate(
+            null,
+            "0.3 Nom",
+            "-0.2",
+            "0.8",
+            nominalToleranceFloor: 0.5m,
+            nominalToleranceDivisor: 3m);
 
         Assert.Equal(InspectionResultEvaluation.Pass, evaluation);
     }

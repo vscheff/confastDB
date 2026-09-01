@@ -32,6 +32,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<CertificationEmailSettings> CertificationEmailSettings =>
         Set<CertificationEmailSettings>();
 
+    public DbSet<NominalToleranceSettings> NominalToleranceSettings =>
+        Set<NominalToleranceSettings>();
+
     public DbSet<Part> Parts => Set<Part>();
 
     public DbSet<PartPlant> PartPlants => Set<PartPlant>();
@@ -233,6 +236,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         certificationEmailSettings.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
         certificationEmailSettings.Property(x => x.ImplicitCcAddress).HasColumnName("implicit_cc_address").HasMaxLength(320);
 
+        var nominalToleranceSettings = modelBuilder.Entity<NominalToleranceSettings>();
+        nominalToleranceSettings.ToTable("nominal_tolerance_settings", table =>
+        {
+            table.HasCheckConstraint("CK_nominal_tolerance_settings_singleton", "id = 1");
+            table.HasCheckConstraint("CK_nominal_tolerance_settings_floor_positive", "tolerance_floor > 0");
+            table.HasCheckConstraint("CK_nominal_tolerance_settings_divisor_positive", "large_dimension_divisor > 0");
+        });
+        nominalToleranceSettings.HasKey(x => x.Id).HasName("PK_nominal_tolerance_settings");
+        nominalToleranceSettings.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+        nominalToleranceSettings.Property(x => x.ToleranceFloor)
+            .HasColumnName("tolerance_floor").HasPrecision(18, 6);
+        nominalToleranceSettings.Property(x => x.LargeDimensionDivisor)
+            .HasColumnName("large_dimension_divisor").HasPrecision(18, 6);
+        nominalToleranceSettings.Property(x => x.Version).HasColumnName("xmin").IsRowVersion();
+
         var part = modelBuilder.Entity<Part>();
 
         part.ToTable("parts");
@@ -245,6 +263,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasColumnName("part_number")
             .IsRequired();
         part.Property(x => x.Description).HasColumnName("description");
+        part.Property(x => x.SpecificationUsed).HasColumnName("specification_used");
         part.Property(x => x.Revision).HasColumnName("revision");
         part.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true);
         part.Property(x => x.Version)
@@ -322,7 +341,6 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         revision.Property(x => x.RevisionNumber).HasColumnName("revision_number");
         revision.Property(x => x.PrintRevisionNumber).HasColumnName("print_revision_number");
         revision.Property(x => x.PartDescription).HasColumnName("part_description");
-        revision.Property(x => x.SpecificationUsed).HasColumnName("specification_used");
         revision.Property(x => x.Notes).HasColumnName("notes");
         revision.Property(x => x.MasterPrintFileName)
             .HasColumnName("master_print_file_name")
@@ -386,6 +404,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .IsRequired();
         criterion.Property(x => x.InspectionNumber).HasColumnName("inspection_number");
         criterion.Property(x => x.GageTypeId).HasColumnName("gage_type_id");
+        criterion.Property(x => x.SecondaryProcessRequirementId)
+            .HasColumnName("secondary_process_requirement_id");
         criterion.Property(x => x.InspectionMethod).HasColumnName("inspection_method");
         criterion.Property(x => x.Minimum).HasColumnName("minimum");
         criterion.Property(x => x.MaximumOrTolerance).HasColumnName("maximum_or_tolerance");
@@ -408,16 +428,31 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_inspection_criteria_gage_types_gage_type_id");
 
+        criterion.HasOne(x => x.SecondaryProcessRequirement)
+            .WithMany(x => x.InspectionCriteria)
+            .HasForeignKey(x => new
+            {
+                x.SecondaryProcessRequirementId,
+                x.InspectionCriteriaRevisionId
+            })
+            .HasPrincipalKey(x => new { x.Id, x.InspectionCriteriaRevisionId })
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_inspection_criteria_secondary_process_requirement_id_revision_id");
+
         criterion.HasIndex(x => x.GageTypeId)
             .HasDatabaseName("IX_inspection_criteria_gage_type_id");
+
+        criterion.HasIndex(x => new
+            {
+                x.SecondaryProcessRequirementId,
+                x.InspectionCriteriaRevisionId
+            })
+            .HasDatabaseName("IX_inspection_criteria_secondary_process_requirement_id_revision_id");
 
         criterion.HasIndex(x => new { x.InspectionCriteriaRevisionId, x.DisplayOrder })
             .IsUnique()
             .HasDatabaseName("UX_inspection_criteria_revision_id_display_order");
 
-        criterion.HasIndex(x => new { x.InspectionCriteriaRevisionId, x.InspectionNumber })
-            .IsUnique()
-            .HasDatabaseName("UX_inspection_criteria_revision_id_inspection_number");
         criterion.HasAlternateKey(x => new { x.Id, x.InspectionCriteriaRevisionId })
             .HasName("AK_inspection_criteria_id_revision_id");
 
@@ -631,6 +666,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasDatabaseName("IX_inspections_revision_id");
         inspection.HasIndex(x => x.InspectionDate)
             .HasDatabaseName("IX_inspections_inspection_date");
+        inspection.HasIndex(x => x.LotNumber)
+            .IsUnique()
+            .HasDatabaseName("UX_inspections_lot_number");
 
         var inspectionResult = modelBuilder.Entity<InspectionResult>();
 
@@ -650,6 +688,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasColumnName("actual_min");
         inspectionResult.Property(x => x.ActualMax)
             .HasColumnName("actual_max");
+        inspectionResult.Property(x => x.DeviationApproved)
+            .HasColumnName("deviation_approved");
         inspectionResult.Property(x => x.Version)
             .HasColumnName("xmin")
             .IsRowVersion();

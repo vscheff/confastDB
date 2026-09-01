@@ -26,7 +26,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         "IN",
         "Degrees",
         "N",
-        "N-m",
+        "N·m",
         "IN-LB",
         "Rz",
         "15Tw/ball",
@@ -147,7 +147,6 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 x.RevisionNumber,
                 x.PrintRevisionNumber,
                 x.PartDescription,
-                x.SpecificationUsed,
                 x.Notes,
                 HasMasterPrint = x.MasterPrintContent != null,
                 x.MasterPrintFileName,
@@ -179,6 +178,8 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 x.Minimum,
                 x.MaximumOrTolerance,
                 x.Unit,
+                x.SecondaryProcessRequirementId,
+                x.SecondaryProcessRequirement == null ? null : x.SecondaryProcessRequirement.SecondaryProcessType.Name,
                 x.DisplayOrder,
                 x.Notes,
                 x.Version))
@@ -216,7 +217,6 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             revision.RevisionNumber,
             revision.PrintRevisionNumber,
             revision.PartDescription,
-            revision.SpecificationUsed,
             revision.Notes,
             revision.HasMasterPrint,
             revision.MasterPrintFileName,
@@ -255,6 +255,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                 Minimum = x.Minimum,
                 MaximumOrTolerance = x.MaximumOrTolerance,
                 Unit = x.Unit,
+                SecondaryProcessRequirementId = x.SecondaryProcessRequirementId,
                 Notes = x.Notes,
                 Version = x.Version
             })
@@ -311,7 +312,6 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             RevisionNumber = nextRevisionNumber + 1,
             PrintRevisionNumber = current is null ? part.Revision : current.PrintRevisionNumber,
             PartDescription = current is null ? part.Description : current.PartDescription,
-            SpecificationUsed = current?.SpecificationUsed,
             Notes = current?.Notes,
             MasterPrintFileName = current?.MasterPrintFileName,
             MasterPrintContent = current?.MasterPrintContent?.ToArray(),
@@ -344,7 +344,19 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         }
         else if (current is not null)
         {
-            foreach (var source in current.Criteria)
+            var copiedSecondaryProcesses = new Dictionary<long, SecondaryProcessRequirement>();
+            foreach (var source in current.SecondaryProcessRequirements.OrderBy(x => x.Id))
+            {
+                var copiedProcess = new SecondaryProcessRequirement
+                {
+                    SecondaryProcessTypeId = source.SecondaryProcessTypeId,
+                    Specification = source.Specification
+                };
+                draft.SecondaryProcessRequirements.Add(copiedProcess);
+                copiedSecondaryProcesses.Add(source.Id, copiedProcess);
+            }
+
+            foreach (var source in current.Criteria.OrderBy(x => x.DisplayOrder))
             {
                 draft.Criteria.Add(new InspectionCriterion
                 {
@@ -355,18 +367,11 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
                     Minimum = source.Minimum,
                     MaximumOrTolerance = source.MaximumOrTolerance,
                     Unit = source.Unit,
+                    SecondaryProcessRequirement = source.SecondaryProcessRequirementId is long processRequirementId
+                        ? copiedSecondaryProcesses[processRequirementId]
+                        : null,
                     DisplayOrder = source.DisplayOrder,
                     Notes = source.Notes
-                });
-            }
-
-
-            foreach (var source in current.SecondaryProcessRequirements)
-            {
-                draft.SecondaryProcessRequirements.Add(new SecondaryProcessRequirement
-                {
-                    SecondaryProcessTypeId = source.SecondaryProcessTypeId,
-                    Specification = source.Specification
                 });
             }
 
@@ -548,7 +553,6 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         db.Entry(revision).Property(x => x.Version).OriginalValue = model.Version;
         revision.PrintRevisionNumber = NormalizeOptionalText(model.PrintRevisionNumber);
         revision.PartDescription = NormalizeOptionalText(model.PartDescription);
-        revision.SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed);
         revision.Notes = NormalizeOptionalText(model.Notes);
 
         try
@@ -692,16 +696,6 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
         }
 
-        if (await db.InspectionCriteria.AnyAsync(
-                x => x.InspectionCriteriaRevisionId == revisionId
-                    && x.InspectionNumber == model.InspectionNumber,
-                cancellationToken))
-        {
-            return new CriteriaOperationResult(
-                CriteriaOperationStatus.ValidationFailed,
-                Message: "That inspection number is already used in this revision.");
-        }
-
         var lastOrder = await db.InspectionCriteria
             .Where(x => x.InspectionCriteriaRevisionId == revisionId)
             .Select(x => (int?)x.DisplayOrder)
@@ -720,6 +714,14 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(
                 CriteriaOperationStatus.ValidationFailed,
                 Message: "Select an active inspection method.");
+        }
+
+        if (!await IsValidSecondaryProcessRequirementAsync(
+                db, revisionId, model.SecondaryProcessRequirementId, cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Select a secondary process from this revision.");
         }
 
         Apply(model, criterion, gageType.Id, gageType.Name);
@@ -775,17 +777,6 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
         }
 
-        if (await db.InspectionCriteria.AnyAsync(
-                x => x.InspectionCriteriaRevisionId == revisionId
-                    && x.Id != criterion.Id
-                    && x.InspectionNumber == model.InspectionNumber,
-                cancellationToken))
-        {
-            return new CriteriaOperationResult(
-                CriteriaOperationStatus.ValidationFailed,
-                Message: "That inspection number is already used in this revision.");
-        }
-
         var gageType = await db.GageTypes.SingleOrDefaultAsync(
             x => x.Id == model.GageTypeId
                 && (x.IsActive || x.Id == criterion.GageTypeId),
@@ -795,6 +786,14 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return new CriteriaOperationResult(
                 CriteriaOperationStatus.ValidationFailed,
                 Message: "Select an active inspection method.");
+        }
+
+        if (!await IsValidSecondaryProcessRequirementAsync(
+                db, revisionId, model.SecondaryProcessRequirementId, cancellationToken))
+        {
+            return new CriteriaOperationResult(
+                CriteriaOperationStatus.ValidationFailed,
+                Message: "Select a secondary process from this revision.");
         }
 
         db.Entry(criterion).Property(x => x.Version).OriginalValue = model.Version;
@@ -1241,8 +1240,21 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         criterion.Minimum = NormalizeOptionalText(model.Minimum);
         criterion.MaximumOrTolerance = NormalizeOptionalText(model.MaximumOrTolerance);
         criterion.Unit = NormalizeOptionalText(model.Unit);
+        criterion.SecondaryProcessRequirementId = model.SecondaryProcessRequirementId;
         criterion.Notes = NormalizeOptionalText(model.Notes);
     }
+
+    private static Task<bool> IsValidSecondaryProcessRequirementAsync(
+        AppDbContext db,
+        long revisionId,
+        long? secondaryProcessRequirementId,
+        CancellationToken cancellationToken) =>
+        secondaryProcessRequirementId is null
+            ? Task.FromResult(true)
+            : db.SecondaryProcessRequirements.AnyAsync(
+                x => x.Id == secondaryProcessRequirementId
+                    && x.InspectionCriteriaRevisionId == revisionId,
+                cancellationToken);
 
     private static string? Validate(InspectionCriterionEditModel model)
     {
@@ -1251,7 +1263,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
             return "Name is required.";
         }
 
-        if (model.InspectionNumber <= 0)
+        if (model.InspectionNumber is <= 0)
         {
             return "Inspection number must be greater than zero.";
         }

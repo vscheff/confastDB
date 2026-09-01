@@ -100,7 +100,7 @@ else
 
             if (result.Status == SavePartStatus.Saved)
             {
-                Navigation.NavigateTo("/parts");
+                Navigation.NavigateTo($"/parts/{result.Id}/edit");
                 return;
             }
 

@@ -33,7 +33,6 @@ public sealed record InspectionCriteriaRevisionDetails(
     int RevisionNumber,
     string? PrintRevisionNumber,
     string? PartDescription,
-    string? SpecificationUsed,
     string? Notes,
     bool HasMasterPrint,
     string? MasterPrintFileName,
@@ -56,13 +55,15 @@ public sealed record InspectionCriteriaRevisionDetails(
 
 public sealed record InspectionCriterionListItem(
     long Id,
-    int InspectionNumber,
+    int? InspectionNumber,
     string Name,
     long? GageTypeId,
     string? InspectionMethod,
     string? Minimum,
     string? MaximumOrTolerance,
     string? Unit,
+    long? SecondaryProcessRequirementId,
+    string? RequiredSecondaryProcessName,
     int DisplayOrder,
     string? Notes,
     uint Version);
@@ -132,9 +133,6 @@ public sealed class InspectionCriteriaRevisionHeaderEditModel
     [Display(Name = "Part Description")]
     public string? PartDescription { get; set; }
 
-    [Display(Name = "Spec Used")]
-    public string? SpecificationUsed { get; set; }
-
     public string? Notes { get; set; }
 
     public uint Version { get; set; }
@@ -148,7 +146,7 @@ public sealed class InspectionCriterionEditModel
 
     [Range(1, int.MaxValue, ErrorMessage = "Inspection number must be greater than zero.")]
     [Display(Name = "Inspection number")]
-    public int InspectionNumber { get; set; }
+    public int? InspectionNumber { get; set; }
 
     [Required(ErrorMessage = "Name is required.")]
     public string Name { get; set; } = string.Empty;
@@ -163,6 +161,9 @@ public sealed class InspectionCriterionEditModel
     public string? MaximumOrTolerance { get; set; }
 
     public string? Unit { get; set; }
+
+    [Display(Name = "Available after secondary process")]
+    public long? SecondaryProcessRequirementId { get; set; }
 
     public string? Notes { get; set; }
 

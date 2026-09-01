@@ -11,7 +11,7 @@ public sealed record CertificationPackageLotOption(
     string? LotNumber,
     string PartNumber,
     DateOnly InspectionDate,
-    string? Status);
+    bool IsCompleted);
 
 public sealed record CertificationPackagePlantOption(long Id, string Name);
 
@@ -185,12 +185,14 @@ public sealed class InspectionEditModel : IValidatableObject
 
     public bool IsMissingRequiredCertifications => Certifications.Any(x => x.IsMissingRequired);
 
-    public bool InspectionAccepted => InspectionStatusEvaluator.IsAccepted(Results);
+    // Used only by the protected, short-lived package print route. It is never
+    // saved and lets a user explicitly produce a temporarily completed sheet.
+    public bool IsTemporarilyCompletedForCertificationPackage { get; set; }
 
-    public bool InspectionCompleted => InspectionStatusEvaluator.IsCompleted(
-        Results,
-        SecondaryProcesses,
-        Certifications);
+    public bool InspectionAccepted => InspectionStatusEvaluator.IsAccepted(Results, SecondaryProcesses);
+
+    public bool InspectionCompleted => IsTemporarilyCompletedForCertificationPackage
+        || InspectionStatusEvaluator.IsCompleted(Results, SecondaryProcesses, Certifications);
 
     public void ApplyGageSelection(InspectionResultEditModel source)
     {
@@ -201,7 +203,12 @@ public sealed class InspectionEditModel : IValidatableObject
 
         foreach (var result in Results.Where(x => x.GageTypeId == source.GageTypeId))
         {
-            result.GageId = source.GageId;
+            // A sole gage is an automatic choice. Keep that behavior for every
+            // matching result, even if a saved inspection somehow lacks it.
+            if (source.GageChoices.Count == 1 || result.GageId is null)
+            {
+                result.GageId = source.GageId;
+            }
         }
     }
 }
@@ -262,16 +269,34 @@ public static class InspectionCertificationStatus
 public static class InspectionStatusEvaluator
 {
     public static bool IsAccepted(IEnumerable<InspectionResultEditModel> results) =>
-        results.Any()
-        && results.All(x =>
-            x.GageId is not null
-            && x.Evaluation == InspectionResultEvaluation.Pass);
+        IsAccepted(results, []);
+
+    public static bool IsAccepted(
+        IEnumerable<InspectionResultEditModel> results,
+        IEnumerable<InspectionSecondaryProcessEditModel> secondaryProcesses)
+    {
+        var processesByRequirementId = secondaryProcesses.ToDictionary(
+            x => x.SecondaryProcessRequirementId,
+            x => x.IsComplete);
+
+        return results.Any()
+            && results.All(x => IsNotYetAvailable(x, processesByRequirementId)
+                || x.GageId is not null
+                    && x.Evaluation == InspectionResultEvaluation.Pass);
+    }
+
+    private static bool IsNotYetAvailable(
+        InspectionResultEditModel result,
+        IReadOnlyDictionary<long, bool> processesByRequirementId) =>
+        result.SecondaryProcessRequirementId is long processRequirementId
+        && processesByRequirementId.TryGetValue(processRequirementId, out var isComplete)
+        && !isComplete;
 
     public static bool IsCompleted(
         IEnumerable<InspectionResultEditModel> results,
         IEnumerable<InspectionSecondaryProcessEditModel> secondaryProcesses,
         IEnumerable<InspectionCertificationListItem> certifications) =>
-        IsAccepted(results)
+        IsAccepted(results, secondaryProcesses)
         && secondaryProcesses.All(x => x.IsComplete)
         && certifications.All(x => !x.IsMissingRequired);
 }
@@ -299,7 +324,7 @@ public sealed class InspectionResultEditModel : IValidatableObject
 
     public long InspectionCriterionId { get; set; }
 
-    public int InspectionNumber { get; set; }
+    public int? InspectionNumber { get; set; }
 
     public string Name { get; set; } = string.Empty;
 
@@ -319,9 +344,23 @@ public sealed class InspectionResultEditModel : IValidatableObject
 
     public string? Unit { get; set; }
 
+    public long? SecondaryProcessRequirementId { get; set; }
+
+    public string? RequiredSecondaryProcessName { get; set; }
+
+    public string? Notes { get; set; }
+
     public string? ActualMin { get; set; }
 
     public string? ActualMax { get; set; }
+
+    public bool DeviationApproved { get; set; }
+
+    public decimal NominalToleranceFloor { get; set; } =
+        InspectionResultEvaluator.DefaultNominalToleranceFloor;
+
+    public decimal NominalToleranceDivisor { get; set; } =
+        InspectionResultEvaluator.DefaultNominalToleranceDivisor;
 
     public uint Version { get; set; }
 
@@ -329,7 +368,10 @@ public sealed class InspectionResultEditModel : IValidatableObject
         SpecifiedMinimum,
         SpecifiedMaximum,
         ActualMin,
-        ActualMax);
+        ActualMax,
+        DeviationApproved,
+        NominalToleranceFloor,
+        NominalToleranceDivisor);
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
@@ -374,4 +416,5 @@ public enum InspectionOperationStatus
 public sealed record InspectionOperationResult(
     InspectionOperationStatus Status,
     long? InspectionId = null,
-    string? Message = null);
+    string? Message = null,
+    long? RelatedInspectionId = null);

@@ -8,6 +8,8 @@ namespace Confast.Web.Features.Inspections;
 
 public sealed class InspectionService
 {
+    private const string UniqueLotNumberConstraint = "UX_inspections_lot_number";
+
     private readonly IDbContextFactory<AppDbContext> contextFactory;
     private readonly CertificationPreviewRenderer? certificationPreviewRenderer;
 
@@ -28,11 +30,29 @@ public sealed class InspectionService
 
     public async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsync(
         CancellationToken cancellationToken = default)
+        => await GetInspectionsAsyncCore(null, cancellationToken);
+
+    public async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsync(
+        IReadOnlyCollection<long> inspectionIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(inspectionIds);
+        return await GetInspectionsAsyncCore(inspectionIds, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsyncCore(
+        IReadOnlyCollection<long>? inspectionIdFilter,
+        CancellationToken cancellationToken)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var inspections = await db.Inspections
-            .AsNoTracking()
+        IQueryable<Inspection> inspectionQuery = db.Inspections.AsNoTracking();
+        if (inspectionIdFilter is not null)
+        {
+            inspectionQuery = inspectionQuery.Where(x => inspectionIdFilter.Contains(x.Id));
+        }
+
+        var inspections = await inspectionQuery
             .OrderByDescending(x => x.InspectionDate)
             .ThenByDescending(x => x.Id)
             .Select(x => new InspectionListItem(
@@ -53,6 +73,7 @@ public sealed class InspectionService
             return inspections;
         }
 
+        var nominalToleranceSettings = await GetNominalToleranceSettingsAsync(db, cancellationToken);
         var inspectionIds = inspections.Select(x => x.Id).ToArray();
         var resultRows = await db.InspectionResults
             .AsNoTracking()
@@ -62,13 +83,20 @@ public sealed class InspectionService
                 x.GageId,
                 x.ActualMin,
                 x.ActualMax,
+                x.DeviationApproved,
+                x.InspectionCriterion.SecondaryProcessRequirementId,
                 x.InspectionCriterion.Minimum,
                 x.InspectionCriterion.MaximumOrTolerance))
             .ToListAsync(cancellationToken);
         var secondaryProcessRows = await db.InspectionSecondaryProcesses
             .AsNoTracking()
             .Where(x => inspectionIds.Contains(x.InspectionId))
-            .Select(x => new { x.InspectionId, x.IsComplete })
+            .Select(x => new
+            {
+                x.InspectionId,
+                x.SecondaryProcessRequirementId,
+                x.IsComplete
+            })
             .ToListAsync(cancellationToken);
         var missingRequiredCertificationRows = await db.InspectionCertificationRequirements
             .AsNoTracking()
@@ -85,17 +113,29 @@ public sealed class InspectionService
             })
             .ToListAsync(cancellationToken);
 
+        var processCompletionByInspection = secondaryProcessRows
+            .GroupBy(x => x.InspectionId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToDictionary(x => x.SecondaryProcessRequirementId, x => x.IsComplete));
         var resultStatusByInspection = resultRows
             .GroupBy(x => x.InspectionId)
             .ToDictionary(
                 group => group.Key,
                 group => group.Any()
-                    && group.All(x => x.GageId is not null
-                        && InspectionResultEvaluator.Evaluate(
-                            x.Minimum,
-                            x.MaximumOrTolerance,
-                            x.ActualMin,
-                            x.ActualMax) == InspectionResultEvaluation.Pass));
+                    && group.All(x => x.SecondaryProcessRequirementId is long requirementId
+                        && processCompletionByInspection.TryGetValue(group.Key, out var processes)
+                        && processes.TryGetValue(requirementId, out var isComplete)
+                        && !isComplete
+                        || x.GageId is not null
+                            && InspectionResultEvaluator.Evaluate(
+                                x.Minimum,
+                                x.MaximumOrTolerance,
+                                x.ActualMin,
+                                x.ActualMax,
+                                x.DeviationApproved,
+                                nominalToleranceSettings.ToleranceFloor,
+                                nominalToleranceSettings.LargeDimensionDivisor) == InspectionResultEvaluation.Pass));
         var secondaryProcessStatusByInspection = secondaryProcessRows
             .GroupBy(x => x.InspectionId)
             .ToDictionary(group => group.Key, group => group.All(x => x.IsComplete));
@@ -124,8 +164,17 @@ public sealed class InspectionService
         long? GageId,
         string? ActualMin,
         string? ActualMax,
+        bool DeviationApproved,
+        long? SecondaryProcessRequirementId,
         string? Minimum,
         string? MaximumOrTolerance);
+
+    private static async Task<NominalToleranceSettings> GetNominalToleranceSettingsAsync(
+        AppDbContext db,
+        CancellationToken cancellationToken) =>
+        await db.NominalToleranceSettings.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken)
+        ?? new NominalToleranceSettings();
 
     public async Task<IReadOnlyList<InspectionPartOption>> GetPartOptionsAsync(
         CancellationToken cancellationToken = default)
@@ -143,22 +192,66 @@ public sealed class InspectionService
     }
 
     public async Task<IReadOnlyList<CertificationPackageLotOption>> GetCertificationPackageLotOptionsAsync(
-        long customerId,
+        long activeInspectionId,
+        long? destinationPlantId = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        return await db.Inspections
+
+        var activeInspection = await db.Inspections
             .AsNoTracking()
-            .Where(x => x.Part.CustomerId == customerId)
+            .Where(x => x.Id == activeInspectionId)
+            .Select(x => new { x.Part.CustomerId, x.PartId })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (activeInspection is null)
+        {
+            return [];
+        }
+
+        var activePartPlantIds = await db.PartPlants
+            .AsNoTracking()
+            .Where(x => x.PartId == activeInspection.PartId)
+            .Select(x => x.PlantId)
+            .ToArrayAsync(cancellationToken);
+
+        if (destinationPlantId is not null && !activePartPlantIds.Contains(destinationPlantId.Value))
+        {
+            return [];
+        }
+
+        var eligiblePlantIds = destinationPlantId is null
+            ? activePartPlantIds
+            : [destinationPlantId.Value];
+
+        var lots = await db.Inspections
+            .AsNoTracking()
+            .Where(x => x.Part.CustomerId == activeInspection.CustomerId
+                && x.Part.PartPlants.Any(partPlant => eligiblePlantIds.Contains(partPlant.PlantId)))
             .OrderByDescending(x => x.InspectionDate)
             .ThenByDescending(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                x.LotNumber,
+                PartNumber = x.Part.PartNumber,
+                x.InspectionDate
+            })
+            .ToListAsync(cancellationToken);
+
+        var statusByInspectionId = (await GetInspectionsAsyncCore(
+                lots.Select(x => x.Id).ToArray(),
+                cancellationToken))
+            .ToDictionary(x => x.Id);
+
+        return lots.Where(x => statusByInspectionId.TryGetValue(x.Id, out var status) && status.Accepted)
             .Select(x => new CertificationPackageLotOption(
                 x.Id,
                 x.LotNumber,
-                x.Part.PartNumber,
+                x.PartNumber,
                 x.InspectionDate,
-                x.Certifications.Any(c => c.Documents.Any()) ? "Documents uploaded" : "No documents uploaded"))
-            .ToListAsync(cancellationToken);
+                statusByInspectionId[x.Id].Completed))
+            .ToList();
     }
 
     public async Task<IReadOnlyList<CertificationPackagePlantOption>> GetCertificationPackagePlantOptionsAsync(
@@ -210,6 +303,18 @@ public sealed class InspectionService
             IsolationLevel.Serializable,
             cancellationToken);
 
+        var lotNumber = NormalizeOptionalText(model.LotNumber);
+        var existingLotInspectionId = lotNumber is null
+            ? null
+            : await db.Inspections
+                .Where(x => x.LotNumber == lotNumber)
+                .Select(x => (long?)x.Id)
+                .SingleOrDefaultAsync(cancellationToken);
+        if (existingLotInspectionId is not null)
+        {
+            return DuplicateLotNumberResult(relatedInspectionId: existingLotInspectionId);
+        }
+
         var revision = await db.InspectionCriteriaRevisions
             .FromSqlInterpolated($$"""
                 SELECT r.*, r.xmin
@@ -255,7 +360,7 @@ public sealed class InspectionService
         {
             PartId = model.PartId,
             InspectionCriteriaRevisionId = revision.Id,
-            LotNumber = NormalizeOptionalText(model.LotNumber),
+            LotNumber = lotNumber,
             ConformancePoNumber = NormalizeOptionalText(model.ConformancePoNumber),
             ManufacturerLotNumber = NormalizeOptionalText(model.ManufacturerLotNumber),
             DateReceived = model.DateReceived,
@@ -313,6 +418,137 @@ public sealed class InspectionService
                 InspectionOperationStatus.Succeeded,
                 inspection.Id);
         }
+        catch (DbUpdateException exception) when (HasPostgresError(
+            exception,
+            PostgresErrorCodes.UniqueViolation,
+            UniqueLotNumberConstraint))
+        {
+            return DuplicateLotNumberResult(
+                relatedInspectionId: await FindInspectionIdByLotNumberAsync(lotNumber, cancellationToken));
+        }
+        catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict);
+        }
+        catch (PostgresException exception)
+            when (exception.SqlState == PostgresErrorCodes.SerializationFailure)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<InspectionOperationResult> DuplicateInspectionAsync(
+        long inspectionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+
+        var source = await db.Inspections
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(x => x.Results)
+            .Include(x => x.SecondaryProcesses)
+            .Include(x => x.CertificationRequirements)
+            .Include(x => x.Certifications)
+                .ThenInclude(x => x.Documents)
+            .SingleOrDefaultAsync(x => x.Id == inspectionId, cancellationToken);
+        if (source is null)
+        {
+            return new InspectionOperationResult(InspectionOperationStatus.NotFound);
+        }
+
+        // A duplicate deliberately stays pinned to the source inspection's criteria
+        // revision. Choosing today's revision would make this a new inspection, not a copy.
+        var duplicate = new Inspection
+        {
+            PartId = source.PartId,
+            InspectionCriteriaRevisionId = source.InspectionCriteriaRevisionId,
+            LotNumber = null,
+            ConformancePoNumber = source.ConformancePoNumber,
+            ManufacturerLotNumber = source.ManufacturerLotNumber,
+            DateReceived = source.DateReceived,
+            QuantityReceived = source.QuantityReceived,
+            QuantityInspected = source.QuantityInspected,
+            Inspector = source.Inspector,
+            InspectorNotes = source.InspectorNotes,
+            InHouseNotes = source.InHouseNotes,
+            InspectionDate = source.InspectionDate
+        };
+
+        foreach (var result in source.Results)
+        {
+            duplicate.Results.Add(new InspectionResult
+            {
+                InspectionCriteriaRevisionId = result.InspectionCriteriaRevisionId,
+                InspectionCriterionId = result.InspectionCriterionId,
+                GageId = result.GageId,
+                GageNumber = result.GageNumber,
+                ActualMin = result.ActualMin,
+                ActualMax = result.ActualMax,
+                DeviationApproved = result.DeviationApproved
+            });
+        }
+
+        foreach (var process in source.SecondaryProcesses)
+        {
+            duplicate.SecondaryProcesses.Add(new InspectionSecondaryProcess
+            {
+                InspectionCriteriaRevisionId = process.InspectionCriteriaRevisionId,
+                SecondaryProcessRequirementId = process.SecondaryProcessRequirementId,
+                ProcessName = process.ProcessName,
+                Specification = process.Specification,
+                PurchaseOrderNumber = process.PurchaseOrderNumber,
+                IsComplete = process.IsComplete
+            });
+        }
+
+        foreach (var requirement in source.CertificationRequirements)
+        {
+            duplicate.CertificationRequirements.Add(new InspectionCertificationRequirement
+            {
+                CertificationTypeId = requirement.CertificationTypeId,
+                CertificationTypeName = requirement.CertificationTypeName,
+                RequirementLevel = requirement.RequirementLevel,
+                Notes = requirement.Notes
+            });
+        }
+
+        foreach (var certification in source.Certifications)
+        {
+            var copiedCertification = new InspectionCertification
+            {
+                CertificationTypeId = certification.CertificationTypeId,
+                CertificationTypeName = certification.CertificationTypeName,
+                Description = certification.Description,
+                Notes = certification.Notes
+            };
+            foreach (var document in certification.Documents)
+            {
+                copiedCertification.Documents.Add(new CertificationDocument
+                {
+                    OriginalFileName = document.OriginalFileName,
+                    ContentType = document.ContentType,
+                    Content = document.Content.ToArray(),
+                    PreviewContent = document.PreviewContent?.ToArray()
+                });
+            }
+
+            duplicate.Certifications.Add(copiedCertification);
+        }
+
+        db.Inspections.Add(duplicate);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new InspectionOperationResult(
+                InspectionOperationStatus.Succeeded,
+                duplicate.Id);
+        }
         catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict);
@@ -344,7 +580,7 @@ public sealed class InspectionService
                 RevisionNumber = x.InspectionCriteriaRevision.RevisionNumber,
                 PrintRevisionNumber = x.InspectionCriteriaRevision.PrintRevisionNumber,
                 PartDescription = x.InspectionCriteriaRevision.PartDescription,
-                SpecificationUsed = x.InspectionCriteriaRevision.SpecificationUsed,
+                SpecificationUsed = x.Part.SpecificationUsed,
                 CriteriaNotes = x.InspectionCriteriaRevision.Notes,
                 HasMasterPrint = x.InspectionCriteriaRevision.MasterPrintContent != null,
                 MasterPrintFileName = x.InspectionCriteriaRevision.MasterPrintFileName,
@@ -369,6 +605,7 @@ public sealed class InspectionService
             return null;
         }
 
+        var nominalToleranceSettings = await GetNominalToleranceSettingsAsync(db, cancellationToken);
         model.Results = await db.InspectionResults
             .AsNoTracking()
             .Where(x => x.InspectionId == inspectionId)
@@ -386,11 +623,23 @@ public sealed class InspectionService
                 SpecifiedMinimum = x.InspectionCriterion.Minimum,
                 SpecifiedMaximum = x.InspectionCriterion.MaximumOrTolerance,
                 Unit = x.InspectionCriterion.Unit,
+                SecondaryProcessRequirementId = x.InspectionCriterion.SecondaryProcessRequirementId,
+                RequiredSecondaryProcessName = x.InspectionCriterion.SecondaryProcessRequirement == null
+                    ? null
+                    : x.InspectionCriterion.SecondaryProcessRequirement.SecondaryProcessType.Name,
+                Notes = x.InspectionCriterion.Notes,
                 ActualMin = x.ActualMin,
                 ActualMax = x.ActualMax,
+                DeviationApproved = x.DeviationApproved,
                 Version = x.Version
             })
             .ToListAsync(cancellationToken);
+
+        foreach (var result in model.Results)
+        {
+            result.NominalToleranceFloor = nominalToleranceSettings.ToleranceFloor;
+            result.NominalToleranceDivisor = nominalToleranceSettings.LargeDimensionDivisor;
+        }
 
         model.SecondaryProcesses = await db.InspectionSecondaryProcesses
             .AsNoTracking()
@@ -723,6 +972,18 @@ public sealed class InspectionService
             return new InspectionOperationResult(InspectionOperationStatus.NotFound);
         }
 
+        var lotNumber = NormalizeOptionalText(model.LotNumber);
+        var existingLotInspectionId = lotNumber is null
+            ? null
+            : await db.Inspections
+                .Where(x => x.Id != inspection.Id && x.LotNumber == lotNumber)
+                .Select(x => (long?)x.Id)
+                .SingleOrDefaultAsync(cancellationToken);
+        if (existingLotInspectionId is not null)
+        {
+            return DuplicateLotNumberResult(model.Id, existingLotInspectionId);
+        }
+
         if (model.Results.Select(x => x.Id).Distinct().Count() != model.Results.Count)
         {
             return new InspectionOperationResult(
@@ -761,20 +1022,20 @@ public sealed class InspectionService
                 "The secondary-process requirements changed unexpectedly. Reload the inspection.");
         }
 
-        var inconsistentGageSelection = inspection.Results
-            .Where(x => x.InspectionCriterion.GageTypeId is not null)
-            .GroupBy(x => x.InspectionCriterion.GageTypeId)
-            .Any(group => group
-                .Select(x => submittedResults[x.Id].GageId)
-                .Distinct()
-                .Skip(1)
-                .Any());
-        if (inconsistentGageSelection)
+        var submittedProcessesByRequirementId = inspection.SecondaryProcesses.ToDictionary(
+            x => x.SecondaryProcessRequirementId,
+            x => submittedSecondaryProcesses[x.Id]);
+        var gatedResultChangedBeforeCompletion = inspection.Results.Any(result =>
+            result.InspectionCriterion.SecondaryProcessRequirementId is long processRequirementId
+            && submittedProcessesByRequirementId.TryGetValue(processRequirementId, out var process)
+            && !process.IsComplete
+            && HasRecordedResultChanged(submittedResults[result.Id], result));
+        if (gatedResultChangedBeforeCompletion)
         {
             return new InspectionOperationResult(
                 InspectionOperationStatus.ValidationFailed,
                 model.Id,
-                "Criteria with the same inspection method must use the same gage number.");
+                "Complete the secondary process before recording this requirement.");
         }
 
         var submittedGageIds = model.Results
@@ -787,7 +1048,7 @@ public sealed class InspectionService
             .ToDictionaryAsync(x => x.Id, cancellationToken);
 
         db.Entry(inspection).Property(x => x.Version).OriginalValue = model.Version;
-        inspection.LotNumber = NormalizeOptionalText(model.LotNumber);
+        inspection.LotNumber = lotNumber;
         inspection.ConformancePoNumber = NormalizeOptionalText(model.ConformancePoNumber);
         inspection.ManufacturerLotNumber = NormalizeOptionalText(model.ManufacturerLotNumber);
         inspection.DateReceived = model.DateReceived;
@@ -859,6 +1120,7 @@ public sealed class InspectionService
 
             result.ActualMin = recordedMinimum;
             result.ActualMax = recordedMaximum;
+            result.DeviationApproved = submitted.DeviationApproved;
         }
 
         foreach (var secondaryProcess in inspection.SecondaryProcesses)
@@ -904,6 +1166,15 @@ public sealed class InspectionService
         catch (DbUpdateConcurrencyException)
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspection.Id);
+        }
+        catch (DbUpdateException exception) when (HasPostgresError(
+            exception,
+            PostgresErrorCodes.UniqueViolation,
+            UniqueLotNumberConstraint))
+        {
+            return DuplicateLotNumberResult(
+                inspection.Id,
+                await FindInspectionIdByLotNumberAsync(lotNumber, cancellationToken));
         }
         catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
         {
@@ -1066,6 +1337,46 @@ public sealed class InspectionService
         return string.IsNullOrEmpty(normalized) ? null : normalized;
     }
 
+    private async Task<long?> FindInspectionIdByLotNumberAsync(
+        string? lotNumber,
+        CancellationToken cancellationToken)
+    {
+        if (lotNumber is null)
+        {
+            return null;
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Inspections
+            .AsNoTracking()
+            .Where(x => x.LotNumber == lotNumber)
+            .Select(x => (long?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static InspectionOperationResult DuplicateLotNumberResult(
+        long? inspectionId = null,
+        long? relatedInspectionId = null) =>
+        new(
+            InspectionOperationStatus.ValidationFailed,
+            inspectionId,
+            "Lot number must be unique. An inspection already uses that lot number.",
+            relatedInspectionId);
+
+    private static bool HasRecordedResultChanged(
+        InspectionResultEditModel submitted,
+        InspectionResult stored) =>
+        submitted.GageId != stored.GageId
+        || !string.Equals(
+            NormalizeOptionalText(submitted.ActualMin),
+            stored.ActualMin,
+            StringComparison.Ordinal)
+        || !string.Equals(
+            NormalizeOptionalText(submitted.ActualMax),
+            stored.ActualMax,
+            StringComparison.Ordinal)
+        || submitted.DeviationApproved != stored.DeviationApproved;
+
     private static string? ValidateCertificationDocument(string fileName, byte[] content)
     {
         var safeFileName = Path.GetFileName(fileName);
@@ -1109,5 +1420,15 @@ public sealed class InspectionService
             or PostgresErrorCodes.RestrictViolation
             or PostgresErrorCodes.CheckViolation
             or PostgresErrorCodes.SerializationFailure;
+    }
+
+    private static bool HasPostgresError(
+        DbUpdateException exception,
+        string sqlState,
+        string? constraintName = null)
+    {
+        var postgresException = exception.GetBaseException() as PostgresException;
+        return postgresException?.SqlState == sqlState
+            && (constraintName is null || postgresException.ConstraintName == constraintName);
     }
 }

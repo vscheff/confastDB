@@ -2,6 +2,7 @@
 @using Confast.Web.Features.Inspections
 @inject InspectionService InspectionService
 @inject ILogger<Index> Logger
+@inject NavigationManager Navigation
 
 <PageTitle>Inspections</PageTitle>
 
@@ -18,9 +19,9 @@
     </div>
 </div>
 
-@if (deleteMessage is not null)
+@if (actionMessage is not null)
 {
-    <div class="alert @deleteMessageClass" role="alert">@deleteMessage</div>
+    <div class="alert @actionMessageClass" role="alert">@actionMessage</div>
 }
 
 @if (isLoading)
@@ -86,6 +87,12 @@ else
                             {
                                 <div class="row-actions inspection-list-actions">
                                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")">Open</a>
+                                    <button class="button button-secondary"
+                                            type="button"
+                                            @onclick="() => DuplicateInspectionAsync(inspection.Id)"
+                                            disabled="@isDuplicating">
+                                        @(isDuplicating ? "Duplicating…" : "Duplicate")
+                                    </button>
                                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
                                     <details class="inspection-print-options">
                                         <summary class="button button-secondary">Print / Download</summary>
@@ -116,10 +123,11 @@ else
     private IReadOnlyList<InspectionListItem> inspections = [];
     private bool isLoading = true;
     private bool isDeleting;
+    private bool isDuplicating;
     private long? pendingDeleteId;
     private string? loadError;
-    private string? deleteMessage;
-    private string deleteMessageClass = "alert-error";
+    private string? actionMessage;
+    private string actionMessageClass = "alert-error";
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -127,7 +135,7 @@ else
     {
         isLoading = true;
         loadError = null;
-        deleteMessage = null;
+        actionMessage = null;
 
         try
         {
@@ -147,7 +155,7 @@ else
     private void BeginDelete(long inspectionId)
     {
         pendingDeleteId = inspectionId;
-        deleteMessage = null;
+        actionMessage = null;
     }
 
     private void CancelDelete() => pendingDeleteId = null;
@@ -155,7 +163,7 @@ else
     private async Task DeleteInspectionAsync(InspectionListItem inspection)
     {
         isDeleting = true;
-        deleteMessage = null;
+        actionMessage = null;
 
         try
         {
@@ -169,26 +177,62 @@ else
                 return;
             }
 
-            deleteMessage = result.Status switch
+            actionMessage = result.Status switch
             {
                 InspectionOperationStatus.NotFound => "This inspection no longer exists.",
                 InspectionOperationStatus.Conflict =>
                     "Someone else changed this inspection. Refresh the list before deleting it.",
                 _ => "The inspection could not be deleted. Please try again."
             };
-            deleteMessageClass = result.Status == InspectionOperationStatus.Conflict
+            actionMessageClass = result.Status == InspectionOperationStatus.Conflict
                 ? "alert-warning"
                 : "alert-error";
         }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to delete inspection {InspectionId}", inspection.Id);
-            deleteMessage = "The inspection could not be deleted. Please try again.";
-            deleteMessageClass = "alert-error";
+            actionMessage = "The inspection could not be deleted. Please try again.";
+            actionMessageClass = "alert-error";
         }
         finally
         {
             isDeleting = false;
+        }
+    }
+
+    private async Task DuplicateInspectionAsync(long inspectionId)
+    {
+        isDuplicating = true;
+        actionMessage = null;
+
+        try
+        {
+            var result = await InspectionService.DuplicateInspectionAsync(inspectionId);
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                Navigation.NavigateTo($"/inspections/{result.InspectionId}");
+                return;
+            }
+
+            actionMessage = result.Status switch
+            {
+                InspectionOperationStatus.NotFound => "This inspection no longer exists.",
+                InspectionOperationStatus.Conflict => "The inspection changed while it was being duplicated. Please try again.",
+                _ => "The inspection could not be duplicated. Please try again."
+            };
+            actionMessageClass = result.Status == InspectionOperationStatus.Conflict
+                ? "alert-warning"
+                : "alert-error";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to duplicate inspection {InspectionId}", inspectionId);
+            actionMessage = "The inspection could not be duplicated. Please try again.";
+            actionMessageClass = "alert-error";
+        }
+        finally
+        {
+            isDuplicating = false;
         }
     }
 }

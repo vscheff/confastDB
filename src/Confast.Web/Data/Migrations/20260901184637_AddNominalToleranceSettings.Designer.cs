@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260901184637_AddNominalToleranceSettings")]
+    partial class AddNominalToleranceSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1055,10 +1058,6 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasIndex("InspectionDate")
                         .HasDatabaseName("IX_inspections_inspection_date");
-
-                    b.HasIndex("LotNumber")
-                        .IsUnique()
-                        .HasDatabaseName("UX_inspections_lot_number");
 
                     b.HasIndex("PartId")
                         .HasDatabaseName("IX_inspections_part_id");

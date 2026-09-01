@@ -16,6 +16,8 @@ public sealed class Part
 
     public string? Description { get; set; }
 
+    public string? SpecificationUsed { get; set; }
+
     public string? Revision { get; set; }
 
     public bool IsActive { get; set; } = true;

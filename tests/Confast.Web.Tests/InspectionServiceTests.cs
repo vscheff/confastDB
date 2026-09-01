@@ -5,6 +5,8 @@ using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Parts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using PdfSharp.Pdf;
 
 namespace Confast.Web.Tests;
 
@@ -21,7 +23,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
     [Fact]
     public async Task InspectionsRetainTheRevisionThatWasCurrentWhenCreated()
     {
-        var partId = await CreatePartAsync();
+        var partId = await CreatePartAsync("SPEC-100");
         var gageTypeId = await CreateGageTypeAsync();
         var masterPrint = "%PDF-1.7\ninspection master print\n%%EOF"u8.ToArray();
         var firstRevisionId = await CreateAndPublishRevisionAsync(
@@ -30,7 +32,6 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             "20",
             "21",
             "Original part description",
-            "SPEC-100",
             "PRINT-A",
             "Use the approved finishing source.",
             masterPrintContent: masterPrint);
@@ -58,6 +59,13 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(
             InspectionOperationStatus.Succeeded,
             (await inspectionService.SaveInspectionAsync(firstInspection)).Status);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var part = await db.Parts.SingleAsync(x => x.Id == partId);
+            part.SpecificationUsed = "SPEC-200";
+            await db.SaveChangesAsync();
+        }
 
         var secondDraftResult = await criteriaService.CreateDraftRevisionAsync(
             partId,
@@ -89,7 +97,6 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             new InspectionCriteriaRevisionHeaderEditModel
             {
                 PartDescription = "Updated part description",
-                SpecificationUsed = "SPEC-200",
                 PrintRevisionNumber = "PRINT-B",
                 Version = secondDraft!.Version
             });
@@ -118,7 +125,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
 
         Assert.Equal(firstRevisionId, firstInspection.InspectionCriteriaRevisionId);
         Assert.Equal("Original part description", firstInspection.PartDescription);
-        Assert.Equal("SPEC-100", firstInspection.SpecificationUsed);
+        Assert.Equal("SPEC-200", firstInspection.SpecificationUsed);
         Assert.Equal("PRINT-A", firstInspection.PrintRevisionNumber);
         Assert.Equal("Use the approved finishing source.", firstInspection.CriteriaNotes);
         Assert.True(firstInspection.HasMasterPrint);
@@ -143,6 +150,64 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal("21", secondResult.SpecifiedMinimum);
         Assert.Equal("22", secondResult.SpecifiedMaximum);
         Assert.Equal(InspectionResultEvaluation.Incomplete, secondResult.Evaluation);
+    }
+
+    [Fact]
+    public async Task LotNumbersAreGloballyUniqueAcrossCreateEditAndDirectDatabaseWrites()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+
+        var first = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            LotNumber = "  LOT-UNIQUE  ",
+            InspectionDate = new DateOnly(2026, 8, 25)
+        });
+        Assert.Equal(InspectionOperationStatus.Succeeded, first.Status);
+
+        var duplicateCreate = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            LotNumber = "LOT-UNIQUE",
+            InspectionDate = new DateOnly(2026, 8, 25)
+        });
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, duplicateCreate.Status);
+        Assert.Equal(
+            "Lot number must be unique. An inspection already uses that lot number.",
+            duplicateCreate.Message);
+        Assert.Equal(first.InspectionId, duplicateCreate.RelatedInspectionId);
+
+        var second = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            LotNumber = "LOT-OTHER",
+            InspectionDate = new DateOnly(2026, 8, 25)
+        });
+        var secondInspection = await inspectionService.GetInspectionAsync(second.InspectionId!.Value);
+        secondInspection!.LotNumber = "LOT-UNIQUE";
+
+        var duplicateEdit = await inspectionService.SaveInspectionAsync(secondInspection);
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, duplicateEdit.Status);
+        Assert.Equal(
+            "Lot number must be unique. An inspection already uses that lot number.",
+            duplicateEdit.Message);
+        Assert.Equal(first.InspectionId, duplicateEdit.RelatedInspectionId);
+
+        await using var db = database.CreateDbContext();
+        db.Inspections.Add(new Inspection
+        {
+            PartId = partId,
+            InspectionCriteriaRevisionId = revisionId,
+            LotNumber = "LOT-UNIQUE",
+            InspectionDate = new DateOnly(2026, 8, 25)
+        });
+
+        var exception = await Record.ExceptionAsync(() => db.SaveChangesAsync());
+        var postgresException = Assert.IsType<PostgresException>(exception!.GetBaseException());
+        Assert.Equal(PostgresErrorCodes.UniqueViolation, postgresException.SqlState);
+        Assert.Equal("UX_inspections_lot_number", postgresException.ConstraintName);
     }
 
     [Fact]
@@ -185,6 +250,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
 
         var packageService = new CertificationPackageService(
             database,
+            inspectionService,
             null!,
             null!,
             new CertificationPackageFilenameFormatter(),
@@ -201,6 +267,180 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(
             "Select a destination plant assigned to this inspection's part.",
             exception.Message);
+    }
+
+    [Fact]
+    public async Task CertificationPackageLotsAreLimitedToSharedPlantsAndThenTheDestinationPlant()
+    {
+        var activePartId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(activePartId, gageTypeId, "20", "21");
+        var activeInspection = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = activePartId,
+            InspectionDate = new DateOnly(2026, 8, 31)
+        });
+        var activeInspectionId = activeInspection.InspectionId!.Value;
+
+        long sharedPlantId;
+        long customerId;
+        long activeOnlyPartId;
+        long sharedPartId;
+        long unrelatedPartId;
+        long sharedInspectionId;
+        long activeOnlyInspectionId;
+        long unrelatedInspectionId;
+        await using (var db = database.CreateDbContext())
+        {
+            customerId = await db.Parts.Where(x => x.Id == activePartId).Select(x => x.CustomerId).SingleAsync();
+            var sharedPlant = new Plant { CustomerId = customerId, Name = "Shared Plant" };
+            var activeOnlyPlant = new Plant { CustomerId = customerId, Name = "Active Only Plant" };
+            var activeOnlyPart = new Part { CustomerId = customerId, PartNumber = "ACTIVE-ONLY" };
+            var sharedPart = new Part { CustomerId = customerId, PartNumber = "SHARED" };
+            var unrelatedPart = new Part { CustomerId = customerId, PartNumber = "UNRELATED" };
+            db.AddRange(sharedPlant, activeOnlyPlant, activeOnlyPart, sharedPart, unrelatedPart);
+            db.PartPlants.AddRange(
+                new PartPlant { PartId = activePartId, Plant = sharedPlant },
+                new PartPlant { PartId = activePartId, Plant = activeOnlyPlant },
+                new PartPlant { Part = sharedPart, Plant = sharedPlant },
+                new PartPlant { Part = activeOnlyPart, Plant = activeOnlyPlant });
+            await db.SaveChangesAsync();
+            sharedPlantId = sharedPlant.Id;
+            activeOnlyPartId = activeOnlyPart.Id;
+            sharedPartId = sharedPart.Id;
+            unrelatedPartId = unrelatedPart.Id;
+
+        }
+
+        await CreateAndPublishRevisionAsync(activeOnlyPartId, gageTypeId, "20", "21");
+        await CreateAndPublishRevisionAsync(sharedPartId, gageTypeId, "20", "21");
+        await CreateAndPublishRevisionAsync(unrelatedPartId, gageTypeId, "20", "21");
+
+        activeOnlyInspectionId = (await inspectionService.CreateInspectionAsync(new CreateInspectionModel { PartId = activeOnlyPartId, InspectionDate = new DateOnly(2026, 8, 30) })).InspectionId!.Value;
+        sharedInspectionId = (await inspectionService.CreateInspectionAsync(new CreateInspectionModel { PartId = sharedPartId, InspectionDate = new DateOnly(2026, 8, 29) })).InspectionId!.Value;
+        unrelatedInspectionId = (await inspectionService.CreateInspectionAsync(new CreateInspectionModel { PartId = unrelatedPartId, InspectionDate = new DateOnly(2026, 8, 28) })).InspectionId!.Value;
+        var packageGageId = await CreateGageAsync(gageTypeId, "PKG-001");
+        await MarkInspectionAcceptedAsync(activeInspectionId, packageGageId);
+        await MarkInspectionAcceptedAsync(sharedInspectionId, packageGageId);
+        await MarkInspectionAcceptedAsync(unrelatedInspectionId, packageGageId);
+
+        var sharedPlantLots = await inspectionService.GetCertificationPackageLotOptionsAsync(activeInspectionId);
+        Assert.Contains(sharedPlantLots, x => x.InspectionId == activeInspectionId);
+        Assert.DoesNotContain(sharedPlantLots, x => x.InspectionId == activeOnlyInspectionId);
+        Assert.Contains(sharedPlantLots, x => x.InspectionId == sharedInspectionId);
+        Assert.DoesNotContain(sharedPlantLots, x => x.InspectionId == unrelatedInspectionId);
+
+        var destinationLots = await inspectionService.GetCertificationPackageLotOptionsAsync(activeInspectionId, sharedPlantId);
+        Assert.Contains(destinationLots, x => x.InspectionId == activeInspectionId);
+        Assert.Contains(destinationLots, x => x.InspectionId == sharedInspectionId);
+        Assert.DoesNotContain(destinationLots, x => x.InspectionId == activeOnlyInspectionId);
+        Assert.DoesNotContain(destinationLots, x => x.InspectionId == unrelatedInspectionId);
+
+        var packageService = new CertificationPackageService(
+            database,
+            inspectionService,
+            null!,
+            null!,
+            new CertificationPackageFilenameFormatter(),
+            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()));
+        var exception = await Assert.ThrowsAsync<CertificationPackageException>(() =>
+            packageService.BuildAsync(
+                new CertificationPackageRequest(
+                    activeInspectionId,
+                    customerId,
+                    [activeInspectionId, activeOnlyInspectionId],
+                    new DateOnly(2026, 9, 1),
+                    sharedPlantId),
+                "https://localhost/"));
+        Assert.Equal("All selected lots must ship to the selected destination plant.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CertificationPackageRequiresOnlyCustomerCertificationsRequiredByTheLotsPart()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            InspectionDate = new DateOnly(2026, 8, 31)
+        });
+        var inspectionId = create.InspectionId!.Value;
+        var packageGageId = await CreateGageAsync(gageTypeId, "PKG-001");
+        await MarkInspectionAcceptedAsync(inspectionId, packageGageId);
+
+        long customerId;
+        long plantId;
+        await using (var db = database.CreateDbContext())
+        {
+            customerId = await db.Parts.Where(x => x.Id == partId).Select(x => x.CustomerId).SingleAsync();
+            var material = await db.CertificationTypes.SingleAsync(x => x.Name == "Material");
+            var plate = await db.CertificationTypes.SingleAsync(x => x.Name == "Plate");
+            var plant = new Plant { CustomerId = customerId, Name = "Package Plant" };
+            db.Plants.Add(plant);
+            db.PartPlants.Add(new PartPlant { PartId = partId, Plant = plant });
+            db.PlantCertificationRequirements.AddRange(
+                new PlantCertificationRequirement { Plant = plant, CertificationTypeId = material.Id },
+                new PlantCertificationRequirement { Plant = plant, CertificationTypeId = plate.Id });
+            db.InspectionCertifications.Add(new InspectionCertification
+            {
+                InspectionId = inspectionId,
+                CertificationTypeId = material.Id,
+                CertificationTypeName = material.Name,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                Documents =
+                {
+                    new CertificationDocument
+                    {
+                        OriginalFileName = "material.pdf",
+                        ContentType = "application/pdf",
+                        Content = CreatePdf(),
+                        UploadedAtUtc = DateTimeOffset.UtcNow
+                    }
+                }
+            });
+            await db.SaveChangesAsync();
+            plantId = plant.Id;
+        }
+
+        var packageService = new CertificationPackageService(
+            database,
+            inspectionService,
+            null!,
+            new PdfDocumentMerger(),
+            new CertificationPackageFilenameFormatter(),
+            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()));
+        var package = await packageService.BuildAsync(
+            new CertificationPackageRequest(
+                inspectionId,
+                customerId,
+                [inspectionId],
+                new DateOnly(2026, 9, 1),
+                plantId),
+            "https://localhost/");
+
+        var lot = Assert.Single(package.Lots);
+        Assert.Equal(["Material"], lot.RequiredCertificationNames);
+        Assert.Empty(lot.MissingCertificationNames);
+
+        await using (var db = database.CreateDbContext())
+        {
+            await db.CertificationDocuments
+                .Where(document => document.InspectionCertification.InspectionId == inspectionId)
+                .ExecuteDeleteAsync();
+        }
+
+        var exception = await Assert.ThrowsAsync<CertificationPackageException>(() =>
+            packageService.BuildAsync(
+                new CertificationPackageRequest(
+                    inspectionId,
+                    customerId,
+                    [inspectionId],
+                    new DateOnly(2026, 9, 1),
+                    plantId),
+                "https://localhost/"));
+        Assert.Equal($"Lot {inspectionId} is missing: Material.", exception.Message);
     }
 
     [Fact]
@@ -282,6 +522,36 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
+    public async Task ApprovedDeviationPersistsAndAcceptsAnOutOfToleranceResult()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateGageAsync(gageTypeId, "MIC-001");
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            InspectionDate = new DateOnly(2026, 8, 26)
+        });
+
+        var inspection = await inspectionService.GetInspectionAsync(create.InspectionId!.Value);
+        var result = Assert.Single(inspection!.Results);
+        result.ActualMin = "19.9";
+        result.ActualMax = "21.1";
+        result.DeviationApproved = true;
+
+        Assert.Equal(
+            InspectionOperationStatus.Succeeded,
+            (await inspectionService.SaveInspectionAsync(inspection)).Status);
+
+        var reopened = await inspectionService.GetInspectionAsync(create.InspectionId.Value);
+        var reopenedResult = Assert.Single(reopened!.Results);
+        Assert.True(reopenedResult.DeviationApproved);
+        Assert.Equal(InspectionResultEvaluation.Pass, reopenedResult.Evaluation);
+        Assert.True(Assert.Single(await inspectionService.GetInspectionsAsync()).Accepted);
+    }
+
+    [Fact]
     public async Task GageChoicesMatchTheCriterionTypeAndPreserveTheSelectedNumber()
     {
         var partId = await CreatePartAsync();
@@ -327,7 +597,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
-    public async Task SelectingAGageAppliesItToEveryResultWithTheSameMethod()
+    public async Task SelectingAGageFillsOnlyUnselectedResultsWithTheSameMethod()
     {
         var partId = await CreatePartAsync();
         var gageTypeId = await CreateGageTypeAsync();
@@ -338,7 +608,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             gageTypeId,
             "20",
             "21",
-            criterionCount: 2);
+            criterionCount: 3);
         var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
         {
             PartId = partId,
@@ -346,27 +616,26 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         });
         var inspection = await inspectionService.GetInspectionAsync(create.InspectionId!.Value);
         var source = inspection!.Results[0];
+        var alreadySelected = inspection.Results[1];
+        var unselected = inspection.Results[2];
 
         source.GageId = gageId;
+        alreadySelected.GageId = (await CreateGageAsync(gageTypeId, "MIC-003"));
         inspection.ApplyGageSelection(source);
 
-        Assert.All(inspection.Results, result => Assert.Equal(gageId, result.GageId));
+        Assert.Equal(gageId, source.GageId);
+        Assert.NotEqual(gageId, alreadySelected.GageId);
+        Assert.Equal(gageId, unselected.GageId);
         Assert.Equal(
             InspectionOperationStatus.Succeeded,
             (await inspectionService.SaveInspectionAsync(inspection)).Status);
         var reopened = await inspectionService.GetInspectionAsync(create.InspectionId.Value);
-        Assert.All(reopened!.Results, result =>
-        {
-            Assert.Equal(gageId, result.GageId);
-            Assert.Equal("MIC-001", result.GageNumber);
-        });
-
-        reopened.Results[0].GageId = null;
-        var inconsistentSave = await inspectionService.SaveInspectionAsync(reopened);
-        Assert.Equal(InspectionOperationStatus.ValidationFailed, inconsistentSave.Status);
-        Assert.Equal(
-            "Criteria with the same inspection method must use the same gage number.",
-            inconsistentSave.Message);
+        Assert.Equal(gageId, reopened!.Results[0].GageId);
+        Assert.Equal("MIC-001", reopened.Results[0].GageNumber);
+        Assert.Equal(alreadySelected.GageId, reopened.Results[1].GageId);
+        Assert.Equal("MIC-003", reopened.Results[1].GageNumber);
+        Assert.Equal(gageId, reopened.Results[2].GageId);
+        Assert.Equal("MIC-001", reopened.Results[2].GageNumber);
     }
 
     [Fact]
@@ -394,6 +663,11 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             Assert.Equal(soleActiveGageId, result.GageId);
             Assert.Equal("MIC-001", result.GageNumber);
         });
+
+        firstInspection.Results[1].GageId = null;
+        firstInspection.ApplyGageSelection(firstInspection.Results[0]);
+        Assert.All(firstInspection.Results, result =>
+            Assert.Equal(soleActiveGageId, result.GageId));
 
         await CreateGageAsync(gageTypeId, "MIC-002");
         var secondCreate = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
@@ -635,6 +909,109 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
+    public async Task DuplicatingAnInspectionCopiesItsDataAndClearsOnlyTheLotNumber()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var gageId = await CreateGageAsync(gageTypeId, "MIC-001");
+        var heatTreatId = (await criteriaService.GetSecondaryProcessTypeChoicesAsync())
+            .Single(x => x.Name == "Heat Treat").Id;
+        var revisionId = await CreateAndPublishRevisionAsync(
+            partId,
+            gageTypeId,
+            "20",
+            "21",
+            secondaryProcesses: [(heatTreatId, "HT-100")]);
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            LotNumber = "SOURCE-LOT",
+            ConformancePoNumber = "CONF-100",
+            ManufacturerLotNumber = "MFG-100",
+            DateReceived = new DateOnly(2026, 8, 20),
+            QuantityReceived = 100,
+            QuantityInspected = 11,
+            Inspector = "Alice",
+            InspectionDate = new DateOnly(2026, 8, 21)
+        });
+        var sourceId = create.InspectionId!.Value;
+        var source = await inspectionService.GetInspectionAsync(sourceId);
+        source!.InspectorNotes = "Inspector notes";
+        source.InHouseNotes = "In-house notes";
+        var sourceResult = Assert.Single(source.Results);
+        sourceResult.GageId = gageId;
+        sourceResult.ActualMin = "20.1";
+        sourceResult.ActualMax = "20.2";
+        sourceResult.DeviationApproved = true;
+        var sourceProcess = Assert.Single(source.SecondaryProcesses);
+        sourceProcess.PurchaseOrderNumber = "HT-PO-100";
+        sourceProcess.IsComplete = true;
+        Assert.Equal(
+            InspectionOperationStatus.Succeeded,
+            (await inspectionService.SaveInspectionAsync(source)).Status);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var material = await db.CertificationTypes.SingleAsync(x => x.Name == "Material");
+            db.InspectionCertifications.Add(new InspectionCertification
+            {
+                InspectionId = sourceId,
+                CertificationTypeId = material.Id,
+                CertificationTypeName = material.Name,
+                Description = "Material certification",
+                Notes = "Use this lot's material cert.",
+                Documents =
+                {
+                    new CertificationDocument
+                    {
+                        OriginalFileName = "material.pdf",
+                        ContentType = "application/pdf",
+                        Content = "%PDF-1.7\nmaterial\n%%EOF"u8.ToArray(),
+                        PreviewContent = "preview"u8.ToArray()
+                    }
+                }
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var duplicate = await inspectionService.DuplicateInspectionAsync(sourceId);
+        Assert.Equal(InspectionOperationStatus.Succeeded, duplicate.Status);
+
+        var copied = await inspectionService.GetInspectionAsync(duplicate.InspectionId!.Value);
+        Assert.NotNull(copied);
+        Assert.Null(copied!.LotNumber);
+        Assert.Equal(partId, copied.PartId);
+        Assert.Equal(revisionId, copied.InspectionCriteriaRevisionId);
+        Assert.Equal("CONF-100", copied.ConformancePoNumber);
+        Assert.Equal("MFG-100", copied.ManufacturerLotNumber);
+        Assert.Equal(new DateOnly(2026, 8, 20), copied.DateReceived);
+        Assert.Equal(100, copied.QuantityReceived);
+        Assert.Equal(11, copied.QuantityInspected);
+        Assert.Equal("Alice", copied.Inspector);
+        Assert.Equal("Inspector notes", copied.InspectorNotes);
+        Assert.Equal("In-house notes", copied.InHouseNotes);
+        Assert.Equal(new DateOnly(2026, 8, 21), copied.InspectionDate);
+        var copiedResult = Assert.Single(copied.Results);
+        Assert.Equal(gageId, copiedResult.GageId);
+        Assert.Equal("20.1", copiedResult.ActualMin);
+        Assert.Equal("20.2", copiedResult.ActualMax);
+        Assert.True(copiedResult.DeviationApproved);
+        var copiedProcess = Assert.Single(copied.SecondaryProcesses);
+        Assert.Equal("HT-PO-100", copiedProcess.PurchaseOrderNumber);
+        Assert.True(copiedProcess.IsComplete);
+        var copiedCertification = Assert.Single(copied.Certifications, x => x.CertificationTypeName == "Material");
+        Assert.Equal("Material certification", copiedCertification.Description);
+        Assert.Equal("Use this lot's material cert.", copiedCertification.Notes);
+        Assert.Equal("material.pdf", Assert.Single(copiedCertification.Documents).OriginalFileName);
+
+        await using var verification = database.CreateDbContext();
+        var copiedDocument = await verification.CertificationDocuments.SingleAsync(
+            x => x.InspectionCertification.InspectionId == duplicate.InspectionId);
+        Assert.Equal("%PDF-1.7\nmaterial\n%%EOF"u8.ToArray(), copiedDocument.Content);
+        Assert.Equal("preview"u8.ToArray(), copiedDocument.PreviewContent);
+    }
+
+    [Fact]
     public async Task SecondaryProcessCannotReferenceARequirementFromAnotherRevision()
     {
         var partId = await CreatePartAsync();
@@ -742,7 +1119,6 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         string minimum,
         string maximum,
         string? partDescription = null,
-        string? specificationUsed = null,
         string? printRevisionNumber = null,
         string? criteriaNotes = null,
         int criterionCount = 1,
@@ -753,7 +1129,6 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             .RevisionId!.Value;
         var revision = await criteriaService.GetRevisionAsync(partId, revisionId);
         if (partDescription is not null
-            || specificationUsed is not null
             || printRevisionNumber is not null
             || criteriaNotes is not null)
         {
@@ -763,7 +1138,6 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
                 new InspectionCriteriaRevisionHeaderEditModel
                 {
                     PartDescription = partDescription,
-                    SpecificationUsed = specificationUsed,
                     PrintRevisionNumber = printRevisionNumber,
                     Notes = criteriaNotes,
                     Version = revision!.Version
@@ -821,14 +1195,15 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         return revisionId;
     }
 
-    private async Task<long> CreatePartAsync()
+    private async Task<long> CreatePartAsync(string? specificationUsed = null)
     {
         await using var db = database.CreateDbContext();
         var customer = new Customer { Name = "Inspection Test Customer" };
         var part = new Part
         {
             Customer = customer,
-            PartNumber = "INSPECT-100"
+            PartNumber = "INSPECT-100",
+            SpecificationUsed = specificationUsed
         };
         db.Parts.Add(part);
         await db.SaveChangesAsync();
@@ -860,5 +1235,30 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         db.Gages.Add(gage);
         await db.SaveChangesAsync();
         return gage.Id;
+    }
+
+    private async Task MarkInspectionAcceptedAsync(long inspectionId, long gageId)
+    {
+        var inspection = await inspectionService.GetInspectionAsync(inspectionId);
+        Assert.NotNull(inspection);
+        foreach (var result in inspection.Results)
+        {
+            result.GageId = gageId;
+            result.ActualMin = "20.5";
+            result.ActualMax = "20.5";
+        }
+
+        Assert.Equal(
+            InspectionOperationStatus.Succeeded,
+            (await inspectionService.SaveInspectionAsync(inspection)).Status);
+    }
+
+    private static byte[] CreatePdf()
+    {
+        using var document = new PdfDocument();
+        document.AddPage();
+        using var output = new MemoryStream();
+        document.Save(output, closeStream: false);
+        return output.ToArray();
     }
 }

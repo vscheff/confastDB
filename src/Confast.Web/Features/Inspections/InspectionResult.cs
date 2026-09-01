@@ -30,5 +30,7 @@ public sealed class InspectionResult
 
     public string? ActualMax { get; set; }
 
+    public bool DeviationApproved { get; set; }
+
     public uint Version { get; set; }
 }

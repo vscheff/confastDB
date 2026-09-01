@@ -15,18 +15,24 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
     private readonly IDataProtector protector = dataProtectionProvider.CreateProtector(
         "Confast.Web.Inspections.InspectionPrintRenderToken.v1");
 
-    public string Create(long inspectionId)
+    public string Create(long inspectionId, bool temporarilyCompleteForCertificationPackage = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(inspectionId);
         var expiresAtUtc = DateTimeOffset.UtcNow.Add(Lifetime).Ticks;
         return protector.Protect(string.Concat(
             inspectionId.ToString(CultureInfo.InvariantCulture),
             ":",
-            expiresAtUtc.ToString(CultureInfo.InvariantCulture)));
+            expiresAtUtc.ToString(CultureInfo.InvariantCulture),
+            ":",
+            temporarilyCompleteForCertificationPackage ? "1" : "0"));
     }
 
     public bool IsValid(string? token, long inspectionId)
+        => TryGetOptions(token, inspectionId, out _);
+
+    public bool TryGetOptions(string? token, long inspectionId, out InspectionPrintRenderOptions options)
     {
+        options = default;
         if (string.IsNullOrWhiteSpace(token) || inspectionId <= 0)
         {
             return false;
@@ -35,11 +41,15 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
         try
         {
             var values = protector.Unprotect(token).Split(':');
-            return values.Length == 2
+            if (values.Length is (2 or 3)
                 && long.TryParse(values[0], CultureInfo.InvariantCulture, out var tokenInspectionId)
                 && long.TryParse(values[1], CultureInfo.InvariantCulture, out var expirationTicks)
                 && tokenInspectionId == inspectionId
-                && DateTimeOffset.UtcNow <= new DateTimeOffset(expirationTicks, TimeSpan.Zero);
+                && DateTimeOffset.UtcNow <= new DateTimeOffset(expirationTicks, TimeSpan.Zero))
+            {
+                options = new InspectionPrintRenderOptions(values.Length == 3 && values[2] == "1");
+                return true;
+            }
         }
         catch (CryptographicException)
         {
@@ -49,5 +59,10 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
         {
             return false;
         }
+
+        return false;
     }
 }
+
+public readonly record struct InspectionPrintRenderOptions(
+    bool TemporarilyCompleteForCertificationPackage);

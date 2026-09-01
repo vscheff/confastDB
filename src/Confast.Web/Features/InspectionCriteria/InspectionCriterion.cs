@@ -13,11 +13,16 @@ public sealed class InspectionCriterion
 
     public string Name { get; set; } = string.Empty;
 
-    public int InspectionNumber { get; set; }
+    public int? InspectionNumber { get; set; }
 
     public long? GageTypeId { get; set; }
 
     public GageType? GageType { get; set; }
+
+    // A requirement may be recorded only once this revision's process is complete.
+    public long? SecondaryProcessRequirementId { get; set; }
+
+    public SecondaryProcessRequirement? SecondaryProcessRequirement { get; set; }
 
     // A snapshot is required because a Gage Type can be renamed after this revision is published.
     public string? InspectionMethod { get; set; }

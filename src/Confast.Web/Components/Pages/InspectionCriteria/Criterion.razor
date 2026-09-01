@@ -104,9 +104,11 @@ else
                 model = new InspectionCriterionEditModel
                 {
                     RevisionId = RevisionId,
-                    InspectionNumber = revision.Criteria.Count > 0
-                        ? revision.Criteria.Max(x => x.InspectionNumber) + 1
-                        : 1
+                    InspectionNumber = revision.Criteria
+                        .Select(x => x.InspectionNumber)
+                        .OfType<int>()
+                        .DefaultIfEmpty(0)
+                        .Max() + 1
                 };
             }
             else

@@ -12,6 +12,9 @@ public enum InspectionResultEvaluation
 
 public static class InspectionResultEvaluator
 {
+    public const decimal DefaultNominalToleranceFloor = 0.33m;
+    public const decimal DefaultNominalToleranceDivisor = 3m;
+
     private static readonly Regex NominalSpecifier = new(
         @"(?<![A-Za-z])(?:Nominal|Nom\.)(?![A-Za-z])|(?<![A-Za-z])Nom(?![A-Za-z\.])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -28,8 +31,19 @@ public static class InspectionResultEvaluator
         string? specifiedMinimum,
         string? specifiedMaximum,
         string? actualMinimum,
-        string? actualMaximum)
+        string? actualMaximum,
+        bool deviationApproved = false,
+        decimal nominalToleranceFloor = DefaultNominalToleranceFloor,
+        decimal nominalToleranceDivisor = DefaultNominalToleranceDivisor)
     {
+        if (deviationApproved)
+        {
+            return HasValidRecordedEntry(actualMinimum)
+                && HasValidRecordedEntry(actualMaximum)
+                ? InspectionResultEvaluation.Pass
+                : InspectionResultEvaluation.Incomplete;
+        }
+
         if (IsPassingEntry(actualMinimum) || IsPassingEntry(actualMaximum))
         {
             return InspectionResultEvaluation.Pass;
@@ -59,7 +73,7 @@ public static class InspectionResultEvaluator
                 return InspectionResultEvaluation.Incomplete;
             }
 
-            var tolerance = decimal.Max(nominal / 3m, 0.1m);
+            var tolerance = decimal.Max(nominal / nominalToleranceDivisor, nominalToleranceFloor);
             var lowerLimit = nominal - tolerance;
             var upperLimit = nominal + tolerance;
             return recordedMinimum >= lowerLimit
@@ -138,6 +152,10 @@ public static class InspectionResultEvaluator
         string.IsNullOrWhiteSpace(value)
         || IsPassingEntry(value)
         || TryParseNumber(value, out _);
+
+    private static bool HasValidRecordedEntry(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && IsValidMeasurementEntry(value);
 
     public static bool HasInvalidRecordedOrder(string? recordedMinimum, string? recordedMaximum) =>
         TryParseNumber(recordedMinimum, out var minimum)

@@ -1,8 +1,10 @@
 @page "/inspections/{InspectionId:long}"
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.Customers
+@using Confast.Web.Features.Identity
 @using System.Globalization
 @inject InspectionService InspectionService
+@inject UserAdministrationService UserAdministrationService
 @inject ICertificationPackageService CertificationPackageService
 @inject ICertificationEmailService CertificationEmailService
 @inject ICurrentEmailSender CurrentEmailSender
@@ -50,6 +52,12 @@ else
         </div>
         <div class="heading-actions">
             <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
+            <button class="button button-secondary"
+                    type="button"
+                    @onclick="DuplicateInspectionAsync"
+                    disabled="@(isSaving || isCertificationWorking || isDuplicating)">
+                @(isDuplicating ? "Duplicating…" : "Duplicate")
+            </button>
             <details class="inspection-print-options">
                 <summary class="button button-secondary">Print / Download</summary>
                 <div class="inspection-print-options-menu">
@@ -65,7 +73,7 @@ else
                     disabled="@(isSaving || isCertificationWorking)">
                 Archive
             </button>
-            <button class="button button-primary" type="button" @onclick="OpenCertificationPackageAsync">
+            <button class="button button-primary certification-package-button" type="button" @onclick="OpenCertificationPackageAsync" disabled="@(!inspection.InspectionAccepted)">
                 Certification Package
             </button>
             <a class="button button-danger-outline" href="@($"/inspections/{inspection.Id}/delete")">Delete inspection</a>
@@ -90,7 +98,7 @@ else
                     </div>
                     <div class="form-field">
                         <label for="package-plant">Destination plant</label>
-                        <InputSelect id="package-plant" @bind-Value="selectedPackagePlantId">
+                        <InputSelect id="package-plant" @bind-Value="selectedPackagePlantId" @bind-Value:after="RefreshPackageLotsAsync">
                             <option value="0">Select a plant</option>
                             @foreach (var plant in packagePlants) { <option value="@plant.Id">@plant.Name</option> }
                         </InputSelect>
@@ -103,7 +111,7 @@ else
                 </div>
                 @if (packageLots.Count == 0)
                 {
-                    <p class="status-message">No lots are available for this customer.</p>
+                    <p class="status-message">No eligible lots are available for this destination.</p>
                 }
                 else
                 {
@@ -124,7 +132,7 @@ else
                                 <span>Lot</span>
                                 <span>Part number</span>
                                 <span>Inspection date</span>
-                                <span>Documents</span>
+                                <span>Status</span>
                             </div>
                         @foreach (var lot in packageLots)
                         {
@@ -135,7 +143,7 @@ else
                                 <span class="certification-package-lot-number">@(lot.LotNumber ?? "(no lot number)")</span>
                                 <span class="certification-package-lot-part">@lot.PartNumber</span>
                                 <time datetime="@lot.InspectionDate.ToString("yyyy-MM-dd")">@lot.InspectionDate.ToString("MMM d, yyyy")</time>
-                                <small>@lot.Status</small>
+                                <small class="certification-package-lot-status @(lot.IsCompleted ? "certification-package-lot-status-complete" : "certification-package-lot-status-incomplete")">@(lot.IsCompleted ? "Completed" : "Incomplete")</small>
                             </label>
                         }
                         </div>
@@ -191,6 +199,31 @@ else
                 <div class="form-field">
                     <label>Message</label>
                     <RichTextEditor Value="@composedEmail.HtmlBody" ValueChanged="@(html => composedEmail.HtmlBody = html)" />
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (showIncompletePackageLotWarning)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal certification-package-modal certification-package-warning-modal" role="dialog" aria-modal="true" aria-labelledby="incomplete-package-lots-title">
+                <div class="page-heading">
+                    <div>
+                        <h2 id="incomplete-package-lots-title">Incomplete lots selected</h2>
+                        <p>The package will show these lots as Complete only while its PDF is generated.</p>
+                    </div>
+                </div>
+                <p>All secondary processes on the selected incomplete lots will be marked Complete in memory for the generated Inspection Sheets, then restored to their current incomplete state.</p>
+                <ul>
+                    @foreach (var lot in IncompleteSelectedPackageLots)
+                    {
+                        <li>@lot.PartNumber · Lot @(lot.LotNumber ?? "(no lot number)")</li>
+                    }
+                </ul>
+                <div class="heading-actions">
+                    <button class="button button-secondary" type="button" @onclick="CancelIncompletePackageLotWarning">Cancel</button>
+                    <button class="button button-primary" type="button" @onclick="GenerateWithTemporaryCompletionAsync">Temporarily mark complete and generate</button>
                 </div>
             </section>
         </div>
@@ -303,7 +336,13 @@ else
             </div>
             <div class="form-field inspection-inspector-field">
                 <label for="inspector">Inspector</label>
-                <InputText id="inspector" tabindex="-1" @bind-Value="inspection.Inspector" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputSelect id="inspector" tabindex="-1" @bind-Value="inspection.Inspector" @bind-Value:after="SaveInspectionAfterEditAsync">
+                    <option value="">Select an inspector</option>
+                    @foreach (var displayName in qualityUserDisplayNames)
+                    {
+                        <option value="@displayName">@displayName</option>
+                    }
+                </InputSelect>
             </div>
             </div>
         </div>
@@ -321,15 +360,24 @@ else
                         <th>Gage number</th>
                         <th>Recorded max</th>
                         <th>Recorded min</th>
+                        <th>Notes</th>
+                        <th>Deviation approved</th>
                         <th>Result</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var result in inspection.Results)
                     {
-                        <tr>
+                        var isAvailableForDataEntry = IsAvailableForDataEntry(result);
+                        <tr class="@(!isAvailableForDataEntry ? "inspection-result-unavailable" : null)">
                             <td data-label="No.">@result.InspectionNumber</td>
-                            <td data-label="Dimension / criterion">@result.Name</td>
+                            <td data-label="Dimension / criterion">
+                                @result.Name
+                                @if (!isAvailableForDataEntry)
+                                {
+                                    <span class="inspection-result-waiting">Available after @result.RequiredSecondaryProcessName is complete</span>
+                                }
+                            </td>
                             <td data-label="Method">@(result.InspectionMethod ?? "—")</td>
                             <td data-label="Specified max / tolerance">@(result.SpecifiedMaximum ?? "—")</td>
                             <td data-label="Specified min">@(result.SpecifiedMinimum ?? "—")</td>
@@ -339,8 +387,8 @@ else
                                         aria-label="Gage number for @result.Name"
                                         @bind="result.GageId"
                                         @bind:after="() => ApplyGageSelectionAndSaveAsync(result)"
-                                        tabindex="@(result.GageId is not null ? "-1" : "0")"
-                                        disabled="@(result.GageChoices.Count == 0)">
+                                        tabindex="@(result.GageId is not null || !isAvailableForDataEntry ? "-1" : "0")"
+                                        disabled="@(result.GageChoices.Count == 0 || !isAvailableForDataEntry)">
                                     <option value="">@(result.GageChoices.Count == 0 ? "No gages available" : "Select gage")</option>
                                     @foreach (var gage in result.GageChoices)
                                     {
@@ -353,7 +401,8 @@ else
                                        aria-label="Recorded maximum for @result.Name"
                                        @bind="result.ActualMax"
                                        @bind:event="oninput"
-                                       @onchange="() => CommitRecordedMaximumAndSaveAsync(result)" />
+                                       @onchange="() => CommitRecordedMaximumAndSaveAsync(result)"
+                                       disabled="@(!isAvailableForDataEntry)" />
                                 <ValidationMessage For="@(() => result.ActualMax)" />
                                 @if (recordedMaximumMessages.TryGetValue(result.Id, out var maximumMessage))
                                 {
@@ -366,12 +415,22 @@ else
                                        @bind="result.ActualMin"
                                        @bind:event="oninput"
                                        @onchange="() => CommitRecordedMinimumAndSaveAsync(result)"
-                                       tabindex="@(ShouldSkipRecordedMinimum(result) ? "-1" : "0")" />
+                                       tabindex="@(ShouldSkipRecordedMinimum(result) || !isAvailableForDataEntry ? "-1" : "0")"
+                                       disabled="@(!isAvailableForDataEntry)" />
                                 <ValidationMessage For="@(() => result.ActualMin)" />
                                 @if (recordedMinimumMessages.TryGetValue(result.Id, out var minimumMessage))
                                 {
                                     <div class="validation-message" role="status">@minimumMessage</div>
                                 }
+                            </td>
+                            <td data-label="Notes">@(result.Notes ?? "—")</td>
+                            <td data-label="Deviation approved">
+                                <input type="checkbox"
+                                       aria-label="Deviation approved for @result.Name"
+                                       tabindex="-1"
+                                       @bind="result.DeviationApproved"
+                                       @bind:after="SaveInspectionAfterEditAsync"
+                                       disabled="@(!isAvailableForDataEntry)" />
                             </td>
                             <td data-label="Result">
                                 <span class="status-pill @EvaluationClass(result.Evaluation)">@EvaluationText(result.Evaluation)</span>
@@ -598,17 +657,20 @@ else
     public long InspectionId { get; set; }
 
     private InspectionEditModel? inspection;
+    private IReadOnlyList<string> qualityUserDisplayNames = [];
     private readonly Dictionary<long, string?> committedMinimums = [];
     private readonly Dictionary<long, string?> committedMaximums = [];
     private readonly Dictionary<long, string> recordedMinimumMessages = [];
     private readonly Dictionary<long, string> recordedMaximumMessages = [];
     private bool isLoading = true;
     private bool isSaving;
+    private bool isDuplicating;
     private bool saveSucceeded;
     private bool isCertificationWorking;
     private bool showCertificationPackage;
     private bool packageWorking;
     private bool packageSucceeded;
+    private bool showIncompletePackageLotWarning;
     private DateOnly packageShipDate;
     private string? packageMessage;
     private IReadOnlyList<CertificationPackageLotOption> packageLots = [];
@@ -635,6 +697,9 @@ else
 
     private IReadOnlyList<CertificationPackageLotOption> SelectedPackageLots =>
         packageLots.Where(lot => selectedPackageLotIds.Contains(lot.InspectionId)).ToArray();
+
+    private IReadOnlyList<CertificationPackageLotOption> IncompleteSelectedPackageLots =>
+        SelectedPackageLots.Where(lot => !lot.IsCompleted).ToArray();
 
     private string MasterPrintViewerUrl => inspection is null
         ? string.Empty
@@ -694,14 +759,72 @@ else
         }
     }
 
+    private async Task DuplicateInspectionAsync()
+    {
+        if (inspection is null || isSaving || isCertificationWorking || isDuplicating)
+        {
+            return;
+        }
+
+        isDuplicating = true;
+        saveMessage = null;
+        saveSucceeded = false;
+        try
+        {
+            // The edit form autosaves, but explicitly commit any pending change before
+            // cloning so the duplicate reflects what is currently on screen.
+            var saveResult = await SavePendingInspectionAsync();
+            if (saveResult.Status != InspectionOperationStatus.Succeeded)
+            {
+                saveMessage = saveResult.Status switch
+                {
+                    InspectionOperationStatus.Conflict =>
+                        "Someone else changed this inspection. Reload it before duplicating.",
+                    InspectionOperationStatus.ValidationFailed => saveResult.Message,
+                    InspectionOperationStatus.NotFound => "The inspection no longer exists.",
+                    _ => "The inspection could not be saved before duplicating. Please try again."
+                };
+                return;
+            }
+
+            CaptureCommittedMeasurements();
+            var duplicateResult = await InspectionService.DuplicateInspectionAsync(inspection.Id);
+            if (duplicateResult.Status == InspectionOperationStatus.Succeeded)
+            {
+                Navigation.NavigateTo($"/inspections/{duplicateResult.InspectionId}");
+                return;
+            }
+
+            saveMessage = duplicateResult.Status switch
+            {
+                InspectionOperationStatus.NotFound => "This inspection no longer exists.",
+                InspectionOperationStatus.Conflict =>
+                    "The inspection changed while it was being duplicated. Please try again.",
+                _ => "The inspection could not be duplicated. Please try again."
+            };
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to duplicate inspection {InspectionId}", InspectionId);
+            saveMessage = "The inspection could not be duplicated. Please try again.";
+        }
+        finally
+        {
+            isDuplicating = false;
+        }
+    }
+
     private async Task OpenCertificationPackageAsync()
     {
         if (inspection is null) return;
-        packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(inspection.CustomerId);
         packagePlants = await InspectionService.GetCertificationPackagePlantOptionsAsync(inspection.Id);
         selectedPackagePlantId = packagePlants.Count == 1 ? packagePlants[0].Id : 0;
         selectedPackageLotIds.Clear();
-        selectedPackageLotIds.Add(inspection.Id);
+        await RefreshPackageLotsAsync();
+        if (packageLots.Any(lot => lot.InspectionId == inspection.Id))
+        {
+            selectedPackageLotIds.Add(inspection.Id);
+        }
         packageShipDate = ShipDateCalculator.NextWorkDay(DateOnly.FromDateTime(DateTime.Today));
         generatedPackage = null;
         packageMessage = null;
@@ -711,12 +834,25 @@ else
 
     private void CloseCertificationPackage() => showCertificationPackage = false;
 
+    private async Task RefreshPackageLotsAsync()
+    {
+        if (inspection is null) return;
+        packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(
+            inspection.Id,
+            selectedPackagePlantId == 0 ? null : selectedPackagePlantId);
+        selectedPackageLotIds.IntersectWith(packageLots.Select(lot => lot.InspectionId));
+        generatedPackage = null;
+        packageMessage = null;
+        showIncompletePackageLotWarning = false;
+    }
+
     private void SetPackageLotSelected(long inspectionId, bool selected)
     {
         if (selected) selectedPackageLotIds.Add(inspectionId);
         else selectedPackageLotIds.Remove(inspectionId);
         generatedPackage = null;
         packageMessage = null;
+        showIncompletePackageLotWarning = false;
     }
 
     private void SelectAllPackageLots()
@@ -728,6 +864,7 @@ else
         }
         generatedPackage = null;
         packageMessage = null;
+        showIncompletePackageLotWarning = false;
     }
 
     private void ClearPackageLots()
@@ -735,9 +872,43 @@ else
         selectedPackageLotIds.Clear();
         generatedPackage = null;
         packageMessage = null;
+        showIncompletePackageLotWarning = false;
     }
 
     private async Task GenerateCertificationPackageAsync()
+    {
+        if (selectedPackageLotIds.Count == 0)
+        {
+            packageSucceeded = false;
+            packageMessage = "Select at least one lot.";
+            return;
+        }
+
+        if (selectedPackagePlantId == 0)
+        {
+            packageSucceeded = false;
+            packageMessage = "Select a destination plant.";
+            return;
+        }
+
+        if (IncompleteSelectedPackageLots.Count > 0)
+        {
+            showIncompletePackageLotWarning = true;
+            return;
+        }
+
+        await BuildCertificationPackageAsync(false);
+    }
+
+    private void CancelIncompletePackageLotWarning() => showIncompletePackageLotWarning = false;
+
+    private async Task GenerateWithTemporaryCompletionAsync()
+    {
+        showIncompletePackageLotWarning = false;
+        await BuildCertificationPackageAsync(true);
+    }
+
+    private async Task BuildCertificationPackageAsync(bool temporarilyCompleteIncompleteLots)
     {
         packageWorking = true;
         packageSucceeded = false;
@@ -756,7 +927,7 @@ else
                 return;
             }
             generatedPackage = await CertificationPackageService.BuildAsync(
-                new CertificationPackageRequest(inspection!.Id, inspection.CustomerId, selectedPackageLotIds, packageShipDate, selectedPackagePlantId),
+                new CertificationPackageRequest(inspection!.Id, inspection.CustomerId, selectedPackageLotIds, packageShipDate, selectedPackagePlantId, temporarilyCompleteIncompleteLots),
                 Navigation.BaseUri);
             packageSucceeded = true;
             packageMessage = "Certification package generated and validated.";
@@ -912,6 +1083,11 @@ else
     private static bool ShouldSkipRecordedMinimum(InspectionResultEditModel result) =>
         InspectionResultEvaluator.TryNormalizePassingEntry(result.ActualMax, out _);
 
+    private bool IsAvailableForDataEntry(InspectionResultEditModel result) =>
+        result.SecondaryProcessRequirementId is not long processRequirementId
+        || inspection!.SecondaryProcesses.Any(x =>
+            x.SecondaryProcessRequirementId == processRequirementId && x.IsComplete);
+
     protected override Task OnParametersSetAsync() => LoadAsync();
 
     private async Task LoadAsync()
@@ -921,7 +1097,11 @@ else
 
         try
         {
-            inspection = await InspectionService.GetInspectionAsync(InspectionId);
+            var inspectionTask = InspectionService.GetInspectionAsync(InspectionId);
+            var qualityUserDisplayNamesTask = UserAdministrationService.GetQualityUserDisplayNamesAsync();
+            await Task.WhenAll(inspectionTask, qualityUserDisplayNamesTask);
+            inspection = await inspectionTask;
+            qualityUserDisplayNames = await qualityUserDisplayNamesTask;
             if (inspection is not null
                 && (selectedCertificationTypeId is null
                     || inspection.Certifications.All(x => x.CertificationTypeId != selectedCertificationTypeId)))

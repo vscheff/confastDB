@@ -14,6 +14,10 @@ public sealed class InspectionStatusEvaluatorTests
         Assert.True(InspectionStatusEvaluator.IsAccepted(passingResults));
         Assert.False(InspectionStatusEvaluator.IsAccepted(
             new[] { passingResults[0], IncompleteResult() }));
+        Assert.True(InspectionStatusEvaluator.IsAccepted(
+            [ApprovedDeviationResult()]));
+        Assert.False(InspectionStatusEvaluator.IsAccepted(
+            [ApprovedDeviationWithoutMeasurements()]));
         Assert.False(InspectionStatusEvaluator.IsAccepted(
             new[] { PassingResultWithoutGage() }));
         Assert.False(InspectionStatusEvaluator.IsAccepted(
@@ -45,6 +49,30 @@ public sealed class InspectionStatusEvaluatorTests
         Assert.False(InspectionStatusEvaluator.IsCompleted([IncompleteResult()], processes, certifications));
     }
 
+    [Fact]
+    public void IncompleteResultGatedByAnIncompleteSecondaryProcessDoesNotPreventAcceptance()
+    {
+        var results = new[] { PassingResult(), GatedIncompleteResult(42) };
+        var incompleteProcess = new[]
+        {
+            new InspectionSecondaryProcessEditModel
+            {
+                SecondaryProcessRequirementId = 42,
+                IsComplete = false
+            }
+        };
+
+        Assert.True(InspectionStatusEvaluator.IsAccepted(results, incompleteProcess));
+        Assert.False(InspectionStatusEvaluator.IsAccepted(
+            results,
+            [new InspectionSecondaryProcessEditModel
+            {
+                SecondaryProcessRequirementId = 42,
+                IsComplete = true
+            }]));
+        Assert.False(InspectionStatusEvaluator.IsAccepted(results, []));
+    }
+
     private static InspectionResultEditModel PassingResult() => new()
     {
         GageId = 1,
@@ -68,5 +96,30 @@ public sealed class InspectionStatusEvaluatorTests
         SpecifiedMaximum = "21",
         ActualMin = null,
         ActualMax = null
+    };
+
+    private static InspectionResultEditModel GatedIncompleteResult(long processRequirementId) => new()
+    {
+        SecondaryProcessRequirementId = processRequirementId,
+        SpecifiedMinimum = "20",
+        SpecifiedMaximum = "21"
+    };
+
+    private static InspectionResultEditModel ApprovedDeviationResult() => new()
+    {
+        GageId = 1,
+        SpecifiedMinimum = "20",
+        SpecifiedMaximum = "21",
+        ActualMin = "19.9",
+        ActualMax = "21.1",
+        DeviationApproved = true
+    };
+
+    private static InspectionResultEditModel ApprovedDeviationWithoutMeasurements() => new()
+    {
+        GageId = 1,
+        SpecifiedMinimum = "20",
+        SpecifiedMaximum = "21",
+        DeviationApproved = true
     };
 }

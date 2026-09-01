@@ -17,8 +17,6 @@ public sealed class InspectionCriteriaRevision
 
     public string? PartDescription { get; set; }
 
-    public string? SpecificationUsed { get; set; }
-
     public string? Notes { get; set; }
 
     public string? MasterPrintFileName { get; set; }

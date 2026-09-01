@@ -35,6 +35,9 @@ public sealed class PartEditModel
 
     public string? Description { get; set; }
 
+    [Display(Name = "Spec Used")]
+    public string? SpecificationUsed { get; set; }
+
     public string? Revision { get; set; }
 
     [Display(Name = "Active part")]

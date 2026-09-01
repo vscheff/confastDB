@@ -90,6 +90,16 @@ public sealed class UserAdministrationService(
         return result;
     }
 
+    public async Task<IReadOnlyList<string>> GetQualityUserDisplayNamesAsync()
+    {
+        var users = await userManager.GetUsersInRoleAsync(AppRoles.Quality);
+        return users
+            .OrderBy(x => x.DisplayName)
+            .ThenBy(x => x.UserName)
+            .Select(x => x.DisplayName)
+            .ToArray();
+    }
+
     public async Task<EditUserInput?> GetUserForEditAsync(string userId)
     {
         var user = await userManager.FindByIdAsync(userId);

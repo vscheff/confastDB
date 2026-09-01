@@ -46,6 +46,43 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task QualityUserDisplayNames_IncludeOnlyQualityUsersInDisplayNameOrder()
+    {
+        await using var services = CreateServices();
+        var administration = services.GetRequiredService<UserAdministrationService>();
+
+        var qualityUser = await administration.CreateUserAsync(new CreateUserInput
+        {
+            Username = "zeta.quality",
+            DisplayName = "Zeta Quality",
+            Email = "zeta.quality@example.com",
+            Roles = [AppRoles.Quality]
+        });
+        var secondQualityUser = await administration.CreateUserAsync(new CreateUserInput
+        {
+            Username = "alpha.quality",
+            DisplayName = "Alpha Quality",
+            Email = "alpha.quality@example.com",
+            Roles = [AppRoles.Quality, AppRoles.ReadOnly]
+        });
+        var productionUser = await administration.CreateUserAsync(new CreateUserInput
+        {
+            Username = "production.person",
+            DisplayName = "Production Person",
+            Email = "production.person@example.com",
+            Roles = [AppRoles.Production]
+        });
+
+        Assert.True(qualityUser.Succeeded);
+        Assert.True(secondQualityUser.Succeeded);
+        Assert.True(productionUser.Succeeded);
+
+        var displayNames = await administration.GetQualityUserDisplayNamesAsync();
+
+        Assert.Equal(["Alpha Quality", "Zeta Quality"], displayNames);
+    }
+
+    [Fact]
     public async Task DisabledUser_CannotPassPasswordSignInCheck()
     {
         await using var services = CreateServices();

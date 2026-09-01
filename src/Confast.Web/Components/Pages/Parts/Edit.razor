@@ -32,7 +32,13 @@ else
             <h1>@part.PartNumber</h1>
             <p>Part ID @part.Id</p>
         </div>
-        <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
+        <div class="heading-actions">
+            @if (currentRevision is not null)
+            {
+                <a class="button button-primary" href="@($"/inspections/create?partId={part.Id}")">New inspection</a>
+            }
+            <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
+        </div>
     </div>
 
     @if (saveMessage is not null)
@@ -131,10 +137,6 @@ else
                     <div class="compact-form-field part-description-field">
                         <label>Part Description</label>
                         <input type="text" readonly value="@currentRevision.PartDescription" />
-                    </div>
-                    <div class="compact-form-field specification-used-field">
-                        <label>Spec Used</label>
-                        <input type="text" readonly value="@currentRevision.SpecificationUsed" />
                     </div>
                 </section>
 

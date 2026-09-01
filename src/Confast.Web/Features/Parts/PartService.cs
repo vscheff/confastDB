@@ -69,6 +69,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
                 CustomerId = x.CustomerId,
                 PartNumber = x.PartNumber,
                 Description = x.Description,
+                SpecificationUsed = x.SpecificationUsed,
                 Revision = x.Revision,
                 IsActive = x.IsActive,
                 Version = x.Version,
@@ -116,6 +117,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             CustomerId = model.CustomerId,
             PartNumber = model.PartNumber.Trim(),
             Description = NormalizeOptionalText(model.Description),
+            SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed),
             Revision = NormalizeOptionalText(model.Revision),
             IsActive = model.IsActive
         };
@@ -198,6 +200,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         part.CustomerId = model.CustomerId;
         part.PartNumber = model.PartNumber.Trim();
         part.Description = NormalizeOptionalText(model.Description);
+        part.SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed);
         part.Revision = NormalizeOptionalText(model.Revision);
         part.IsActive = model.IsActive;
         db.PartPlants.AddRange(selectedPlantIds.Except(existingAssignments.Select(x => x.PlantId))

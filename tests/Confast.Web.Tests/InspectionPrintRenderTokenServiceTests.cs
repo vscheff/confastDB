@@ -24,4 +24,15 @@ public sealed class InspectionPrintRenderTokenServiceTests
 
         Assert.False(service.IsValid($"{token}x", 42));
     }
+
+    [Fact]
+    public void TemporaryCompletionOption_IsProtectedWithTheInspectionToken()
+    {
+        var service = new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider());
+        var token = service.Create(42, temporarilyCompleteForCertificationPackage: true);
+
+        Assert.True(service.TryGetOptions(token, 42, out var options));
+        Assert.True(options.TemporarilyCompleteForCertificationPackage);
+        Assert.False(service.TryGetOptions(token, 43, out _));
+    }
 }

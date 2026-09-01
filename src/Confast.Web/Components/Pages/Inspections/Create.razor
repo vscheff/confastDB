@@ -1,7 +1,9 @@
 @page "/inspections/create"
 @using Confast.Web.Features.Inspections
+@using Confast.Web.Features.Identity
 @using System.Globalization
 @inject InspectionService InspectionService
+@inject UserAdministrationService UserAdministrationService
 @inject NavigationManager Navigation
 @inject ILogger<Create> Logger
 @inject IJSRuntime Js
@@ -36,7 +38,13 @@ else
 {
     @if (saveMessage is not null)
     {
-        <div class="alert alert-error" role="alert">@saveMessage</div>
+        <div class="alert alert-error" role="alert">
+            @saveMessage
+            @if (duplicateLotInspectionId is long inspectionId)
+            {
+                <span>&nbsp;</span><a href="@($"/inspections/{inspectionId}")">Open the existing inspection.</a>
+            }
+        </div>
     }
 
     <EditForm Model="inspection" OnValidSubmit="CreateAsync" FormName="create-inspection" class="record-form">
@@ -72,7 +80,9 @@ else
 
         <div class="form-field">
             <label for="conformance-po-number">Conformance PO#</label>
-            <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" />
+            <InputText id="conformance-po-number"
+                       @bind-Value="inspection.ConformancePoNumber"
+                       onfocus="if (this.value === 'PO-') this.setSelectionRange(3, 3)" />
         </div>
 
         <div class="form-field">
@@ -101,7 +111,13 @@ else
 
         <div class="form-field">
             <label for="inspector">Inspector</label>
-            <InputText id="inspector" @bind-Value="inspection.Inspector" />
+            <InputSelect id="inspector" @bind-Value="inspection.Inspector">
+                <option value="">Select an inspector</option>
+                @foreach (var displayName in qualityUserDisplayNames)
+                {
+                    <option value="@displayName">@displayName</option>
+                }
+            </InputSelect>
         </div>
 
         <div class="form-field">
@@ -120,12 +136,17 @@ else
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "partId")]
+    public long? PreselectedPartId { get; set; }
+
     private readonly CreateInspectionModel inspection = new();
     private IReadOnlyList<InspectionPartOption> partOptions = [];
+    private IReadOnlyList<string> qualityUserDisplayNames = [];
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
     private string? saveMessage;
+    private long? duplicateLotInspectionId;
     private ElementReference dateReceivedField;
     private ElementReference inspectionDateField;
     private IJSObjectReference? dateInputNavigationModule;
@@ -141,11 +162,20 @@ else
         inspection.QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(
             inspection.QuantityReceived);
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
         try
         {
-            partOptions = await InspectionService.GetPartOptionsAsync();
+            var partOptionsTask = InspectionService.GetPartOptionsAsync();
+            var qualityUserDisplayNamesTask = UserAdministrationService.GetQualityUserDisplayNamesAsync();
+            await Task.WhenAll(partOptionsTask, qualityUserDisplayNamesTask);
+            partOptions = await partOptionsTask;
+            qualityUserDisplayNames = await qualityUserDisplayNamesTask;
+            if (PreselectedPartId is not null
+                && partOptions.Any(x => x.Id == PreselectedPartId.Value))
+            {
+                inspection.PartId = PreselectedPartId.Value;
+            }
         }
         catch (Exception exception)
         {
@@ -186,6 +216,7 @@ else
     {
         isSaving = true;
         saveMessage = null;
+        duplicateLotInspectionId = null;
 
         try
         {
@@ -205,6 +236,7 @@ else
                     "The current revision changed while the inspection was being created. Try again.",
                 _ => "The inspection could not be created. Please try again."
             };
+            duplicateLotInspectionId = result.RelatedInspectionId;
         }
         catch (Exception exception)
         {

@@ -310,7 +310,6 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
 
         Assert.Equal("PRINT-A", firstDraft!.PrintRevisionNumber);
         Assert.Equal("Part description from master", firstDraft.PartDescription);
-        Assert.Null(firstDraft.SpecificationUsed);
         Assert.Null(firstDraft.Notes);
 
         var saveFirst = await service.SaveRevisionHeaderAsync(
@@ -320,7 +319,6 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             {
                 PrintRevisionNumber = "  PRINT-B  ",
                 PartDescription = "  Historical description  ",
-                SpecificationUsed = "  SPEC-100  ",
                 Notes = "  Initial revision notes  ",
                 Version = firstDraft.Version
             });
@@ -348,7 +346,6 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         var secondDraft = await service.GetRevisionAsync(partId, secondId);
         Assert.Equal("PRINT-B", secondDraft!.PrintRevisionNumber);
         Assert.Equal("Historical description", secondDraft.PartDescription);
-        Assert.Equal("SPEC-100", secondDraft.SpecificationUsed);
         Assert.Equal("Initial revision notes", secondDraft.Notes);
 
         var saveSecond = await service.SaveRevisionHeaderAsync(
@@ -358,7 +355,6 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             {
                 PrintRevisionNumber = "PRINT-C",
                 PartDescription = "New description",
-                SpecificationUsed = "SPEC-200",
                 Notes = "New revision notes",
                 Version = secondDraft.Version
             });
@@ -368,11 +364,9 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         secondDraft = await service.GetRevisionAsync(partId, secondId);
         Assert.Equal("PRINT-B", firstPublished!.PrintRevisionNumber);
         Assert.Equal("Historical description", firstPublished.PartDescription);
-        Assert.Equal("SPEC-100", firstPublished.SpecificationUsed);
         Assert.Equal("Initial revision notes", firstPublished.Notes);
         Assert.Equal("PRINT-C", secondDraft!.PrintRevisionNumber);
         Assert.Equal("New description", secondDraft.PartDescription);
-        Assert.Equal("SPEC-200", secondDraft.SpecificationUsed);
         Assert.Equal("New revision notes", secondDraft.Notes);
 
         var attemptToEditHistory = await service.SaveRevisionHeaderAsync(
@@ -662,7 +656,7 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
     }
 
     [Fact]
-    public async Task InspectionNumbersCanSkipButMustBeUniqueAndAreCopiedToNewRevisions()
+    public async Task InspectionNumbersCanRepeatAndAreCopiedToNewRevisions()
     {
         var partId = await CreatePartAsync();
         var gageTypeId = await CreateGageTypeAsync();
@@ -674,30 +668,49 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
             Name = "First dimension",
             GageTypeId = gageTypeId
         });
-        var fourteenth = await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
-        {
-            InspectionNumber = 14,
-            Name = "Skipped dimensions",
-            GageTypeId = gageTypeId
-        });
         var duplicate = await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
         {
-            InspectionNumber = 14,
-            Name = "Duplicate number",
+            InspectionNumber = 1,
+            Name = "Second dimension",
             GageTypeId = gageTypeId
         });
 
         Assert.Equal(CriteriaOperationStatus.Succeeded, first.Status);
-        Assert.Equal(CriteriaOperationStatus.Succeeded, fourteenth.Status);
-        Assert.Equal(CriteriaOperationStatus.ValidationFailed, duplicate.Status);
+        Assert.Equal(CriteriaOperationStatus.Succeeded, duplicate.Status);
 
         var draft = await service.GetRevisionAsync(partId, revisionId);
-        Assert.Equal([1, 14], draft!.Criteria.Select(x => x.InspectionNumber));
+        Assert.Equal([1, 1], draft!.Criteria.Select(x => x.InspectionNumber));
         await service.PublishRevisionAsync(partId, revisionId, draft.Version);
 
         var copiedRevisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
         var copied = await service.GetRevisionAsync(partId, copiedRevisionId);
-        Assert.Equal([1, 14], copied!.Criteria.Select(x => x.InspectionNumber));
+        Assert.Equal([1, 1], copied!.Criteria.Select(x => x.InspectionNumber));
+    }
+
+    [Fact]
+    public async Task InspectionNumbersCanBeBlankButWhenProvidedMustBePositive()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+
+        var blank = await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            Name = "Unnumbered requirement",
+            GageTypeId = gageTypeId
+        });
+        var zero = await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 0,
+            Name = "Invalid requirement",
+            GageTypeId = gageTypeId
+        });
+
+        Assert.Equal(CriteriaOperationStatus.Succeeded, blank.Status);
+        Assert.Equal(CriteriaOperationStatus.ValidationFailed, zero.Status);
+
+        var draft = await service.GetRevisionAsync(partId, revisionId);
+        Assert.Null(Assert.Single(draft!.Criteria).InspectionNumber);
     }
 
     [Fact]

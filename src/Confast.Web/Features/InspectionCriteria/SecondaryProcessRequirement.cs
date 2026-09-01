@@ -19,4 +19,6 @@ public sealed class SecondaryProcessRequirement
     public uint Version { get; set; }
 
     public ICollection<InspectionSecondaryProcess> InspectionSecondaryProcesses { get; } = [];
+
+    public ICollection<InspectionCriterion> InspectionCriteria { get; } = [];
 }

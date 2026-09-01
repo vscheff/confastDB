@@ -2,6 +2,7 @@
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.InspectionCriteria
 @inject InspectionService InspectionService
+@inject InspectionPrintRenderTokenService RenderTokenService
 @inject ILogger<Print> Logger
 @inject IJSRuntime JS
 
@@ -97,7 +98,7 @@
                         @foreach (var result in inspection.Results)
                         {
                             <tr>
-                                <td>@result.InspectionNumber) @result.Name</td>
+                                <td>@(result.InspectionNumber is int number ? $"{number}) " : string.Empty)@result.Name</td>
                                 <td>@(result.SpecifiedMaximum ?? "—")</td>
                                 <td>@(result.SpecifiedMinimum ?? "—")</td>
                                 <td>@(result.ActualMax ?? "—")</td>
@@ -194,6 +195,9 @@
     [SupplyParameterFromQuery(Name = "notesPage")]
     public string? NotesPage { get; set; }
 
+    [SupplyParameterFromQuery(Name = "renderToken")]
+    public string? RenderToken { get; set; }
+
     private bool SecondPageNotes => string.Equals(NotesPage, "second", StringComparison.OrdinalIgnoreCase);
 
     private InspectionEditModel? inspection;
@@ -210,6 +214,17 @@
         try
         {
             inspection = await InspectionService.GetInspectionAsync(InspectionId);
+            if (inspection is not null
+                && RenderTokenService.TryGetOptions(RenderToken, InspectionId, out var renderOptions)
+                && renderOptions.TemporarilyCompleteForCertificationPackage)
+            {
+                foreach (var process in inspection.SecondaryProcesses)
+                {
+                    process.IsComplete = true;
+                }
+
+                inspection.IsTemporarilyCompletedForCertificationPackage = true;
+            }
         }
         catch (Exception exception)
         {

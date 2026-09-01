@@ -125,6 +125,7 @@ builder.Services.AddOptions<EmailOptions>()
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<EmailOptions>, EmailOptionsValidator>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<ICertificationEmailService, CertificationEmailService>();
+builder.Services.AddScoped<NominalToleranceSettingsService>();
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<PartService>();
 

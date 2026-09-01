@@ -4,7 +4,7 @@
     <DataAnnotationsValidator />
     <ValidationSummary />
 
-    <div class="form-field form-field-wide">
+    <div class="form-field form-field-wide part-customer-field">
         <label for="part-customer">Customer</label>
         <InputSelect id="part-customer" @bind-Value="Model.CustomerId" @bind-Value:after="CustomerChangedAsync">
             <option value="0">Select a customer</option>
@@ -16,20 +16,25 @@
         <ValidationMessage For="() => Model.CustomerId" />
     </div>
 
-    <div class="form-field">
+    <div class="form-field part-number-field">
         <label for="part-number">Part number</label>
-        <input id="part-number" @bind="Model.PartNumber" @bind:event="oninput" />
+        <input id="part-number" type="text" @bind="Model.PartNumber" @bind:event="oninput" />
         <ValidationMessage For="() => Model.PartNumber" />
     </div>
 
     <div class="form-field part-revision-field">
         <label for="part-revision">Revision</label>
-        <input id="part-revision" @bind="Model.Revision" @bind:event="oninput" />
+        <input id="part-revision" type="text" @bind="Model.Revision" @bind:event="oninput" />
     </div>
 
     <div class="form-field form-field-wide part-description-field">
         <label for="part-description">Description</label>
-        <textarea id="part-description" @bind="Model.Description" @bind:event="oninput" rows="4"></textarea>
+        <input id="part-description" type="text" @bind="Model.Description" @bind:event="oninput" />
+    </div>
+
+    <div class="form-field part-specification-used-field">
+        <label for="part-specification-used">Spec Used</label>
+        <input id="part-specification-used" type="text" @bind="Model.SpecificationUsed" @bind:event="oninput" />
     </div>
 
     <fieldset class="form-field form-field-wide destination-plants-field">
@@ -55,7 +60,7 @@
         </details>
     </fieldset>
 
-    <div class="form-field form-field-wide checkbox-field">
+    <div class="form-field form-field-wide checkbox-field part-active-field">
         <InputCheckbox id="part-is-active" @bind-Value="Model.IsActive" />
         <label for="part-is-active">Active part</label>
     </div>

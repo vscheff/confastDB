@@ -1,5 +1,6 @@
 using Confast.Web.Data;
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.InspectionCriteria;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Inspections;
@@ -22,7 +23,8 @@ public sealed record CertificationPackageRequest(
     long ExpectedCustomerId,
     IReadOnlyCollection<long> InspectionIds,
     DateOnly ShipDate,
-    long PlantId);
+    long PlantId,
+    bool TemporarilyCompleteIncompleteLots = false);
 
 public sealed record CertificationPackageLot(
     long InspectionId,
@@ -58,6 +60,7 @@ public interface ICertificationPackageService
 
 public sealed class CertificationPackageService(
     IDbContextFactory<AppDbContext> contextFactory,
+    InspectionService inspectionService,
     InspectionPdfRenderer inspectionPdfRenderer,
     PdfDocumentMerger pdfMerger,
     CertificationPackageFilenameFormatter filenameFormatter,
@@ -105,19 +108,6 @@ public sealed class CertificationPackageService(
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new CertificationPackageException("Select a destination plant assigned to this inspection's part.");
 
-        if (plant.RequiredTypeIds.Count == 0)
-        {
-            throw new CertificationPackageException("No certification requirements are configured for this plant.");
-        }
-
-        var requiredTypes = await db.CertificationTypes
-            .AsNoTracking()
-            .Where(x => plant.RequiredTypeIds.Contains(x.Id))
-            .OrderBy(x => x.DisplayOrder)
-            .ThenBy(x => x.Id)
-            .Select(x => new { x.Id, x.Name, x.DisplayOrder })
-            .ToListAsync(cancellationToken);
-
         var lots = await db.Inspections
             .AsNoTracking()
             .Where(x => ids.Contains(x.Id))
@@ -129,6 +119,11 @@ public sealed class CertificationPackageService(
                 x.Part.PartNumber,
                 x.InspectionDate,
                 x.ConformancePoNumber,
+                x.Part.PartPlants.Any(partPlant => partPlant.PlantId == request.PlantId),
+                x.CertificationRequirements
+                    .Where(requirement => requirement.RequirementLevel == CertificationRequirementLevel.Required)
+                    .Select(requirement => requirement.CertificationTypeId)
+                    .ToList(),
                 x.Certifications
                     .Where(c => plant.RequiredTypeIds.Contains(c.CertificationTypeId))
                     .SelectMany(c => c.Documents.Select(d => new PackageDocumentRow(
@@ -149,6 +144,30 @@ public sealed class CertificationPackageService(
             throw new CertificationPackageException("All selected lots must belong to the same customer.");
         }
 
+        if (lots.Any(x => !x.ShipsToDestinationPlant))
+        {
+            throw new CertificationPackageException("All selected lots must ship to the selected destination plant.");
+        }
+
+        var selectedLotStatuses = await inspectionService.GetInspectionsAsync(ids, cancellationToken);
+        if (selectedLotStatuses.Any(x => !x.Accepted))
+        {
+            throw new CertificationPackageException("All selected lots must be accepted.");
+        }
+
+        if (plant.RequiredTypeIds.Count == 0)
+        {
+            throw new CertificationPackageException("No certification requirements are configured for this plant.");
+        }
+
+        var requiredTypes = await db.CertificationTypes
+            .AsNoTracking()
+            .Where(x => plant.RequiredTypeIds.Contains(x.Id))
+            .OrderBy(x => x.DisplayOrder)
+            .ThenBy(x => x.Id)
+            .Select(x => new { x.Id, x.Name, x.DisplayOrder })
+            .ToListAsync(cancellationToken);
+
         var orderedLots = lots
             .OrderBy(x => x.LotNumber ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Id)
@@ -161,7 +180,10 @@ public sealed class CertificationPackageService(
             var documentsByType = lot.Documents
                 .GroupBy(x => x.CertificationTypeId)
                 .ToDictionary(x => x.Key, x => x.OrderBy(d => d.DisplayOrder).ThenBy(d => d.Name).First());
-            var missing = requiredTypes
+            var lotRequiredTypes = requiredTypes
+                .Where(type => type.Name == "Inspection Sheet" || lot.RequiredTypeIds.Contains(type.Id))
+                .ToArray();
+            var missing = lotRequiredTypes
                 .Where(type => type.Name != "Inspection Sheet" && !documentsByType.ContainsKey(type.Id))
                 .Select(type => type.Name)
                 .ToArray();
@@ -171,7 +193,7 @@ public sealed class CertificationPackageService(
                 lot.LotNumber,
                 lot.PartNumber,
                 lot.InspectionDate,
-                requiredTypes.Select(type => type.Name).ToArray(),
+                lotRequiredTypes.Select(type => type.Name).ToArray(),
                 missing));
             if (missing.Length > 0)
             {
@@ -180,7 +202,9 @@ public sealed class CertificationPackageService(
 
             if (requiredTypes.Any(type => type.Name == "Inspection Sheet"))
             {
-                var renderToken = Uri.EscapeDataString(renderTokenService.Create(lot.Id));
+                var renderToken = Uri.EscapeDataString(renderTokenService.Create(
+                    lot.Id,
+                    request.TemporarilyCompleteIncompleteLots));
                 var previewUrl = $"{applicationBaseUrl.TrimEnd('/')}/inspections/{lot.Id}/print?renderToken={renderToken}";
                 try
                 {
@@ -253,6 +277,8 @@ public sealed class CertificationPackageService(
         string PartNumber,
         DateOnly InspectionDate,
         string? PoNumber,
+        bool ShipsToDestinationPlant,
+        List<long> RequiredTypeIds,
         List<PackageDocumentRow> Documents);
 
     private sealed record PackageDocumentRow(

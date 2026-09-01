@@ -1,15 +1,17 @@
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}"
 @using Confast.Web.Features.InspectionCriteria
 @using Confast.Web.Features.Gages
+@using Confast.Web.Features.Parts
 @inject InspectionCriteriaService CriteriaService
 @inject GageService GageService
+@inject PartService PartService
 @inject NavigationManager Navigation
 @inject ILogger<Revision> Logger
 
 <PageTitle>Inspection criteria revision</PageTitle>
 
 <div class="criteria-revision-page">
-<p><a class="back-link" href="@($"/parts/{PartId}/inspection-criteria")">← Revision history</a></p>
+<p><a class="back-link" href="@($"/parts/{PartId}/edit")">← Edit part</a></p>
 
 @if (isLoading)
 {
@@ -99,24 +101,36 @@ else
 
     @if (activeTab == RevisionTab.Criteria)
     {
-    <section class="revision-details-bar">
-            <div class="compact-form-field print-revision-field">
-                <label for="print-revision-number">Print Revision Number</label>
-                <input id="print-revision-number" type="text" readonly="@(!revision.CanEdit)" @bind="revisionHeaderModel.PrintRevisionNumber" @bind:event="oninput" />
+        <section class="part-details-bar" aria-label="Part details">
+            <div class="compact-form-field part-customer-field">
+                <span class="detail-label">Customer</span>
+                <span class="detail-value">@CustomerName</span>
+            </div>
+            <div class="compact-form-field part-number-field">
+                <span class="detail-label">Part number</span>
+                <span class="detail-value">@part?.PartNumber</span>
+            </div>
+            <div class="compact-form-field part-revision-field">
+                <span class="detail-label">Revision</span>
+                <span class="detail-value">@(part?.Revision ?? "—")</span>
             </div>
             <div class="compact-form-field part-description-field">
-                <label for="part-description">Part Description</label>
-                <input id="part-description" type="text" readonly="@(!revision.CanEdit)" @bind="revisionHeaderModel.PartDescription" @bind:event="oninput" />
+                <span class="detail-label">Description</span>
+                <span class="detail-value">@(part?.Description ?? "—")</span>
             </div>
-            <div class="compact-form-field specification-used-field">
-                <label for="specification-used">Spec Used</label>
-                <input id="specification-used" type="text" readonly="@(!revision.CanEdit)" @bind="revisionHeaderModel.SpecificationUsed" @bind:event="oninput" />
+            <div class="compact-form-field part-specification-used-field">
+                <span class="detail-label">Spec Used</span>
+                <span class="detail-value">@(part?.SpecificationUsed ?? "—")</span>
             </div>
-            @if (revision.CanEdit)
-            {
-                <button class="button button-primary revision-details-save" type="button" @onclick="SaveRevisionHeaderAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Save Details</button>
-            }
-    </section>
+            <div class="compact-form-field destination-plants-field">
+                <span class="detail-label">Destination plants</span>
+                <span class="detail-value">@DestinationPlantSummary</span>
+            </div>
+            <div class="compact-form-field part-active-field">
+                <span class="detail-label">Status</span>
+                <span class="detail-value">@(part is null ? "—" : part.IsActive ? "Active" : "Inactive")</span>
+            </div>
+        </section>
 
     <section class="criteria-section">
         <div class="section-heading secondary-process-heading">
@@ -145,6 +159,7 @@ else
                         <th>Minimum</th>
                         <th>Inspection method</th>
                         <th>Unit</th>
+                        <th>Available after</th>
                         <th>Notes</th>
                         @if (revision.CanEdit)
                         {
@@ -195,6 +210,15 @@ else
                                                         Value="@editingModel!.Unit"
                                                         ValueChanged="SetEditingUnitAsync" />
                                 </td>
+                                <td data-label="Available after">
+                                    <select class="table-input" aria-label="Available after secondary process" @bind="editingModel!.SecondaryProcessRequirementId">
+                                        <option value="">Immediately</option>
+                                        @foreach (var process in revision.SecondaryProcessRequirements)
+                                        {
+                                            <option value="@process.Id">@process.ProcessName</option>
+                                        }
+                                    </select>
+                                </td>
                                 <td data-label="Notes">
                                     <textarea class="table-input table-notes" aria-label="Notes" title="Tab to save and add another criterion" @onkeydown="NotesKeyDownAsync" @bind="editingModel!.Notes" @bind:event="oninput"></textarea>
                                 </td>
@@ -213,6 +237,7 @@ else
                                 <td data-label="Minimum">@(criterion.Minimum ?? "—")</td>
                                 <td data-label="Inspection method">@(criterion.InspectionMethod ?? "—")</td>
                                 <td data-label="Unit">@(criterion.Unit ?? "—")</td>
+                                <td data-label="Available after">@(criterion.RequiredSecondaryProcessName ?? "Immediately")</td>
                                 <td data-label="Notes">@(criterion.Notes ?? "—")</td>
                                 @if (revision.CanEdit)
                                 {
@@ -277,6 +302,15 @@ else
                                                     Choices="unitChoices"
                                                     Value="@editingModel.Unit"
                                                     ValueChanged="SetEditingUnitAsync" />
+                            </td>
+                            <td data-label="Available after">
+                                <select class="table-input" aria-label="Available after secondary process" @bind="editingModel.SecondaryProcessRequirementId">
+                                    <option value="">Immediately</option>
+                                    @foreach (var process in revision.SecondaryProcessRequirements)
+                                    {
+                                        <option value="@process.Id">@process.ProcessName</option>
+                                    }
+                                </select>
                             </td>
                             <td data-label="Notes">
                                 <textarea class="table-input table-notes" aria-label="Notes" title="Tab to save and add another criterion" @onkeydown="NotesKeyDownAsync" @bind="editingModel.Notes" @bind:event="oninput"></textarea>
@@ -540,6 +574,9 @@ else
     [Parameter] public long RevisionId { get; set; }
 
     private InspectionCriteriaRevisionDetails? revision;
+    private PartEditModel? part;
+    private IReadOnlyList<CustomerOption> customerOptions = [];
+    private IReadOnlyList<PlantOption> plantOptions = [];
     private InspectionCriteriaRevisionHeaderEditModel revisionHeaderModel = new();
     private InspectionCriterionEditModel? editingModel;
     private SecondaryProcessRequirementEditModel? secondaryProcessEditingModel;
@@ -574,6 +611,16 @@ else
     private string MasterPrintViewerUrl =>
         $"/pdf-viewer/index.html?file={Uri.EscapeDataString(MasterPrintUrl)}";
 
+    private string CustomerName => part is null
+        ? "—"
+        : customerOptions.SingleOrDefault(x => x.Id == part.CustomerId)?.DisplayName ?? "—";
+
+    private string DestinationPlantSummary => part is null
+        ? "—"
+        : string.Join(", ", plantOptions.Where(x => part.PlantIds.Contains(x.Id)).Select(x => x.DisplayName)) is { Length: > 0 } names
+            ? names
+            : "No destination plants selected";
+
     protected override Task OnParametersSetAsync() => LoadAsync();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -593,14 +640,20 @@ else
         loadError = null;
         try
         {
-            revision = await CriteriaService.GetRevisionAsync(PartId, RevisionId);
+            var revisionTask = CriteriaService.GetRevisionAsync(PartId, RevisionId);
+            var partTask = PartService.GetPartAsync(PartId);
+            var customerOptionsTask = PartService.GetCustomerOptionsAsync();
+
+            await Task.WhenAll(revisionTask, partTask, customerOptionsTask);
+            revision = await revisionTask;
+            part = await partTask;
+            customerOptions = await customerOptionsTask;
+            plantOptions = part is null ? [] : await PartService.GetPlantOptionsAsync(part.CustomerId);
+
             if (revision is not null)
             {
                 revisionHeaderModel = new InspectionCriteriaRevisionHeaderEditModel
                 {
-                    PrintRevisionNumber = revision.PrintRevisionNumber,
-                    PartDescription = revision.PartDescription,
-                    SpecificationUsed = revision.SpecificationUsed,
                     Notes = revision.Notes,
                     Version = revision.Version
                 };
@@ -676,6 +729,7 @@ else
             Minimum = criterion.Minimum,
             MaximumOrTolerance = criterion.MaximumOrTolerance,
             Unit = criterion.Unit,
+            SecondaryProcessRequirementId = criterion.SecondaryProcessRequirementId,
             Notes = criterion.Notes,
             Version = criterion.Version
         };
@@ -690,9 +744,11 @@ else
             includeGageTypeId: includeGageTypeId);
     }
 
-    private int NextInspectionNumber => revision?.Criteria.Count > 0
-        ? revision.Criteria.Max(x => x.InspectionNumber) + 1
-        : 1;
+    private int NextInspectionNumber => revision?.Criteria
+        .Select(x => x.InspectionNumber)
+        .OfType<int>()
+        .DefaultIfEmpty(0)
+        .Max() + 1 ?? 1;
 
     private void CancelEdit()
     {

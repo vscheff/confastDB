@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260901162000_AllowDuplicateInspectionRequirementNumbers")]
+    partial class AllowDuplicateInspectionRequirementNumbers
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -649,7 +652,7 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("inspection_method");
 
-                    b.Property<int?>("InspectionNumber")
+                    b.Property<int>("InspectionNumber")
                         .HasColumnType("integer")
                         .HasColumnName("inspection_number");
 
@@ -1056,10 +1059,6 @@ namespace Confast.Web.Data.Migrations
                     b.HasIndex("InspectionDate")
                         .HasDatabaseName("IX_inspections_inspection_date");
 
-                    b.HasIndex("LotNumber")
-                        .IsUnique()
-                        .HasDatabaseName("UX_inspections_lot_number");
-
                     b.HasIndex("PartId")
                         .HasDatabaseName("IX_inspections_part_id");
 
@@ -1305,41 +1304,6 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("inspection_secondary_processes", null, t =>
                         {
                             t.HasCheckConstraint("CK_inspection_secondary_processes_process_name_not_blank", "btrim(process_name) <> ''");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Inspections.NominalToleranceSettings", b =>
-                {
-                    b.Property<int>("Id")
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    b.Property<decimal>("LargeDimensionDivisor")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)")
-                        .HasColumnName("large_dimension_divisor");
-
-                    b.Property<decimal>("ToleranceFloor")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)")
-                        .HasColumnName("tolerance_floor");
-
-                    b.Property<uint>("Version")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id")
-                        .HasName("PK_nominal_tolerance_settings");
-
-                    b.ToTable("nominal_tolerance_settings", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_nominal_tolerance_settings_divisor_positive", "large_dimension_divisor > 0");
-
-                            t.HasCheckConstraint("CK_nominal_tolerance_settings_floor_positive", "tolerance_floor > 0");
-
-                            t.HasCheckConstraint("CK_nominal_tolerance_settings_singleton", "id = 1");
                         });
                 });
 
