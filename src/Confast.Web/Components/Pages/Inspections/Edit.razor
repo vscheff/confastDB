@@ -4,6 +4,7 @@
 @using Confast.Web.Features.Identity
 @using System.Globalization
 @inject InspectionService InspectionService
+@inject InspectionSearchNavigationContext SearchNavigation
 @inject UserAdministrationService UserAdministrationService
 @inject ICertificationPackageService CertificationPackageService
 @inject ICertificationEmailService CertificationEmailService
@@ -16,6 +17,46 @@
 @inject NavigationManager Navigation
 
 <PageTitle>Inspection</PageTitle>
+
+@if (pendingUndo is not null)
+{
+    <div class="modal-backdrop" role="presentation">
+        <section class="modal" role="dialog" aria-modal="true" aria-labelledby="undo-lineage-title">
+            <h2 id="undo-lineage-title">Delete to-lot inspection?</h2>
+            <p>Undoing this operation returns @(pendingUndo.QuantityMoved?.ToString("N0", CultureInfo.InvariantCulture) ?? "—") pieces to the from lot and will delete the to-lot inspection because no pieces will remain.</p>
+            <div class="form-actions">
+                <button class="button button-danger" type="button" @onclick="ConfirmUndoAsync" disabled="@isUndoing">@(isUndoing ? "Undoing…" : "Delete inspection and undo")</button>
+                <button class="button button-secondary" type="button" @onclick="CancelUndo" disabled="@isUndoing">Cancel</button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingQuantityMove is not null)
+{
+    <div class="modal-backdrop" role="presentation">
+        <section class="modal duplicate-inspection-modal" role="dialog" aria-modal="true" aria-labelledby="move-history-quantity-title">
+            <h2 id="move-history-quantity-title">Move additional quantity</h2>
+            <p class="duplicate-inspection-introduction">Move quantity between <strong>@(pendingQuantityMove.SourceLotNumber ?? "—")</strong> and <strong>@(pendingQuantityMove.DestinationLotNumber ?? "—")</strong>. The from lot retains at least one piece.</p>
+            @if (quantityMoveMessage is not null) { <div class="alert alert-error" role="alert">@quantityMoveMessage</div> }
+            <div class="form-field">
+                <label for="quantity-move-direction">Direction</label>
+                <select id="quantity-move-direction" @bind="quantityMoveDirection">
+                    <option value="source-to-destination">@(pendingQuantityMove.SourceLotNumber ?? "—") → @(pendingQuantityMove.DestinationLotNumber ?? "—")</option>
+                    <option value="destination-to-source">@(pendingQuantityMove.DestinationLotNumber ?? "—") → @(pendingQuantityMove.SourceLotNumber ?? "—")</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label for="additional-quantity">Quantity to move</label>
+                <input id="additional-quantity" inputmode="numeric" value="@(additionalQuantity?.ToString("N0", CultureInfo.InvariantCulture))" @oninput="UpdateAdditionalQuantity" />
+            </div>
+            <div class="duplicate-inspection-actions">
+                <button class="button button-primary" type="button" @onclick="MoveAdditionalQuantityAsync" disabled="@isMovingQuantity">@(isMovingQuantity ? "Moving…" : "Move quantity")</button>
+                <button class="button button-secondary" type="button" @onclick="CancelQuantityMove" disabled="@isMovingQuantity">Cancel</button>
+            </div>
+        </section>
+    </div>
+}
 
 <div class="inspection-edit-page">
 <p><a class="back-link" href="/inspections">← Inspections</a></p>
@@ -51,8 +92,11 @@ else
             </span>
         </div>
         <div class="heading-actions">
-            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
-            <button class="button button-secondary"
+            <button class="button button-secondary inspection-action-search" type="button" @onclick="BeginFind" disabled="@(isSaving || isCertificationWorking)">
+                Search
+            </button>
+            <a class="button button-secondary inspection-action-new" href="/inspections/create">New</a>
+            <button class="button button-secondary inspection-action-duplicate"
                     type="button"
                     @onclick="BeginDuplicate"
                     disabled="@(isSaving || isCertificationWorking || isDuplicating)">
@@ -60,35 +104,117 @@ else
             </button>
             @if (flipPreview?.Destinations.Any(x => x.IsCompatible) == true)
             {
-                <button class="button button-secondary" type="button" @onclick="BeginFlip" disabled="@(isSaving || isCertificationWorking || isFlipping)">@(isFlipping ? "Flipping…" : "Flip")</button>
+                <button class="button button-secondary inspection-action-flip" type="button" @onclick="BeginFlip" disabled="@(isSaving || isCertificationWorking || isFlipping)">@(isFlipping ? "Flipping…" : "Flip")</button>
             }
-            <details class="inspection-print-options">
-                <summary class="button button-secondary">Print / Download</summary>
+            <a class="button button-danger-outline inspection-action-delete" href="@($"/inspections/{inspection.Id}/delete")">Delete</a>
+            <a class="button button-secondary inspection-action-preview" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
+            <details class="inspection-print-options inspection-action-download">
+                <summary class="button button-secondary">Download</summary>
                 <div class="inspection-print-options-menu">
-                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?autoPrint=true")" target="_blank" rel="noopener">Print</a>
                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download")" download data-enhance-nav="false">Download</a>
-                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?notesPage=second&autoPrint=true")" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download?notesPage=second")" download data-enhance-nav="false">Download (Show Extended Notes)</a>
                 </div>
             </details>
-            <button class="button button-primary"
+            <details class="inspection-print-options inspection-action-print">
+                <summary class="button button-secondary">Print</summary>
+                <div class="inspection-print-options-menu">
+                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?autoPrint=true")" target="_blank" rel="noopener">Print</a>
+                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?notesPage=second&autoPrint=true")" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
+                </div>
+            </details>
+            <button class="button button-secondary certification-package-button inspection-action-email" type="button" @onclick="OpenCertificationPackageAsync" disabled="@(!inspection.InspectionAccepted)">
+                Email
+            </button>
+            <button class="button button-secondary inspection-action-archive"
                     type="button"
                     @onclick="DownloadInspectionSheetPdfAsync"
                     disabled="@(isSaving || isCertificationWorking)">
                 Archive
             </button>
-            <button class="button button-primary certification-package-button" type="button" @onclick="OpenCertificationPackageAsync" disabled="@(!inspection.InspectionAccepted)">
-                Certification Package
-            </button>
-            <a class="button button-danger-outline" href="@($"/inspections/{inspection.Id}/delete")">Delete inspection</a>
         </div>
     </div>
 
-    @if (inspection.FlippedFrom is not null || inspection.FlippedTo.Count > 0)
+    @if (IsViewingSearchResult)
+    {
+        <section class="inspection-search-navigation" aria-label="Search result navigation">
+            <div class="inspection-search-navigation-controls">
+                <button class="button button-secondary button-compact" type="button" @onclick="NavigatePrevious" disabled="@(SearchNavigation.Previous is null)">‹ Previous</button>
+                <strong>@(SearchNavigation.CurrentIndex + 1) of @SearchNavigation.Results.Count</strong>
+                <button class="button button-secondary button-compact" type="button" @onclick="NavigateNext" disabled="@(SearchNavigation.Next is null)">Next ›</button>
+            </div>
+            <div class="inspection-search-navigation-summary">
+                <span>Filtered Inspections: @SearchNavigation.Summary</span>
+                <button class="button button-secondary button-compact" type="button" @onclick="ViewSearchResults">View Results</button>
+                <button class="button button-secondary button-compact" type="button" @onclick="ClearSearch">Clear Search</button>
+            </div>
+        </section>
+    }
+
+    @if (showFind)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal inspection-find-modal" role="dialog" aria-modal="true" aria-labelledby="find-inspections-title">
+                <div class="page-heading">
+                    <div>
+                        <h2 id="find-inspections-title">Find inspections</h2>
+                        <p>Enter any combination of criteria. Text matches part of the value, ignoring case.</p>
+                    </div>
+                    <button class="button button-secondary" type="button" @onclick="CancelFind" disabled="@isFinding">Cancel</button>
+                </div>
+                <EditForm Model="findModel" OnValidSubmit="FindAsync" FormName="find-inspections">
+                    <div class="inspection-find-grid">
+                        <div class="form-field"><label for="find-part-number">Part number</label><InputText id="find-part-number" @bind-Value="findModel.PartNumber" /></div>
+                        <div class="form-field"><label for="find-lot-number">Lot number</label><InputText id="find-lot-number" @bind-Value="findModel.LotNumber" /></div>
+                        <div class="form-field"><label for="find-po-number">Conformance PO#</label><InputText id="find-po-number" @bind-Value="findModel.ConformancePoNumber" /></div>
+                        <div class="form-field"><label for="find-manufacturer-lot">Manufacturer's Lot#</label><InputText id="find-manufacturer-lot" @bind-Value="findModel.ManufacturerLotNumber" /></div>
+                        <div class="form-field"><label for="find-date-received">Date received</label><InputDate id="find-date-received" @bind-Value="findModel.DateReceived" /></div>
+                        <div class="form-field"><label for="find-inspection-date">Inspection date</label><InputDate id="find-inspection-date" @bind-Value="findModel.InspectionDate" /></div>
+                        <div class="form-field"><label for="find-quantity-received">Quantity received</label><InputNumber id="find-quantity-received" @bind-Value="findModel.QuantityReceived" /></div>
+                        <div class="form-field"><label for="find-quantity-inspected">Quantity inspected</label><InputNumber id="find-quantity-inspected" @bind-Value="findModel.QuantityInspected" /></div>
+                        <div class="form-field"><label for="find-inspector">Inspector</label><InputText id="find-inspector" @bind-Value="findModel.Inspector" /></div>
+                    </div>
+                    @if (findMessage is not null)
+                    {
+                        <div class="alert alert-error" role="alert">@findMessage</div>
+                    }
+                    <div class="form-actions">
+                        <button class="button button-primary" type="submit" disabled="@isFinding">@(isFinding ? "Finding…" : "Perform find")</button>
+                        <button class="button button-secondary" type="button" @onclick="ClearFind" disabled="@isFinding">Clear</button>
+                    </div>
+                </EditForm>
+                @if (findResults is not null)
+                {
+                    <div class="inspection-find-results">
+                        <h3>Found @findResults.Count inspection(s)</h3>
+                        @if (findResults.Count > 0)
+                        {
+                            <div class="table-shell inspection-find-results-shell">
+                                <table class="data-table">
+                                    <thead><tr><th>Lot#</th><th>Part Number</th><th>Inspection Date</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var result in findResults)
+                                        {
+                                            <tr>
+                                                <td>@(result.LotNumber ?? "—")</td>
+                                                <td>@result.PartNumber</td>
+                                                <td>@result.InspectionDate.ToString("yyyy-MM-dd")</td>
+                                                <td><button class="button button-secondary button-compact" type="button" @onclick="() => OpenSearchResult(result.Id)">Open</button></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    }
+
+    @if (inspection.FlippedFrom is not null)
     {
         <div class="alert alert-warning">
-            @if (inspection.FlippedFrom is not null) { <span>Flipped from: <a href="@($"/inspections/{inspection.FlippedFrom.InspectionId}")">@(inspection.FlippedFrom.LotNumber ?? "—") · Part @inspection.FlippedFrom.PartNumber</a></span> }
-            @if (inspection.FlippedTo.Count > 0) { <span> Flipped to: @foreach (var item in inspection.FlippedTo) { <a href="@($"/inspections/{item.InspectionId}")">@(item.LotNumber ?? "—") · Part @item.PartNumber</a> }</span> }
+            <span>Flipped from: <a href="@($"/inspections/{inspection.FlippedFrom.InspectionId}")">@(inspection.FlippedFrom.LotNumber ?? "—") · Part @inspection.FlippedFrom.PartNumber</a></span>
         </div>
     }
 
@@ -131,7 +257,8 @@ else
                 @if (flipMessage is not null) { <div class="alert alert-error" role="alert">@flipMessage</div> }
                 <div class="form-field"><label for="flip-target">Destination part</label><select id="flip-target" @bind="selectedFlipDefinitionId">@foreach (var destination in flipPreview.Destinations.Where(x => x.IsCompatible)) { <option value="@destination.DefinitionId">@destination.TargetPartNumber</option> }</select></div>
                 <div class="form-field"><label for="flip-lot-number">New lot number</label><input id="flip-lot-number" @bind="flipLotNumber" /></div>
-                <div class="form-field"><label for="flip-quantity">Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))</label><input id="flip-quantity" inputmode="numeric" value="@(flipQuantity?.ToString("N0", CultureInfo.InvariantCulture))" @oninput="UpdateFlipQuantity" /></div>
+                <div class="form-field"><label for="flip-quantity">Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))</label><input id="flip-quantity" inputmode="numeric" value="@(flipQuantity?.ToString("N0", CultureInfo.InvariantCulture))" @oninput="UpdateFlipQuantity" @onkeydown="HandleFlipQuantityKeyDownAsync" /></div>
+                <div class="duplicate-inspection-actions"><button class="button button-primary" type="button" @onclick="FlipInspectionAsync" disabled="@isFlipping">@(isFlipping ? "Flipping…" : "Confirm flip")</button><button class="button button-secondary" type="button" @onclick="CancelFlip" disabled="@isFlipping">Cancel</button></div>
                 @if (SelectedFlipDestination is not null)
                 {
                     <details class="flip-preview-details" open>
@@ -152,7 +279,6 @@ else
                         </div>
                     </details>
                 }
-                <div class="duplicate-inspection-actions"><button class="button button-primary" type="button" @onclick="FlipInspectionAsync" disabled="@isFlipping">@(isFlipping ? "Flipping…" : "Confirm flip")</button><button class="button button-secondary" type="button" @onclick="CancelFlip" disabled="@isFlipping">Cancel</button></div>
             </section>
         </div>
     }
@@ -336,6 +462,13 @@ else
             {
                 <span class="tab-warning" aria-label="Missing required certifications">!</span>
             }
+        </button>
+        <button class="subtab @(activeTab == InspectionTab.History ? "subtab-active" : null)"
+                type="button"
+                role="tab"
+                aria-selected="@(activeTab == InspectionTab.History)"
+                @onclick="() => activeTab = InspectionTab.History">
+            History
         </button>
     </div>
 
@@ -593,12 +726,6 @@ else
             </div>
         </section>
 
-        <div class="form-actions">
-            <button class="button button-primary" type="submit" disabled="@isSaving">
-                @(isSaving ? "Saving…" : "Save inspection")
-            </button>
-            <a class="button button-secondary" href="/inspections">Back</a>
-        </div>
     </EditForm>
     }
     else if (activeTab == InspectionTab.MasterPrint)
@@ -636,7 +763,52 @@ else
             }
         </section>
     }
-    else
+
+    else if (activeTab == InspectionTab.History)
+    {
+        <section class="inspection-history-panel">
+            <h2>Duplication and flip history</h2>
+            @if (inspection.LineageHistory.Count == 0)
+            {
+                <p>No duplications or flips have been recorded for this inspection.</p>
+            }
+            else
+            {
+                <div class="table-shell">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Operation</th>
+                                <th>Date</th>
+                                <th>From lot</th>
+                                <th>To lot</th>
+                                <th>Quantity moved</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var entry in inspection.LineageHistory)
+                            {
+                                <tr>
+                                    <td>@entry.Operation</td>
+                                    <td>@entry.PerformedAtUtc.ToLocalTime().ToString("MM/dd/yyyy", CultureInfo.InvariantCulture)</td>
+                                    <td><a href="@($"/inspections/{entry.SourceInspectionId}")">@(entry.SourceLotNumber ?? "—")</a></td>
+                                    <td><a href="@($"/inspections/{entry.DestinationInspectionId}")">@(entry.DestinationLotNumber ?? "—")</a></td>
+                                    <td>@(entry.QuantityMoved?.ToString("N0", CultureInfo.InvariantCulture) ?? "—")</td>
+                                    <td>
+                                        <button class="button button-secondary button-compact" type="button" @onclick="() => BeginQuantityMove(entry)" disabled="@isMovingQuantity">Move</button>
+                                        @if (entry.IsMostRecent && entry.QuantityMoved is not null)
+                                        { <button class="button button-secondary button-compact" type="button" @onclick="() => BeginUndoAsync(entry)" disabled="@isUndoing">Undo</button> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+    else if (activeTab == InspectionTab.Certifications)
     {
         <section class="inspection-certifications-panel">
             <aside class="certification-navigation" aria-label="Certification types">
@@ -749,6 +921,13 @@ else
     private InspectionFlipPreview? flipPreview;
     private bool showFlipPrompt;
     private bool isFlipping;
+    private bool isUndoing;
+    private InspectionLineageHistoryItem? pendingUndo;
+    private bool isMovingQuantity;
+    private InspectionLineageHistoryItem? pendingQuantityMove;
+    private string quantityMoveDirection = "source-to-destination";
+    private int? additionalQuantity;
+    private string? quantityMoveMessage;
     private long selectedFlipDefinitionId;
     private string? flipLotNumber;
     private int? flipQuantity;
@@ -776,6 +955,14 @@ else
     private string? loadError;
     private string? saveMessage;
     private InspectionTab activeTab;
+    private bool showFind;
+    private bool isFinding;
+    private InspectionFindModel findModel = new();
+    private IReadOnlyList<InspectionListItem>? findResults;
+    private string? findMessage;
+
+    private bool IsViewingSearchResult => SearchNavigation.CurrentInspectionId == InspectionId
+        && SearchNavigation.CurrentIndex >= 0;
 
     private string Today => DateOnly.FromDateTime(DateTime.Today)
         .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -806,6 +993,108 @@ else
 
     private string CertificationDocumentViewerUrl(long documentId) =>
         $"/pdf-viewer/index.html?file={Uri.EscapeDataString($"/inspections/{InspectionId}/certifications/documents/{documentId}/preview")}&original={Uri.EscapeDataString(CertificationDocumentUrl(documentId))}";
+
+    private void BeginFind()
+    {
+        showFind = true;
+        findModel = new InspectionFindModel();
+        findResults = null;
+        findMessage = null;
+    }
+
+    private void CancelFind()
+    {
+        if (isFinding)
+        {
+            return;
+        }
+
+        showFind = false;
+        findResults = null;
+        findMessage = null;
+    }
+
+    private void ClearFind()
+    {
+        findModel = new InspectionFindModel();
+        findResults = null;
+        findMessage = null;
+    }
+
+    private async Task FindAsync()
+    {
+        isFinding = true;
+        findMessage = null;
+
+        try
+        {
+            findResults = await InspectionService.FindInspectionsAsync(findModel);
+            SearchNavigation.Replace(findModel, findResults);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to find inspections");
+            findResults = null;
+            findMessage = "The inspections could not be found. Please try again.";
+        }
+        finally
+        {
+            isFinding = false;
+        }
+    }
+
+    private void OpenSearchResult(long inspectionId)
+    {
+        SearchNavigation.SetCurrentInspection(inspectionId);
+        showFind = false;
+        findMessage = null;
+        Navigation.NavigateTo($"/inspections/{inspectionId}");
+    }
+
+    private void NavigatePrevious()
+    {
+        var previous = SearchNavigation.Previous;
+        if (previous is null)
+        {
+            return;
+        }
+
+        SearchNavigation.SetCurrentInspection(previous.Id);
+        Navigation.NavigateTo($"/inspections/{previous.Id}");
+    }
+
+    private void NavigateNext()
+    {
+        var next = SearchNavigation.Next;
+        if (next is null)
+        {
+            return;
+        }
+
+        SearchNavigation.SetCurrentInspection(next.Id);
+        Navigation.NavigateTo($"/inspections/{next.Id}");
+    }
+
+    private void ViewSearchResults()
+    {
+        if (SearchNavigation.Criteria is null)
+        {
+            return;
+        }
+
+        findModel = InspectionFindModel.Clone(SearchNavigation.Criteria);
+        findResults = SearchNavigation.Results;
+        findMessage = null;
+        showFind = true;
+    }
+
+    private void ClearSearch()
+    {
+        SearchNavigation.Clear();
+        showFind = false;
+        findResults = null;
+        findMessage = null;
+    }
 
     private async Task DownloadInspectionSheetPdfAsync()
     {
@@ -884,11 +1173,175 @@ else
 
     private void CancelFlip() { showFlipPrompt = false; flipLotNumber = null; flipQuantity = null; flipMessage = null; }
 
+    private async Task BeginUndoAsync(InspectionLineageHistoryItem entry)
+    {
+        if (inspection is null || !entry.IsMostRecent || entry.QuantityMoved is null)
+        {
+            return;
+        }
+
+        isUndoing = true;
+        saveMessage = null;
+        try
+        {
+            var result = await InspectionService.UndoLineageOperationAsync(inspection.Id, entry.Operation, entry.Id, confirmDestinationDeletion: false);
+            if (result.Status == InspectionOperationStatus.ConfirmationRequired)
+            {
+                pendingUndo = entry;
+                return;
+            }
+
+            await CompleteUndoAsync(result, entry);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to undo inspection lineage operation {OperationId}", entry.Id);
+            saveMessage = "The operation could not be undone. Please try again.";
+        }
+        finally
+        {
+            isUndoing = false;
+        }
+    }
+
+    private async Task ConfirmUndoAsync()
+    {
+        if (inspection is null || pendingUndo is null)
+        {
+            return;
+        }
+
+        isUndoing = true;
+        try
+        {
+            var result = await InspectionService.UndoLineageOperationAsync(inspection.Id, pendingUndo.Operation, pendingUndo.Id, confirmDestinationDeletion: true);
+            await CompleteUndoAsync(result, pendingUndo);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to confirm undo of inspection lineage operation {OperationId}", pendingUndo.Id);
+            saveMessage = "The operation could not be undone. Please try again.";
+        }
+        finally
+        {
+            isUndoing = false;
+        }
+    }
+
+    private async Task CompleteUndoAsync(InspectionOperationResult result, InspectionLineageHistoryItem entry)
+    {
+        pendingUndo = null;
+        if (result.Status == InspectionOperationStatus.Succeeded)
+        {
+            if (entry.Operation != InspectionLineageOperation.Transfer
+                && entry.DestinationInspectionId == InspectionId)
+            {
+                Navigation.NavigateTo($"/inspections/{entry.SourceInspectionId}");
+                return;
+            }
+
+            await LoadAsync();
+            activeTab = InspectionTab.History;
+            saveSucceeded = true;
+            saveMessage = "Operation undone.";
+            return;
+        }
+
+        saveSucceeded = false;
+        saveMessage = result.Status switch
+        {
+            InspectionOperationStatus.NotFound => "This operation no longer exists.",
+            InspectionOperationStatus.Conflict => "Someone else changed a related inspection. Reload before trying again.",
+            _ => result.Message ?? "The operation could not be undone."
+        };
+    }
+
+    private void CancelUndo() => pendingUndo = null;
+
+    private void BeginQuantityMove(InspectionLineageHistoryItem entry)
+    {
+        pendingQuantityMove = entry;
+        quantityMoveDirection = "source-to-destination";
+        additionalQuantity = null;
+        quantityMoveMessage = null;
+    }
+
+    private void CancelQuantityMove()
+    {
+        pendingQuantityMove = null;
+        additionalQuantity = null;
+        quantityMoveMessage = null;
+    }
+
+    private async Task MoveAdditionalQuantityAsync()
+    {
+        if (inspection is null || pendingQuantityMove is null || additionalQuantity is not int quantity)
+        {
+            quantityMoveMessage = "Enter a whole quantity to move.";
+            return;
+        }
+
+        isMovingQuantity = true;
+        quantityMoveMessage = null;
+        try
+        {
+            var fromId = quantityMoveDirection == "source-to-destination" ? pendingQuantityMove.SourceInspectionId : pendingQuantityMove.DestinationInspectionId;
+            var toId = quantityMoveDirection == "source-to-destination" ? pendingQuantityMove.DestinationInspectionId : pendingQuantityMove.SourceInspectionId;
+            var result = await InspectionService.MoveAdditionalLineageQuantityAsync(inspection.Id, fromId, toId, quantity);
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                CancelQuantityMove();
+                await LoadAsync();
+                activeTab = InspectionTab.History;
+                saveSucceeded = true;
+                saveMessage = "Quantity moved.";
+                return;
+            }
+
+            quantityMoveMessage = result.Status == InspectionOperationStatus.Conflict
+                ? "Someone else changed a related inspection. Reload before trying again."
+                : result.Message ?? "The quantity could not be moved.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to move additional inspection quantity");
+            quantityMoveMessage = "The quantity could not be moved. Please try again.";
+        }
+        finally
+        {
+            isMovingQuantity = false;
+        }
+    }
+
     private void UpdateFlipQuantity(ChangeEventArgs args)
     {
         if (int.TryParse(args.Value?.ToString(), NumberStyles.Integer | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var quantity)) { flipQuantity = quantity; flipMessage = null; return; }
         flipQuantity = null;
         if (!string.IsNullOrWhiteSpace(args.Value?.ToString())) flipMessage = "Enter a valid whole number.";
+    }
+
+    private void UpdateAdditionalQuantity(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), NumberStyles.Integer | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var quantity))
+        {
+            additionalQuantity = quantity;
+            quantityMoveMessage = null;
+            return;
+        }
+
+        additionalQuantity = null;
+        if (!string.IsNullOrWhiteSpace(args.Value?.ToString()))
+        {
+            quantityMoveMessage = "Enter a valid whole number.";
+        }
+    }
+
+    private async Task HandleFlipQuantityKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await FlipInspectionAsync();
+        }
     }
 
     private async Task FlipInspectionAsync()
@@ -902,7 +1355,12 @@ else
             if (saveResult.Status != InspectionOperationStatus.Succeeded) { flipMessage = saveResult.Message ?? "Save the inspection before flipping it."; return; }
             CaptureCommittedMeasurements();
             var result = await InspectionService.FlipInspectionAsync(inspection.Id, selectedFlipDefinitionId, quantityToMove, flipLotNumber);
-            if (result.Status == InspectionOperationStatus.Succeeded) { Navigation.NavigateTo($"/inspections/{result.InspectionId}"); return; }
+            if (result.Status == InspectionOperationStatus.Succeeded)
+            {
+                CancelFlip();
+                Navigation.NavigateTo($"/inspections/{result.InspectionId}");
+                return;
+            }
             flipMessage = result.Message ?? "The inspection could not be flipped. The configuration may have changed.";
         }
         finally { isFlipping = false; }
@@ -1312,6 +1770,16 @@ else
             var qualityUserDisplayNamesTask = UserAdministrationService.GetQualityUserDisplayNamesAsync();
             await Task.WhenAll(inspectionTask, qualityUserDisplayNamesTask);
             inspection = await inspectionTask;
+            if (inspection is null)
+            {
+                var replacementInspectionId = SearchNavigation.RemoveUnavailableInspection(InspectionId);
+                if (replacementInspectionId is long replacementId)
+                {
+                    SearchNavigation.SetCurrentInspection(replacementId);
+                    Navigation.NavigateTo($"/inspections/{replacementId}", replace: true);
+                    return;
+                }
+            }
             flipPreview = inspection is null ? null : await InspectionService.GetFlipPreviewAsync(InspectionId);
             qualityUserDisplayNames = await qualityUserDisplayNamesTask;
             if (inspection is not null
@@ -1321,6 +1789,18 @@ else
                 selectedCertificationTypeId = inspection.Certifications
                     .FirstOrDefault(x => x.IsMissingRequired)?.CertificationTypeId
                     ?? inspection.Certifications.FirstOrDefault()?.CertificationTypeId;
+            }
+
+            if (inspection is not null)
+            {
+                var selectedCertification = inspection.Certifications
+                    .FirstOrDefault(x => x.CertificationTypeId == selectedCertificationTypeId);
+                if (selectedCertification is null
+                    || selectedDocumentId is null
+                    || selectedCertification.Documents.All(x => x.Id != selectedDocumentId))
+                {
+                    selectedDocumentId = selectedCertification?.Documents.FirstOrDefault()?.Id;
+                }
             }
             CaptureCommittedMeasurements(clearValidationMessages: true);
         }
@@ -1676,6 +2156,7 @@ else
     {
         Inspection,
         MasterPrint,
-        Certifications
+        Certifications,
+        History
     }
 }

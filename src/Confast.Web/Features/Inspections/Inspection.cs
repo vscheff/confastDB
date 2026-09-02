@@ -50,4 +50,8 @@ public sealed class Inspection
     public ICollection<LotFlip> FlipsFrom { get; } = [];
 
     public ICollection<LotFlip> FlippedFrom { get; } = [];
+
+    public ICollection<LotDuplication> DuplicationsFrom { get; } = [];
+
+    public ICollection<LotDuplication> DuplicatedFrom { get; } = [];
 }

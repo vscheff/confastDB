@@ -96,6 +96,16 @@ else
                         <InputText id="create-job-title" @bind-Value="createModel.JobTitle" />
                     </div>
                     <div class="form-field">
+                        <label for="create-caliper">Caliper ID</label>
+                        <InputSelect id="create-caliper" @bind-Value="createModel.CaliperId">
+                            <option value="">Select a digital caliper</option>
+                            @foreach (var caliper in digitalCalipers)
+                            {
+                                <option value="@caliper.Id">@caliper.GageNumber</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="form-field">
                         <label for="create-email">Email</label>
                         <InputText id="create-email" type="email" @bind-Value="createModel.Email" />
                     </div>
@@ -141,6 +151,16 @@ else
                             <InputText id="edit-job-title" @bind-Value="editModel.JobTitle" />
                         </div>
                         <div class="form-field">
+                            <label for="edit-caliper">Caliper ID</label>
+                            <InputSelect id="edit-caliper" @bind-Value="editModel.CaliperId">
+                                <option value="">Select a digital caliper</option>
+                                @foreach (var caliper in digitalCalipers)
+                                {
+                                    <option value="@caliper.Id">@caliper.GageNumber@(!caliper.IsActive ? " (inactive)" : null)</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="form-field">
                             <label for="edit-email">Email</label>
                             <InputText id="edit-email" type="email" @bind-Value="editModel.Email" />
                         </div>
@@ -167,6 +187,7 @@ else
 
 @code {
     private IReadOnlyList<UserListItem>? users;
+    private IReadOnlyList<DigitalCaliperChoice> digitalCalipers = [];
     private CreateUserInput createModel = new();
     private EditUserInput? editModel;
     private readonly List<string> errors = [];
@@ -178,6 +199,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         currentUserId = await CurrentUser.GetUserIdAsync();
+        digitalCalipers = await UserService.GetDigitalCaliperChoicesAsync();
         await ReloadUsersAsync();
     }
 
@@ -186,6 +208,10 @@ else
         ClearMessages();
         confirmingDelete = false;
         editModel = await UserService.GetUserForEditAsync(userId);
+        if (editModel is not null)
+        {
+            digitalCalipers = await UserService.GetDigitalCaliperChoicesAsync(editModel.CaliperId);
+        }
         if (editModel is null)
         {
             errors.Add("The user no longer exists.");

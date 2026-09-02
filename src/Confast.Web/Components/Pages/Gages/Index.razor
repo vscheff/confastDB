@@ -61,7 +61,7 @@ else
                 <div class="record-form compact-record-form">
                     <div class="form-field">
                         <label for="gage-type-name">Name</label>
-                        <input id="gage-type-name" @bind="typeModel.Name" @bind:event="oninput" />
+                        <input id="gage-type-name" @ref="gageTypeNameInput" @bind="typeModel.Name" @bind:event="oninput" />
                         <ValidationMessage For="() => typeModel.Name" />
                     </div>
                     <label class="checkbox-field"><InputCheckbox @bind-Value="typeModel.IsActive" /> Active</label>
@@ -113,7 +113,7 @@ else
                 <div class="record-form compact-record-form">
                     <div class="form-field">
                         <label for="gage-number">Gage number</label>
-                        <input id="gage-number" @bind="gageModel.GageNumber" @bind:event="oninput" />
+                        <input id="gage-number" @ref="gageNumberInput" @bind="gageModel.GageNumber" @bind:event="oninput" />
                         <ValidationMessage For="() => gageModel.GageNumber" />
                     </div>
                     <div class="form-field">
@@ -190,6 +190,10 @@ else
     private GageTab activeTab = GageTab.PhysicalGages;
     private GageSortField gageSortField = GageSortField.Number;
     private bool gageSortAscending = true;
+    private ElementReference gageTypeNameInput;
+    private ElementReference gageNumberInput;
+    private bool focusGageTypeName;
+    private bool focusGageNumber;
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
@@ -197,6 +201,20 @@ else
     private string messageClass = "alert-success";
 
     protected override Task OnInitializedAsync() => LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusGageTypeName)
+        {
+            focusGageTypeName = false;
+            await gageTypeNameInput.FocusAsync();
+        }
+        else if (focusGageNumber)
+        {
+            focusGageNumber = false;
+            await gageNumberInput.FocusAsync();
+        }
+    }
 
     private void SelectTab(GageTab tab)
     {
@@ -244,7 +262,11 @@ else
         }
     }
 
-    private void BeginAddType() => typeModel = new GageTypeEditModel();
+    private void BeginAddType()
+    {
+        typeModel = new GageTypeEditModel();
+        focusGageTypeName = true;
+    }
 
     private void BeginEditType(GageTypeListItem type) => typeModel = new GageTypeEditModel
     {
@@ -270,10 +292,14 @@ else
         }),
         type.IsActive ? "Gage type deactivated." : "Gage type activated.");
 
-    private void BeginAddGage() => gageModel = new GageEditModel
+    private void BeginAddGage()
     {
-        GageTypeId = gageTypes.FirstOrDefault(x => x.IsActive)?.Id ?? 0
-    };
+        gageModel = new GageEditModel
+        {
+            GageTypeId = gageTypes.FirstOrDefault(x => x.IsActive)?.Id ?? 0
+        };
+        focusGageNumber = true;
+    }
 
     private void BeginEditGage(GageListItem gage) => gageModel = new GageEditModel
     {

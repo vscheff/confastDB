@@ -1,66 +1,148 @@
 @page "/inspections"
 @using Confast.Web.Features.Inspections
-@using System.Globalization
 @inject InspectionService InspectionService
+@inject InspectionSearchNavigationContext SearchNavigation
 @inject ILogger<Index> Logger
 @inject NavigationManager Navigation
 
 <PageTitle>Inspections</PageTitle>
 
-<div class="page-heading">
-    <div>
-        <h1>Inspections</h1>
-        <p>Saved inspections retain the criteria revision used when they were created.</p>
+<div class="inspection-list-page">
+    <div class="page-heading">
+        <div>
+            <h1>Inspections</h1>
+        </div>
+        <div class="heading-actions">
+            <button class="button button-secondary" type="button" @onclick="BeginFilter" disabled="@(isLoading || isFiltering)">
+                Filter
+            </button>
+            <button class="button button-secondary" type="button" @onclick="LoadAsync" disabled="@isLoading">
+                Refresh
+            </button>
+            <a class="button button-primary" href="/inspections/create">Create inspection</a>
+        </div>
     </div>
-    <div class="heading-actions">
-        <button class="button button-secondary" type="button" @onclick="LoadAsync" disabled="@isLoading">
-            Refresh
-        </button>
-        <a class="button button-primary" href="/inspections/create">Create inspection</a>
-    </div>
-</div>
 
-@if (actionMessage is not null)
-{
-    <div class="alert @actionMessageClass" role="alert">@actionMessage</div>
-}
+    @if (actionMessage is not null)
+    {
+        <div class="alert @actionMessageClass" role="alert">@actionMessage</div>
+    }
 
-@if (isLoading)
-{
-    <p class="status-message">Loading inspections…</p>
-}
-else if (loadError is not null)
-{
-    <div class="alert alert-error" role="alert">@loadError</div>
-}
-else if (inspections.Count == 0)
-{
-    <div class="empty-state">
-        <h2>No inspections yet</h2>
-        <p>Create an inspection for a Part with published inspection criteria.</p>
-    </div>
-}
-else
-{
-    <div class="table-shell inspections-table-shell">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Lot#</th>
-                    <th>Part Number</th>
-                    <th>Inspection Date</th>
-                    <th>Accepted</th>
-                    <th>Completed</th>
-                    <th><span class="visually-hidden">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var inspection in inspections)
-                {
+    @if (SearchNavigation.IsActive)
+    {
+        <div class="inspection-filter-summary" role="status">
+            <span>Filtered inspections: @SearchNavigation.Summary (@inspections.Count)</span>
+            <button class="button button-secondary button-compact" type="button" @onclick="ClearFilter" disabled="@(isLoading || isFiltering)">Clear filter</button>
+        </div>
+    }
+
+    @if (showFilter)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal inspection-find-modal" role="dialog" aria-modal="true" aria-labelledby="filter-inspections-title">
+                <div class="page-heading">
+                    <div>
+                        <h2 id="filter-inspections-title">Filter inspections</h2>
+                        <p>Enter any combination of criteria. Text matches part of the value, ignoring case.</p>
+                    </div>
+                    <button class="button button-secondary" type="button" @onclick="CancelFilter" disabled="@isFiltering">Cancel</button>
+                </div>
+                <EditForm Model="filterModel" OnValidSubmit="ApplyFilterAsync" FormName="filter-inspections">
+                    <div class="inspection-find-grid">
+                        <div class="form-field"><label for="filter-part-number">Part number</label><InputText id="filter-part-number" @bind-Value="filterModel.PartNumber" /></div>
+                        <div class="form-field"><label for="filter-lot-number">Lot number</label><InputText id="filter-lot-number" @bind-Value="filterModel.LotNumber" /></div>
+                        <div class="form-field"><label for="filter-po-number">Conformance PO#</label><InputText id="filter-po-number" @bind-Value="filterModel.ConformancePoNumber" /></div>
+                        <div class="form-field"><label for="filter-manufacturer-lot">Manufacturer's Lot#</label><InputText id="filter-manufacturer-lot" @bind-Value="filterModel.ManufacturerLotNumber" /></div>
+                        <div class="form-field"><label for="filter-date-received">Date received</label><InputDate id="filter-date-received" @bind-Value="filterModel.DateReceived" /></div>
+                        <div class="form-field"><label for="filter-inspection-date">Inspection date</label><InputDate id="filter-inspection-date" @bind-Value="filterModel.InspectionDate" /></div>
+                        <div class="form-field"><label for="filter-quantity-received">Quantity received</label><InputNumber id="filter-quantity-received" @bind-Value="filterModel.QuantityReceived" /></div>
+                        <div class="form-field"><label for="filter-quantity-inspected">Quantity inspected</label><InputNumber id="filter-quantity-inspected" @bind-Value="filterModel.QuantityInspected" /></div>
+                        <div class="form-field"><label for="filter-inspector">Inspector</label><InputText id="filter-inspector" @bind-Value="filterModel.Inspector" /></div>
+                    </div>
+                    @if (filterMessage is not null)
+                    {
+                        <div class="alert alert-error" role="alert">@filterMessage</div>
+                    }
+                    <div class="form-actions">
+                        <button class="button button-primary" type="submit" disabled="@isFiltering">@(isFiltering ? "Filtering…" : "Apply filter")</button>
+                        <button class="button button-secondary" type="button" @onclick="ClearFilterInputs" disabled="@isFiltering">Clear</button>
+                    </div>
+                </EditForm>
+            </section>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <p class="status-message">Loading inspections…</p>
+    }
+    else if (loadError is not null)
+    {
+        <div class="alert alert-error" role="alert">@loadError</div>
+    }
+    else if (inspections.Count == 0)
+    {
+        <div class="empty-state">
+            <h2>@(SearchNavigation.IsActive ? "No inspections match" : "No inspections yet")</h2>
+            <p>@(SearchNavigation.IsActive ? "Try changing or clearing the filter." : "Create an inspection for a Part with published inspection criteria.")</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-shell inspections-table-shell">
+            <table class="data-table">
+                <thead>
                     <tr>
+                        <th aria-sort="@(GetAriaSort(InspectionSortField.LotNumber))">
+                            <button class="inspection-sort-header @(inspectionSortField == InspectionSortField.LotNumber ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Lot number @(GetSortDirectionLabel(InspectionSortField.LotNumber))"
+                                    @onclick="() => ToggleInspectionSort(InspectionSortField.LotNumber)">
+                                Lot# <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(InspectionSortField.LotNumber)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(InspectionSortField.PartNumber))">
+                            <button class="inspection-sort-header @(inspectionSortField == InspectionSortField.PartNumber ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Part Number @(GetSortDirectionLabel(InspectionSortField.PartNumber))"
+                                    @onclick="() => ToggleInspectionSort(InspectionSortField.PartNumber)">
+                                Part Number <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(InspectionSortField.PartNumber)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(InspectionSortField.InspectionDate))">
+                            <button class="inspection-sort-header @(inspectionSortField == InspectionSortField.InspectionDate ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Inspection Date @(GetSortDirectionLabel(InspectionSortField.InspectionDate))"
+                                    @onclick="() => ToggleInspectionSort(InspectionSortField.InspectionDate)">
+                                Inspection Date <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(InspectionSortField.InspectionDate)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(InspectionSortField.Accepted))">
+                            <button class="inspection-sort-header @(inspectionSortField == InspectionSortField.Accepted ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Accepted status @(GetSortDirectionLabel(InspectionSortField.Accepted))"
+                                    @onclick="() => ToggleInspectionSort(InspectionSortField.Accepted)">
+                                Accepted <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(InspectionSortField.Accepted)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(InspectionSortField.Completed))">
+                            <button class="inspection-sort-header @(inspectionSortField == InspectionSortField.Completed ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Completed status @(GetSortDirectionLabel(InspectionSortField.Completed))"
+                                    @onclick="() => ToggleInspectionSort(InspectionSortField.Completed)">
+                                Completed <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(InspectionSortField.Completed)</span>
+                            </button>
+                        </th>
+                        <th><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var inspection in SortedInspections)
+                    {
+                        <tr>
                         <td data-label="Lot#">@(inspection.LotNumber ?? "—")</td>
                         <td data-label="Part Number">
-                            <a class="record-link" href="@($"/inspections/{inspection.Id}")">@inspection.PartNumber</a>
+                            <a class="record-link" href="@($"/inspections/{inspection.Id}")" @onclick="() => OpenInspection(inspection.Id)" @onclick:preventDefault="true">@inspection.PartNumber</a>
                         </td>
                         <td data-label="Inspection Date">@inspection.InspectionDate.ToString("yyyy-MM-dd")</td>
                         <td data-label="Accepted">@(inspection.Accepted ? "Yes" : "No")</td>
@@ -87,39 +169,20 @@ else
                             else
                             {
                                 <div class="row-actions inspection-list-actions">
-                                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")">Open</a>
-                                    @if (pendingDuplicateId == inspection.Id)
-                                    {
-                                        <div class="row-actions delete-confirmation">
-                                            <label>
-                                                New lot number
-                                                <input required @bind="duplicateLotNumber" />
-                                            </label>
-                                            <label>
-                                                Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))
-                                                <input inputmode="numeric"
-                                                       value="@(duplicateQuantity?.ToString("N0", CultureInfo.InvariantCulture))"
-                                                       @oninput="UpdateDuplicateQuantity"
-                                                       @onkeydown="@(args => HandleDuplicateQuantityKeyDownAsync(inspection.Id, args))" />
-                                            </label>
-                                            <button class="button button-secondary button-compact" type="button" @onclick="() => DuplicateInspectionAsync(inspection.Id)" disabled="@isDuplicating">
-                                                @(isDuplicating ? "Duplicating…" : "Confirm")
-                                            </button>
-                                            <button class="button button-secondary button-compact" type="button" @onclick="CancelDuplicate" disabled="@isDuplicating">Cancel</button>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <button class="button button-secondary" type="button" @onclick="() => BeginDuplicate(inspection)" disabled="@isDuplicating">Duplicate</button>
-                                    }
+                                    <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")" @onclick="() => OpenInspection(inspection.Id)" @onclick:preventDefault="true">Open</a>
                                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
                                     <details class="inspection-print-options">
-                                        <summary class="button button-secondary">Print / Download</summary>
+                                        <summary class="button button-secondary">Print</summary>
                                         <div class="inspection-print-options-menu">
-                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?autoPrint=true")" target="_blank" rel="noopener">Print</a>
-                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download")" download data-enhance-nav="false">Download</a>
                                             <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?notesPage=second&autoPrint=true")" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
+                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?autoPrint=true")" target="_blank" rel="noopener">Print</a>
+                                        </div>
+                                    </details>
+                                    <details class="inspection-print-options">
+                                        <summary class="button button-secondary">Download</summary>
+                                        <div class="inspection-print-options-menu">
                                             <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download?notesPage=second")" download data-enhance-nav="false">Download (Show Extended Notes)</a>
+                                            <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download")" download data-enhance-nav="false">Download</a>
                                         </div>
                                     </details>
                                     <button class="button button-danger-outline"
@@ -131,25 +194,94 @@ else
                                 </div>
                             }
                         </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-}
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
 
 @code {
     private IReadOnlyList<InspectionListItem> inspections = [];
     private bool isLoading = true;
     private bool isDeleting;
-    private bool isDuplicating;
+    private bool showFilter;
+    private bool isFiltering;
     private long? pendingDeleteId;
-    private long? pendingDuplicateId;
-    private int? duplicateQuantity;
-    private string? duplicateLotNumber;
     private string? loadError;
     private string? actionMessage;
     private string actionMessageClass = "alert-error";
+    private InspectionSortField inspectionSortField = InspectionSortField.InspectionDate;
+    private bool inspectionSortAscending;
+    private InspectionFindModel filterModel = new();
+    private string? filterMessage;
+
+    private IEnumerable<InspectionListItem> SortedInspections =>
+        (inspectionSortField, inspectionSortAscending) switch
+        {
+            (InspectionSortField.LotNumber, true) => inspections
+                .OrderBy(x => x.LotNumber is null)
+                .ThenBy(x => x.LotNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            (InspectionSortField.LotNumber, false) => inspections
+                .OrderBy(x => x.LotNumber is null)
+                .ThenByDescending(x => x.LotNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id),
+            (InspectionSortField.PartNumber, true) => inspections
+                .OrderBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            (InspectionSortField.PartNumber, false) => inspections
+                .OrderByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id),
+            (InspectionSortField.InspectionDate, true) => inspections
+                .OrderBy(x => x.InspectionDate)
+                .ThenBy(x => x.Id),
+            (InspectionSortField.InspectionDate, false) => inspections
+                .OrderByDescending(x => x.InspectionDate)
+                .ThenByDescending(x => x.Id),
+            (InspectionSortField.Accepted, true) => inspections
+                .OrderBy(x => x.Accepted)
+                .ThenByDescending(x => x.InspectionDate)
+                .ThenByDescending(x => x.Id),
+            (InspectionSortField.Accepted, false) => inspections
+                .OrderByDescending(x => x.Accepted)
+                .ThenByDescending(x => x.InspectionDate)
+                .ThenByDescending(x => x.Id),
+            (InspectionSortField.Completed, true) => inspections
+                .OrderBy(x => x.Completed)
+                .ThenByDescending(x => x.InspectionDate)
+                .ThenByDescending(x => x.Id),
+            _ => inspections
+                .OrderByDescending(x => x.Completed)
+                .ThenByDescending(x => x.InspectionDate)
+                .ThenByDescending(x => x.Id)
+        };
+
+    private void ToggleInspectionSort(InspectionSortField field)
+    {
+        if (inspectionSortField == field)
+        {
+            inspectionSortAscending = !inspectionSortAscending;
+            return;
+        }
+
+        inspectionSortField = field;
+        inspectionSortAscending = true;
+    }
+
+    private string GetAriaSort(InspectionSortField field) =>
+        inspectionSortField != field
+            ? "none"
+            : inspectionSortAscending ? "ascending" : "descending";
+
+    private string GetSortIndicator(InspectionSortField field) =>
+        inspectionSortField != field ? "↕" : inspectionSortAscending ? "↑" : "↓";
+
+    private string GetSortDirectionLabel(InspectionSortField field) =>
+        inspectionSortField != field
+            ? ""
+            : inspectionSortAscending ? "descending next" : "ascending next";
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -161,7 +293,14 @@ else
 
         try
         {
-            inspections = await InspectionService.GetInspectionsAsync();
+            var criteria = SearchNavigation.Criteria;
+            inspections = criteria is null
+                ? await InspectionService.GetInspectionsAsync()
+                : await InspectionService.FindInspectionsAsync(criteria);
+            if (criteria is not null)
+            {
+                SearchNavigation.Replace(criteria, inspections);
+            }
         }
         catch (Exception exception)
         {
@@ -181,61 +320,6 @@ else
     }
 
     private void CancelDelete() => pendingDeleteId = null;
-
-    private void BeginDuplicate(InspectionListItem inspection)
-    {
-        actionMessage = null;
-        if (inspection.QuantityReceived is not > 1)
-        {
-            actionMessage = "Quantity received must be greater than one before an inspection can be split.";
-            actionMessageClass = "alert-error";
-            return;
-        }
-
-        pendingDuplicateId = inspection.Id;
-        duplicateQuantity = null;
-        duplicateLotNumber = null;
-    }
-
-    private void CancelDuplicate()
-    {
-        pendingDuplicateId = null;
-        duplicateQuantity = null;
-        duplicateLotNumber = null;
-    }
-
-    private void UpdateDuplicateQuantity(ChangeEventArgs args)
-    {
-        var value = args.Value?.ToString();
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            duplicateQuantity = null;
-            return;
-        }
-
-        if (int.TryParse(
-                value,
-                NumberStyles.Integer | NumberStyles.AllowThousands,
-                CultureInfo.InvariantCulture,
-                out var parsedQuantity))
-        {
-            duplicateQuantity = parsedQuantity;
-            actionMessage = null;
-            return;
-        }
-
-        duplicateQuantity = null;
-        actionMessage = "Enter a valid whole number.";
-        actionMessageClass = "alert-error";
-    }
-
-    private async Task HandleDuplicateQuantityKeyDownAsync(long inspectionId, KeyboardEventArgs args)
-    {
-        if (args.Key == "Enter")
-        {
-            await DuplicateInspectionAsync(inspectionId);
-        }
-    }
 
     private async Task DeleteInspectionAsync(InspectionListItem inspection)
     {
@@ -277,58 +361,75 @@ else
         }
     }
 
-    private async Task DuplicateInspectionAsync(long inspectionId)
+    private enum InspectionSortField
     {
-        if (string.IsNullOrWhiteSpace(duplicateLotNumber))
+        LotNumber,
+        PartNumber,
+        InspectionDate,
+        Accepted,
+        Completed
+    }
+
+    private void BeginFilter()
+    {
+        filterModel = SearchNavigation.Criteria is null
+            ? new InspectionFindModel()
+            : InspectionFindModel.Clone(SearchNavigation.Criteria);
+        filterMessage = null;
+        showFilter = true;
+    }
+
+    private void CancelFilter()
+    {
+        if (!isFiltering)
         {
-            actionMessage = "Enter the new lot number.";
-            actionMessageClass = "alert-error";
-            return;
+            showFilter = false;
+            filterMessage = null;
         }
+    }
 
-        if (duplicateQuantity is not int quantityToMove)
-        {
-            actionMessage = "Enter the quantity to move to the duplicated inspection.";
-            actionMessageClass = "alert-error";
-            return;
-        }
+    private void ClearFilterInputs()
+    {
+        filterModel = new InspectionFindModel();
+        filterMessage = null;
+    }
 
-        isDuplicating = true;
-        actionMessage = null;
-
+    private async Task ApplyFilterAsync()
+    {
+        isFiltering = true;
+        filterMessage = null;
         try
         {
-            var result = await InspectionService.DuplicateInspectionAsync(
-                inspectionId,
-                quantityToMove,
-                duplicateLotNumber);
-            if (result.Status == InspectionOperationStatus.Succeeded)
-            {
-                CancelDuplicate();
-                Navigation.NavigateTo($"/inspections/{result.InspectionId}");
-                return;
-            }
-
-            actionMessage = result.Status switch
-            {
-                InspectionOperationStatus.NotFound => "This inspection no longer exists.",
-                InspectionOperationStatus.Conflict => "The inspection changed while it was being duplicated. Please try again.",
-                InspectionOperationStatus.ValidationFailed => result.Message,
-                _ => "The inspection could not be duplicated. Please try again."
-            };
-            actionMessageClass = result.Status == InspectionOperationStatus.Conflict
-                ? "alert-warning"
-                : "alert-error";
+            var results = await InspectionService.FindInspectionsAsync(filterModel);
+            SearchNavigation.Replace(filterModel, results);
+            inspections = results;
+            showFilter = false;
         }
         catch (Exception exception)
         {
-            Logger.LogError(exception, "Failed to duplicate inspection {InspectionId}", inspectionId);
-            actionMessage = "The inspection could not be duplicated. Please try again.";
-            actionMessageClass = "alert-error";
+            Logger.LogError(exception, "Failed to filter inspections");
+            filterMessage = "The inspections could not be filtered. Please try again.";
         }
         finally
         {
-            isDuplicating = false;
+            isFiltering = false;
         }
+    }
+
+    private async Task ClearFilter()
+    {
+        SearchNavigation.Clear();
+        filterMessage = null;
+        await LoadAsync();
+    }
+
+    private void OpenInspection(long inspectionId)
+    {
+        if (SearchNavigation.IsActive)
+        {
+            SearchNavigation.SetCurrentInspection(inspectionId);
+        }
+
+        Navigation.NavigateTo($"/inspections/{inspectionId}");
     }
 }

@@ -127,6 +127,7 @@ builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<ICertificationEmailService, CertificationEmailService>();
 builder.Services.AddScoped<NominalToleranceSettingsService>();
 builder.Services.AddScoped<InspectionService>();
+builder.Services.AddScoped<InspectionSearchNavigationContext>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddScoped<PartFlipService>();
 

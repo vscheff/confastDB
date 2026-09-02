@@ -921,6 +921,75 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         }
     }
 
+    public async Task<CriteriaOperationResult> MoveCriterionBeforeAsync(
+        long partId,
+        long revisionId,
+        long criterionId,
+        long targetCriterionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (criterionId == targetCriterionId)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
+        }
+
+        var ordered = await db.InspectionCriteria
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .OrderBy(x => x.DisplayOrder)
+            .ToListAsync(cancellationToken);
+        var criterionIndex = ordered.FindIndex(x => x.Id == criterionId);
+        var criterion = criterionIndex >= 0 ? ordered[criterionIndex] : null;
+        var targetIndex = ordered.FindIndex(x => x.Id == targetCriterionId);
+        if (criterion is null || targetIndex < 0)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        ordered.RemoveAt(criterionIndex);
+        if (criterionIndex < targetIndex)
+        {
+            targetIndex--;
+        }
+        ordered.Insert(targetIndex, criterion);
+
+        try
+        {
+            // The unique revision/order index requires a distinct temporary range before
+            // assigning the compact final sequence.
+            var temporaryFirstOrder = ordered.Max(x => x.DisplayOrder) + ordered.Count + 1;
+            for (var index = 0; index < ordered.Count; index++)
+            {
+                ordered[index].DisplayOrder = temporaryFirstOrder + index;
+            }
+            await db.SaveChangesAsync(cancellationToken);
+
+            for (var index = 0; index < ordered.Count; index++)
+            {
+                ordered[index].DisplayOrder = index + 1;
+            }
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
     public async Task<CriteriaOperationResult> AlignCriterionDecimalPlacesAsync(
         long partId,
         long revisionId,

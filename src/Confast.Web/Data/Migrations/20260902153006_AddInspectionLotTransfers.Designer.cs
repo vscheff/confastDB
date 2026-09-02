@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260902153006_AddInspectionLotTransfers")]
+    partial class AddInspectionLotTransfers
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -314,10 +317,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("access_failed_count");
 
-                    b.Property<long?>("CaliperId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("caliper_id");
-
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text")
@@ -393,8 +392,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("user_name");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CaliperId");
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique()
@@ -1893,17 +1890,6 @@ namespace Confast.Web.Data.Migrations
                         .HasConstraintName("FK_gages_gage_types_gage_type_id");
 
                     b.Navigation("GageType");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Identity.ApplicationUser", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Gages.Gage", "Caliper")
-                        .WithMany()
-                        .HasForeignKey("CaliperId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_identity_users_caliper_id");
-
-                    b.Navigation("Caliper");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", b =>

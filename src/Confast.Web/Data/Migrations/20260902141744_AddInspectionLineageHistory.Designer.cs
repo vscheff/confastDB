@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260902141744_AddInspectionLineageHistory")]
+    partial class AddInspectionLineageHistory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -314,10 +317,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("access_failed_count");
 
-                    b.Property<long?>("CaliperId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("caliper_id");
-
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text")
@@ -393,8 +392,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("user_name");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CaliperId");
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique()
@@ -1359,50 +1356,6 @@ namespace Confast.Web.Data.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Inspections.LotTransfer", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("DestinationInspectionId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("destination_inspection_id");
-
-                    b.Property<DateTimeOffset>("PerformedAtUtc")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("performed_at_utc")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<int>("QuantityMoved")
-                        .HasColumnType("integer")
-                        .HasColumnName("quantity_moved");
-
-                    b.Property<long>("SourceInspectionId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("source_inspection_id");
-
-                    b.HasKey("Id")
-                        .HasName("PK_lot_transfers");
-
-                    b.HasIndex("DestinationInspectionId")
-                        .HasDatabaseName("IX_lot_transfers_destination_inspection_id");
-
-                    b.HasIndex("SourceInspectionId")
-                        .HasDatabaseName("IX_lot_transfers_source_inspection_id");
-
-                    b.ToTable("lot_transfers", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_lot_transfers_different_inspections", "source_inspection_id <> destination_inspection_id");
-
-                            t.HasCheckConstraint("CK_lot_transfers_positive_quantity", "quantity_moved > 0");
-                        });
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Inspections.NominalToleranceSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -1895,17 +1848,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("GageType");
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Identity.ApplicationUser", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Gages.Gage", "Caliper")
-                        .WithMany()
-                        .HasForeignKey("CaliperId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_identity_users_caliper_id");
-
-                    b.Navigation("Caliper");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", b =>
                 {
                     b.HasOne("Confast.Web.Features.Parts.Part", "Part")
@@ -2145,27 +2087,6 @@ namespace Confast.Web.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_lot_duplications_source_inspection_id");
-
-                    b.Navigation("DestinationInspection");
-
-                    b.Navigation("SourceInspection");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Inspections.LotTransfer", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Inspections.Inspection", "DestinationInspection")
-                        .WithMany()
-                        .HasForeignKey("DestinationInspectionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_lot_transfers_destination_inspection_id");
-
-                    b.HasOne("Confast.Web.Features.Inspections.Inspection", "SourceInspection")
-                        .WithMany()
-                        .HasForeignKey("SourceInspectionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_lot_transfers_source_inspection_id");
 
                     b.Navigation("DestinationInspection");
 

@@ -1,4 +1,5 @@
 using Confast.Web.Data;
+using Confast.Web.Features.Gages;
 using Confast.Web.Features.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,18 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     [Fact]
     public async Task RoleAssignment_RoundTripsThroughUserAdministration()
     {
+        long caliperId;
+        await using (var db = database.CreateDbContext())
+        {
+            var type = new GageType { Name = "Digital Caliper" };
+            db.GageTypes.Add(type);
+            await db.SaveChangesAsync();
+            var caliper = new Gage { GageTypeId = type.Id, GageNumber = "CAL-001" };
+            db.Gages.Add(caliper);
+            await db.SaveChangesAsync();
+            caliperId = caliper.Id;
+        }
+
         await using var services = CreateServices();
         var administration = services.GetRequiredService<UserAdministrationService>();
 
@@ -25,6 +38,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
             DisplayName = "Quality Person",
             JobTitle = "Quality Engineer",
             Email = "quality@example.com",
+            CaliperId = caliperId,
             Roles = [AppRoles.Quality, AppRoles.ReadOnly]
         });
 
@@ -33,6 +47,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         Assert.NotNull(edit);
         Assert.Equal("quality.person", edit.Username);
         Assert.Equal("Quality Engineer", edit.JobTitle);
+        Assert.Equal(caliperId, edit.CaliperId);
         Assert.Equal(
             [AppRoles.Quality, AppRoles.ReadOnly],
             edit.Roles.Order(StringComparer.Ordinal));
@@ -80,6 +95,31 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         var displayNames = await administration.GetQualityUserDisplayNamesAsync();
 
         Assert.Equal(["Alpha Quality", "Zeta Quality"], displayNames);
+    }
+
+    [Fact]
+    public async Task CaliperChoices_OnlyIncludeActiveDigitalCalipers()
+    {
+        await using (var db = database.CreateDbContext())
+        {
+            var digitalType = new GageType { Name = "Digital Calipers" };
+            var otherType = new GageType { Name = "Micrometer" };
+            db.GageTypes.AddRange(digitalType, otherType);
+            await db.SaveChangesAsync();
+            db.Gages.AddRange(
+                new Gage { GageTypeId = digitalType.Id, GageNumber = "CAL-001", IsActive = true },
+                new Gage { GageTypeId = digitalType.Id, GageNumber = "CAL-002", IsActive = false },
+                new Gage { GageTypeId = otherType.Id, GageNumber = "MIC-001", IsActive = true });
+            await db.SaveChangesAsync();
+        }
+
+        await using var services = CreateServices();
+        var administration = services.GetRequiredService<UserAdministrationService>();
+
+        var choices = await administration.GetDigitalCaliperChoicesAsync();
+
+        Assert.Single(choices);
+        Assert.Equal("CAL-001", choices[0].GageNumber);
     }
 
     [Fact]
@@ -209,7 +249,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         services.AddHttpContextAccessor();
         services.AddAuthentication();
         services.AddDataProtection();
-        services.AddDbContext<AppDbContext>(options => options.UseNpgsql(database.ConnectionString));
+        services.AddDbContextFactory<AppDbContext>(options => options.UseNpgsql(database.ConnectionString));
         services.AddIdentityCore<ApplicationUser>(options =>
             {
                 options.User.RequireUniqueEmail = true;

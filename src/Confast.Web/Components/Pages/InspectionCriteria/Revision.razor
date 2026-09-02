@@ -7,6 +7,8 @@
 @inject PartService PartService
 @inject NavigationManager Navigation
 @inject ILogger<Revision> Logger
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Inspection criteria revision</PageTitle>
 
@@ -153,7 +155,7 @@ else
         else
         {
             <div class="table-shell criteria-table-shell">
-            <table class="data-table criteria-table">
+            <table class="data-table criteria-table" @ref="criteriaTable">
                 <thead>
                     <tr>
                         <th>#</th>
@@ -175,7 +177,9 @@ else
                     {
                         var criterion = revision.Criteria[index];
                         var isEditing = editingModel?.Id == criterion.Id;
-                        <tr class="@(isEditing ? "editing-row" : null)">
+                        <tr @key="criterion.Id"
+                            data-criterion-id="@criterion.Id"
+                            class="@(isEditing ? "editing-row" : null)">
                             @if (isEditing)
                             {
                                 <td data-label="#">
@@ -234,7 +238,13 @@ else
                             }
                             else
                             {
-                                <td data-label="#">@criterion.InspectionNumber</td>
+                                <td data-label="#">
+                                    @if (revision.CanEdit)
+                                    {
+                                        <button class="criterion-drag-handle" type="button" title="Drag to reorder" aria-label="Drag @criterion.Name to reorder">⠿</button>
+                                    }
+                                    @criterion.InspectionNumber
+                                </td>
                                 <td data-label="Requirement">@criterion.Name</td>
                                 <td data-label="Maximum / tolerance">@(criterion.MaximumOrTolerance ?? "—")</td>
                                 <td data-label="Minimum">@(criterion.Minimum ?? "—")</td>
@@ -588,6 +598,8 @@ else
     private IReadOnlyList<SecondaryProcessTypeChoice> secondaryProcessTypeChoices = [];
     private List<RevisionCertificationRequirementEditModel> certificationRequirementModels = [];
     private ElementReference requirementInput;
+    private ElementReference criteriaTable;
+    private DotNetObjectReference<Revision>? criteriaReorderReference;
     private long? pendingDeleteId;
     private long? pendingSecondaryProcessDeleteId;
     private bool focusNewRequirement;
@@ -624,17 +636,21 @@ else
             ? names
             : "No destination plants selected";
 
+    protected override void OnInitialized() => criteriaReorderReference = DotNetObjectReference.Create(this);
+
     protected override Task OnParametersSetAsync() => LoadAsync();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!focusNewRequirement)
         {
+            await InitializeCriteriaReorderingAsync();
             return;
         }
 
         focusNewRequirement = false;
         await requirementInput.FocusAsync();
+        await InitializeCriteriaReorderingAsync();
     }
 
     private async Task LoadAsync()
@@ -1183,6 +1199,58 @@ else
         {
             isWorking = false;
         }
+    }
+
+    private Task InitializeCriteriaReorderingAsync()
+    {
+        if (revision?.CanEdit != true || revision.Criteria.Count == 0 || activeTab != RevisionTab.Criteria || editingModel is not null || secondaryProcessEditingModel is not null || pendingDeleteId is not null || criteriaReorderReference is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return JS.InvokeVoidAsync("confastCriteriaReorder.initialize", criteriaTable, criteriaReorderReference).AsTask();
+    }
+
+    [JSInvokable]
+    public async Task DropCriterionAsync(long criterionId, long targetCriterionId)
+    {
+        if (criterionId == targetCriterionId || revision?.CanEdit != true || isWorking || editingModel is not null || secondaryProcessEditingModel is not null || pendingDeleteId is not null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        message = null;
+        pendingDeleteId = null;
+        try
+        {
+            var result = await CriteriaService.MoveCriterionBeforeAsync(PartId, RevisionId, criterionId, targetCriterionId);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+            }
+            else
+            {
+                SetOperationMessage(result);
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to drag criterion {CriterionId} before {TargetCriterionId}", criterionId, targetCriterionId);
+            message = "The criterion could not be reordered.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        criteriaReorderReference?.Dispose();
+        return ValueTask.CompletedTask;
     }
 
     private void BeginDelete(long criterionId)

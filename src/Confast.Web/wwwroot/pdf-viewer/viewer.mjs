@@ -85,7 +85,10 @@ async function renderCurrentPage() {
         transform: outputScale === 1
             ? null
             : [outputScale, 0, 0, outputScale, 0, 0],
-        annotationMode: pdfjsLib.AnnotationMode.DISABLE,
+        // Nitro stores Master stamps and balloon numbers as PDF annotations.
+        // Render their existing appearance streams, but keep this canvas-only
+        // viewer non-editable.
+        annotationMode: pdfjsLib.AnnotationMode.ENABLE,
         intent: "display"
     }).promise;
 

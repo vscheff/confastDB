@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Confast.Web.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +14,8 @@ public sealed record UserListItem(
     bool IsActive,
     IReadOnlyList<string> Roles);
 
+public sealed record DigitalCaliperChoice(long Id, string GageNumber, bool IsActive);
+
 public sealed class CreateUserInput
 {
     [Required, StringLength(256)]
@@ -23,6 +26,8 @@ public sealed class CreateUserInput
 
     [StringLength(200)]
     public string? JobTitle { get; set; }
+
+    public long? CaliperId { get; set; }
 
     [Required, EmailAddress, StringLength(256)]
     public string Email { get; set; } = string.Empty;
@@ -43,6 +48,8 @@ public sealed class EditUserInput
 
     [StringLength(200)]
     public string? JobTitle { get; set; }
+
+    public long? CaliperId { get; set; }
 
     [Required, EmailAddress, StringLength(256)]
     public string Email { get; set; } = string.Empty;
@@ -65,8 +72,22 @@ public sealed record UserAdministrationResult(
 }
 
 public sealed class UserAdministrationService(
-    UserManager<ApplicationUser> userManager)
+    UserManager<ApplicationUser> userManager,
+    IDbContextFactory<AppDbContext> contextFactory)
 {
+    public async Task<IReadOnlyList<DigitalCaliperChoice>> GetDigitalCaliperChoicesAsync(
+        long? includeGageId = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Gages
+            .AsNoTracking()
+            .Where(x => (x.IsActive || x.Id == includeGageId)
+                && EF.Functions.ILike(x.GageType.Name, "Digital Caliper%"))
+            .OrderBy(x => x.GageNumber)
+            .Select(x => new DigitalCaliperChoice(x.Id, x.GageNumber, x.IsActive))
+            .ToListAsync(cancellationToken);
+    }
     public async Task<IReadOnlyList<UserListItem>> GetUsersAsync(
         CancellationToken cancellationToken = default)
     {
@@ -114,6 +135,7 @@ public sealed class UserAdministrationService(
             Username = user.UserName ?? string.Empty,
             DisplayName = user.DisplayName,
             JobTitle = user.JobTitle,
+            CaliperId = user.CaliperId,
             Email = user.Email ?? string.Empty,
             IsActive = user.IsActive,
             Roles = new HashSet<string>(await userManager.GetRolesAsync(user), StringComparer.Ordinal)
@@ -137,8 +159,13 @@ public sealed class UserAdministrationService(
             EmailConfirmed = true,
             DisplayName = input.DisplayName.Trim(),
             JobTitle = NullIfWhiteSpace(input.JobTitle),
+            CaliperId = await GetValidCaliperIdAsync(input.CaliperId, includeInactive: false),
             IsActive = true
         };
+        if (input.CaliperId is not null && user.CaliperId is null)
+        {
+            return UserAdministrationResult.Failure("Select a valid active digital caliper.");
+        }
         var createResult = await userManager.CreateAsync(user);
         if (!createResult.Succeeded)
         {
@@ -186,6 +213,11 @@ public sealed class UserAdministrationService(
         var email = input.Email.Trim();
         user.DisplayName = input.DisplayName.Trim();
         user.JobTitle = NullIfWhiteSpace(input.JobTitle);
+        user.CaliperId = await GetValidCaliperIdAsync(input.CaliperId, includeInactive: true);
+        if (input.CaliperId is not null && user.CaliperId is null)
+        {
+            return UserAdministrationResult.Failure("Select a valid digital caliper.");
+        }
         user.IsActive = input.IsActive;
         user.Email = email;
         user.UserName = username;
@@ -277,6 +309,22 @@ public sealed class UserAdministrationService(
     {
         var administrators = await userManager.GetUsersInRoleAsync(AppRoles.Administrator);
         return !administrators.Any(x => x.Id != excludedUserId && x.IsActive);
+    }
+
+    private async Task<long?> GetValidCaliperIdAsync(long? caliperId, bool includeInactive)
+    {
+        if (caliperId is null)
+        {
+            return null;
+        }
+
+        await using var db = await contextFactory.CreateDbContextAsync();
+        return await db.Gages
+            .Where(x => x.Id == caliperId
+                && (includeInactive || x.IsActive)
+                && EF.Functions.ILike(x.GageType.Name, "Digital Caliper%"))
+            .Select(x => (long?)x.Id)
+            .SingleOrDefaultAsync();
     }
 
     private static string[] GetInvalidRoles(IEnumerable<string> roles) =>

@@ -834,6 +834,36 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
     }
 
     [Fact]
+    public async Task DragReorderMovesCriterionBeforeTargetAndKeepsInspectionNumbers()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        foreach (var (number, name) in new[] { (10, "First"), (20, "Second"), (30, "Third") })
+        {
+            var add = await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+            {
+                InspectionNumber = number,
+                Name = name,
+                GageTypeId = gageTypeId
+            });
+            Assert.Equal(CriteriaOperationStatus.Succeeded, add.Status);
+        }
+
+        var before = (await service.GetRevisionAsync(partId, revisionId))!.Criteria;
+        var result = await service.MoveCriterionBeforeAsync(
+            partId,
+            revisionId,
+            before.Single(x => x.Name == "First").Id,
+            before.Single(x => x.Name == "Third").Id);
+        var after = (await service.GetRevisionAsync(partId, revisionId))!.Criteria;
+
+        Assert.Equal(CriteriaOperationStatus.Succeeded, result.Status);
+        Assert.Equal(["Second", "First", "Third"], after.Select(x => x.Name));
+        Assert.Equal([20, 10, 30], after.Select(x => x.InspectionNumber));
+    }
+
+    [Fact]
     public async Task DatabaseRejectsDirectChangesToPublishedCriteria()
     {
         var partId = await CreatePartAsync();

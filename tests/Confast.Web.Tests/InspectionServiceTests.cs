@@ -989,10 +989,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(11, copied.QuantityInspected);
         Assert.Equal("Alice", copied.Inspector);
         Assert.Equal("Inspector notes", copied.InspectorNotes);
-        var today = DateOnly.FromDateTime(DateTime.Today).ToString("dd/MM/yyyy");
-        Assert.Equal(
-            $"In-house notes\n\n{today} - Duplicated from Lot# SOURCE-LOT",
-            copied.InHouseNotes);
+        Assert.Equal("In-house notes", copied.InHouseNotes);
         Assert.Equal(new DateOnly(2026, 8, 21), copied.InspectionDate);
         var copiedResult = Assert.Single(copied.Results);
         Assert.Equal(gageId, copiedResult.GageId);
@@ -1006,6 +1003,13 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal("Material certification", copiedCertification.Description);
         Assert.Equal("Use this lot's material cert.", copiedCertification.Notes);
         Assert.Equal("material.pdf", Assert.Single(copiedCertification.Documents).OriginalFileName);
+        var copiedHistory = Assert.Single(copied.LineageHistory);
+        Assert.Equal(InspectionLineageOperation.Duplicate, copiedHistory.Operation);
+        Assert.Equal(sourceId, copiedHistory.SourceInspectionId);
+        Assert.Equal("SOURCE-LOT", copiedHistory.SourceLotNumber);
+        Assert.Equal(copied.Id, copiedHistory.DestinationInspectionId);
+        Assert.Equal("DUPLICATE-LOT", copiedHistory.DestinationLotNumber);
+        Assert.Equal(30, copiedHistory.QuantityMoved);
 
         await using var verification = database.CreateDbContext();
         var copiedDocument = await verification.CertificationDocuments.SingleAsync(
@@ -1015,9 +1019,58 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
 
         var updatedSource = await inspectionService.GetInspectionAsync(sourceId);
         Assert.Equal(70, updatedSource!.QuantityReceived);
+        Assert.Equal("In-house notes", updatedSource.InHouseNotes);
+        Assert.Equal(copiedHistory, Assert.Single(updatedSource.LineageHistory));
+
+        var confirmation = await inspectionService.UndoLineageOperationAsync(
+            sourceId,
+            copiedHistory.Operation,
+            copiedHistory.Id,
+            confirmDestinationDeletion: false);
+        Assert.Equal(InspectionOperationStatus.ConfirmationRequired, confirmation.Status);
+
+        var undone = await inspectionService.UndoLineageOperationAsync(
+            sourceId,
+            copiedHistory.Operation,
+            copiedHistory.Id,
+            confirmDestinationDeletion: true);
+        Assert.Equal(InspectionOperationStatus.Succeeded, undone.Status);
+        Assert.Equal(100, (await inspectionService.GetInspectionAsync(sourceId))!.QuantityReceived);
+        Assert.Null(await inspectionService.GetInspectionAsync(copied.Id));
+        Assert.Empty((await inspectionService.GetInspectionAsync(sourceId))!.LineageHistory);
+    }
+
+    [Fact]
+    public async Task AdditionalQuantityMovesCreateSeparateTransferHistoryRowsInEitherDirection()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var sourceCreate = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            LotNumber = "TRANSFER-SOURCE",
+            QuantityReceived = 100,
+            InspectionDate = new DateOnly(2026, 9, 2)
+        });
+        var duplicate = await inspectionService.DuplicateInspectionAsync(sourceCreate.InspectionId!.Value, 30, "TRANSFER-DESTINATION");
+        var sourceId = sourceCreate.InspectionId.Value;
+        var destinationId = duplicate.InspectionId!.Value;
+
+        var forward = await inspectionService.MoveAdditionalLineageQuantityAsync(sourceId, sourceId, destinationId, 20);
+        Assert.Equal(InspectionOperationStatus.Succeeded, forward.Status);
+        var reverse = await inspectionService.MoveAdditionalLineageQuantityAsync(sourceId, destinationId, sourceId, 10);
+        Assert.Equal(InspectionOperationStatus.Succeeded, reverse.Status);
+
+        var source = await inspectionService.GetInspectionAsync(sourceId);
+        var destination = await inspectionService.GetInspectionAsync(destinationId);
+        Assert.Equal(60, source!.QuantityReceived);
+        Assert.Equal(40, destination!.QuantityReceived);
         Assert.Equal(
-            $"In-house notes\n\n{today} - Moved 30 pieces to Lot# DUPLICATE-LOT",
-            updatedSource.InHouseNotes);
+            [InspectionLineageOperation.Duplicate, InspectionLineageOperation.Transfer, InspectionLineageOperation.Transfer],
+            source.LineageHistory.Select(x => x.Operation).OrderBy(x => x).ToArray());
+        Assert.Contains(source.LineageHistory, x => x.Operation == InspectionLineageOperation.Transfer && x.SourceInspectionId == sourceId && x.DestinationInspectionId == destinationId && x.QuantityMoved == 20);
+        Assert.Contains(source.LineageHistory, x => x.Operation == InspectionLineageOperation.Transfer && x.SourceInspectionId == destinationId && x.DestinationInspectionId == sourceId && x.QuantityMoved == 10);
     }
 
     [Theory]
@@ -1171,6 +1224,70 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.True(await verification.CertificationTypes.AnyAsync(x => x.Name == "Material"));
     }
 
+    [Fact]
+    public async Task DeletingADuplicatedInspectionRemovesItsLineageRecord()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var source = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            LotNumber = "DUPLICATE-DELETE-SOURCE",
+            QuantityReceived = 10,
+            InspectionDate = new DateOnly(2026, 9, 2)
+        });
+        var duplicate = await inspectionService.DuplicateInspectionAsync(
+            source.InspectionId!.Value,
+            4,
+            "DUPLICATE-DELETE-DESTINATION");
+        var deleteModel = await inspectionService.GetInspectionForDeleteAsync(duplicate.InspectionId!.Value);
+
+        var deleted = await inspectionService.DeleteInspectionAsync(
+            duplicate.InspectionId!.Value,
+            deleteModel!.Version);
+
+        Assert.Equal(InspectionOperationStatus.Succeeded, deleted.Status);
+        await using var verification = database.CreateDbContext();
+        Assert.False(await verification.Inspections.AnyAsync(x => x.Id == duplicate.InspectionId));
+        Assert.False(await verification.LotDuplications.AnyAsync(x =>
+            x.SourceInspectionId == source.InspectionId || x.DestinationInspectionId == duplicate.InspectionId));
+    }
+
+    [Fact]
+    public async Task DeletingAFlippedInspectionRemovesItsLineageRecord()
+    {
+        var sourcePartId = await CreatePartAsync(partNumber: "FLIP-DELETE-SOURCE");
+        var targetPartId = await CreatePartAsync(partNumber: "FLIP-DELETE-TARGET");
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21");
+        await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20", "21");
+        var definition = await new PartFlipService(database).SaveDefinitionAsync(sourcePartId, targetPartId);
+        var source = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = sourcePartId,
+            LotNumber = "FLIP-DELETE-SOURCE-LOT",
+            QuantityReceived = 10,
+            InspectionDate = new DateOnly(2026, 9, 2)
+        });
+        var flipped = await inspectionService.FlipInspectionAsync(
+            source.InspectionId!.Value,
+            definition.DefinitionId!.Value,
+            4,
+            "FLIP-DELETE-DESTINATION-LOT");
+        var deleteModel = await inspectionService.GetInspectionForDeleteAsync(flipped.InspectionId!.Value);
+
+        var deleted = await inspectionService.DeleteInspectionAsync(
+            flipped.InspectionId!.Value,
+            deleteModel!.Version);
+
+        Assert.Equal(InspectionOperationStatus.Succeeded, deleted.Status);
+        await using var verification = database.CreateDbContext();
+        Assert.False(await verification.Inspections.AnyAsync(x => x.Id == flipped.InspectionId));
+        Assert.False(await verification.LotFlips.AnyAsync(x =>
+            x.SourceInspectionId == source.InspectionId || x.DestinationInspectionId == flipped.InspectionId));
+    }
+
     private async Task<long> CreateAndPublishRevisionAsync(
         long partId,
         long gageTypeId,
@@ -1259,8 +1376,11 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         var sourcePartId = await CreatePartAsync(partNumber: "FLIP-SOURCE");
         var targetPartId = await CreatePartAsync(partNumber: "FLIP-TARGET");
         var gageTypeId = await CreateGageTypeAsync();
-        await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21");
-        await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20.2", "21");
+        var gageId = await CreateGageAsync(gageTypeId, "FLIP-MIC-001");
+        var heatTreatId = (await criteriaService.GetSecondaryProcessTypeChoicesAsync())
+            .Single(x => x.Name == "Heat Treat").Id;
+        await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21", secondaryProcesses: [(heatTreatId, "Source heat-treat specification")]);
+        await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20.2", "21", secondaryProcesses: [(heatTreatId, "Target heat-treat specification")]);
         var flipService = new PartFlipService(database);
         var definition = await flipService.SaveDefinitionAsync(sourcePartId, targetPartId);
         Assert.Equal(SavePartFlipStatus.Saved, definition.Status);
@@ -1268,7 +1388,36 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         var source = await inspectionService.GetInspectionAsync(sourceCreate.InspectionId!.Value);
         source!.Results[0].ActualMin = "20.1";
         source.Results[0].ActualMax = "20.1";
+        source.Results[0].GageId = gageId;
+        source.Results[0].DeviationApproved = true;
+        source.InHouseNotes = "Source internal note";
+        source.SecondaryProcesses[0].PurchaseOrderNumber = "HT-PO-100";
+        source.SecondaryProcesses[0].IsComplete = true;
         Assert.Equal(InspectionOperationStatus.Succeeded, (await inspectionService.SaveInspectionAsync(source)).Status);
+
+        await using (var certificationDb = database.CreateDbContext())
+        {
+            var material = await certificationDb.CertificationTypes.SingleAsync(x => x.Name == "Material");
+            certificationDb.InspectionCertifications.Add(new InspectionCertification
+            {
+                InspectionId = source.Id,
+                CertificationTypeId = material.Id,
+                CertificationTypeName = material.Name,
+                Description = "Material certification",
+                Notes = "Use this lot's material cert.",
+                Documents =
+                {
+                    new CertificationDocument
+                    {
+                        OriginalFileName = "material.pdf",
+                        ContentType = "application/pdf",
+                        Content = "%PDF-1.7\nmaterial\n%%EOF"u8.ToArray(),
+                        PreviewContent = "preview"u8.ToArray()
+                    }
+                }
+            });
+            await certificationDb.SaveChangesAsync();
+        }
 
         var invalidQuantity = await inspectionService.FlipInspectionAsync(source.Id, definition.DefinitionId!.Value, 10, "INVALID-FLIP-LOT");
         Assert.Equal(InspectionOperationStatus.ValidationFailed, invalidQuantity.Status);
@@ -1281,15 +1430,60 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(4, target.QuantityReceived);
         Assert.Equal("20.1", target.Results[0].ActualMin);
         Assert.Equal("20.1", target.Results[0].ActualMax);
+        Assert.Equal(gageId, target.Results[0].GageId);
+        Assert.Equal("FLIP-MIC-001", target.Results[0].GageNumber);
+        Assert.True(target.Results[0].DeviationApproved);
         Assert.Equal("20.2", target.Results[0].SpecifiedMinimum); // target tolerance, not copied source specification
+        Assert.Equal("Source internal note", target.InHouseNotes);
+        var targetProcess = Assert.Single(target.SecondaryProcesses);
+        Assert.Equal("Target heat-treat specification", targetProcess.Specification);
+        Assert.Equal("HT-PO-100", targetProcess.PurchaseOrderNumber);
+        Assert.True(targetProcess.IsComplete);
+        var targetCertification = Assert.Single(target.Certifications, x => x.CertificationTypeName == "Material");
+        Assert.Equal("Material certification", targetCertification.Description);
+        Assert.Equal("Use this lot's material cert.", targetCertification.Notes);
+        Assert.Equal("material.pdf", Assert.Single(targetCertification.Documents).OriginalFileName);
         var unchangedSource = await inspectionService.GetInspectionAsync(source.Id);
         Assert.Equal("FLIP-SOURCE-LOT", unchangedSource!.LotNumber);
         Assert.Equal(6, unchangedSource.QuantityReceived);
         Assert.Equal("20.1", unchangedSource.Results[0].ActualMin);
+        Assert.Equal("Source internal note", unchangedSource.InHouseNotes);
         await using var db = database.CreateDbContext();
+        var copiedDocument = await db.CertificationDocuments.SingleAsync(x => x.InspectionCertification.InspectionId == target.Id);
+        Assert.Equal("%PDF-1.7\nmaterial\n%%EOF"u8.ToArray(), copiedDocument.Content);
+        Assert.Equal("preview"u8.ToArray(), copiedDocument.PreviewContent);
         var lineage = await db.LotFlips.SingleAsync();
         Assert.Equal(source.Id, lineage.SourceInspectionId);
         Assert.Equal(target.Id, lineage.DestinationInspectionId);
+        Assert.Equal(4, lineage.QuantityMoved);
+        Assert.Collection(
+            target.LineageHistory,
+            entry =>
+            {
+                Assert.Equal(InspectionLineageOperation.Flip, entry.Operation);
+                Assert.Equal(source.Id, entry.SourceInspectionId);
+                Assert.Equal("FLIP-SOURCE-LOT", entry.SourceLotNumber);
+                Assert.Equal(target.Id, entry.DestinationInspectionId);
+                Assert.Equal("FLIP-TARGET-LOT", entry.DestinationLotNumber);
+                Assert.Equal(4, entry.QuantityMoved);
+            });
+
+        var flipHistory = Assert.Single(target.LineageHistory);
+        var undoConfirmation = await inspectionService.UndoLineageOperationAsync(
+            source.Id,
+            flipHistory.Operation,
+            flipHistory.Id,
+            confirmDestinationDeletion: false);
+        Assert.Equal(InspectionOperationStatus.ConfirmationRequired, undoConfirmation.Status);
+
+        var undo = await inspectionService.UndoLineageOperationAsync(
+            source.Id,
+            flipHistory.Operation,
+            flipHistory.Id,
+            confirmDestinationDeletion: true);
+        Assert.Equal(InspectionOperationStatus.Succeeded, undo.Status);
+        Assert.Equal(10, (await inspectionService.GetInspectionAsync(source.Id))!.QuantityReceived);
+        Assert.Null(await inspectionService.GetInspectionAsync(target.Id));
     }
 
     [Fact]

@@ -66,6 +66,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<LotFlip> LotFlips => Set<LotFlip>();
 
+    public DbSet<LotDuplication> LotDuplications => Set<LotDuplication>();
+
+    public DbSet<LotTransfer> LotTransfers => Set<LotTransfer>();
+
     public DbSet<InspectionResult> InspectionResults => Set<InspectionResult>();
 
     public DbSet<InspectionSecondaryProcess> InspectionSecondaryProcesses =>
@@ -701,7 +705,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasDatabaseName("UX_inspections_lot_number");
 
         var lotFlip = modelBuilder.Entity<LotFlip>();
-        lotFlip.ToTable("lot_flips", table => table.HasCheckConstraint("CK_lot_flips_different_inspections", "source_inspection_id <> destination_inspection_id"));
+        lotFlip.ToTable("lot_flips", table =>
+        {
+            table.HasCheckConstraint("CK_lot_flips_different_inspections", "source_inspection_id <> destination_inspection_id");
+            table.HasCheckConstraint("CK_lot_flips_positive_quantity", "quantity_moved IS NULL OR quantity_moved > 0");
+        });
         lotFlip.HasKey(x => x.Id).HasName("PK_lot_flips");
         lotFlip.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         lotFlip.Property(x => x.SourceInspectionId).HasColumnName("source_inspection_id");
@@ -709,12 +717,47 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         lotFlip.Property(x => x.PartFlipDefinitionId).HasColumnName("part_flip_definition_id");
         lotFlip.Property(x => x.PerformedByUserId).HasColumnName("performed_by_user_id");
         lotFlip.Property(x => x.PerformedAtUtc).HasColumnName("performed_at_utc").HasDefaultValueSql("CURRENT_TIMESTAMP");
+        lotFlip.Property(x => x.QuantityMoved).HasColumnName("quantity_moved");
         lotFlip.HasOne(x => x.SourceInspection).WithMany(x => x.FlipsFrom).HasForeignKey(x => x.SourceInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_source_inspection_id");
         lotFlip.HasOne(x => x.DestinationInspection).WithMany(x => x.FlippedFrom).HasForeignKey(x => x.DestinationInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_destination_inspection_id");
         lotFlip.HasOne(x => x.PartFlipDefinition).WithMany(x => x.LotFlips).HasForeignKey(x => x.PartFlipDefinitionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_definition_id");
         lotFlip.HasOne<Confast.Web.Features.Identity.ApplicationUser>().WithMany().HasForeignKey(x => x.PerformedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_user_id");
         lotFlip.HasIndex(x => x.SourceInspectionId).HasDatabaseName("IX_lot_flips_source_inspection_id");
         lotFlip.HasIndex(x => x.DestinationInspectionId).IsUnique().HasDatabaseName("UX_lot_flips_destination_inspection_id");
+
+        var lotDuplication = modelBuilder.Entity<LotDuplication>();
+        lotDuplication.ToTable("lot_duplications", table =>
+        {
+            table.HasCheckConstraint("CK_lot_duplications_different_inspections", "source_inspection_id <> destination_inspection_id");
+            table.HasCheckConstraint("CK_lot_duplications_positive_quantity", "quantity_moved > 0");
+        });
+        lotDuplication.HasKey(x => x.Id).HasName("PK_lot_duplications");
+        lotDuplication.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        lotDuplication.Property(x => x.SourceInspectionId).HasColumnName("source_inspection_id");
+        lotDuplication.Property(x => x.DestinationInspectionId).HasColumnName("destination_inspection_id");
+        lotDuplication.Property(x => x.QuantityMoved).HasColumnName("quantity_moved");
+        lotDuplication.Property(x => x.PerformedAtUtc).HasColumnName("performed_at_utc").HasDefaultValueSql("CURRENT_TIMESTAMP");
+        lotDuplication.HasOne(x => x.SourceInspection).WithMany(x => x.DuplicationsFrom).HasForeignKey(x => x.SourceInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_duplications_source_inspection_id");
+        lotDuplication.HasOne(x => x.DestinationInspection).WithMany(x => x.DuplicatedFrom).HasForeignKey(x => x.DestinationInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_duplications_destination_inspection_id");
+        lotDuplication.HasIndex(x => x.SourceInspectionId).HasDatabaseName("IX_lot_duplications_source_inspection_id");
+        lotDuplication.HasIndex(x => x.DestinationInspectionId).IsUnique().HasDatabaseName("UX_lot_duplications_destination_inspection_id");
+
+        var lotTransfer = modelBuilder.Entity<LotTransfer>();
+        lotTransfer.ToTable("lot_transfers", table =>
+        {
+            table.HasCheckConstraint("CK_lot_transfers_different_inspections", "source_inspection_id <> destination_inspection_id");
+            table.HasCheckConstraint("CK_lot_transfers_positive_quantity", "quantity_moved > 0");
+        });
+        lotTransfer.HasKey(x => x.Id).HasName("PK_lot_transfers");
+        lotTransfer.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        lotTransfer.Property(x => x.SourceInspectionId).HasColumnName("source_inspection_id");
+        lotTransfer.Property(x => x.DestinationInspectionId).HasColumnName("destination_inspection_id");
+        lotTransfer.Property(x => x.QuantityMoved).HasColumnName("quantity_moved");
+        lotTransfer.Property(x => x.PerformedAtUtc).HasColumnName("performed_at_utc").HasDefaultValueSql("CURRENT_TIMESTAMP");
+        lotTransfer.HasOne(x => x.SourceInspection).WithMany().HasForeignKey(x => x.SourceInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_transfers_source_inspection_id");
+        lotTransfer.HasOne(x => x.DestinationInspection).WithMany().HasForeignKey(x => x.DestinationInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_transfers_destination_inspection_id");
+        lotTransfer.HasIndex(x => x.SourceInspectionId).HasDatabaseName("IX_lot_transfers_source_inspection_id");
+        lotTransfer.HasIndex(x => x.DestinationInspectionId).HasDatabaseName("IX_lot_transfers_destination_inspection_id");
 
         var inspectionResult = modelBuilder.Entity<InspectionResult>();
 
@@ -988,6 +1031,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         user.Property(x => x.JobTitle)
             .HasColumnName("job_title")
             .HasMaxLength(200);
+        user.Property(x => x.CaliperId)
+            .HasColumnName("caliper_id");
         user.Property(x => x.IsActive)
             .HasColumnName("is_active")
             .HasDefaultValue(true);
@@ -997,6 +1042,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         user.HasIndex(x => x.NormalizedUserName)
             .IsUnique()
             .HasDatabaseName("UX_identity_users_normalized_user_name");
+        user.HasOne(x => x.Caliper)
+            .WithMany()
+            .HasForeignKey(x => x.CaliperId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_identity_users_caliper_id");
 
         var role = modelBuilder.Entity<IdentityRole>();
         role.ToTable("identity_roles");

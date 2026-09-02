@@ -28,7 +28,7 @@ public sealed class PartFlipCriterionMapping
 }
 
 /// <summary>Immutable lineage: a flip never replaces or modifies its source lot.</summary>
-public sealed class LotFlip
+public sealed class LotFlip : IInspectionLotLineage
 {
     public long Id { get; set; }
     public long SourceInspectionId { get; set; }
@@ -39,4 +39,6 @@ public sealed class LotFlip
     public PartFlipDefinition PartFlipDefinition { get; set; } = null!;
     public string? PerformedByUserId { get; set; }
     public DateTimeOffset PerformedAtUtc { get; set; }
+    // Flips recorded before lineage history did not capture the moved quantity.
+    public int? QuantityMoved { get; set; }
 }

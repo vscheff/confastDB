@@ -11,7 +11,6 @@
 else
 {
     <p>Allowed destinations are directional. A mapping is valid only for the current criteria revisions; publishing a new revision deliberately makes stale mappings invalid.</p>
-    @if (message is not null) { <div class="alert @messageClass" role="status">@message</div> }
     <section class="linked-records flip-configuration-section"><h2>Allowed Flip Destinations</h2>
         @if (configuration.Definitions.Count == 0) { <p>No destinations configured.</p> }
         else { <div class="flip-destinations-shell"><table class="flip-destinations-table"><thead><tr><th>Part</th><th>Customer</th><th>Compatibility</th><th></th></tr></thead><tbody>@foreach (var definition in configuration.Definitions) { <tr><td><strong>@definition.TargetPartNumber</strong></td><td>@definition.CustomerName</td><td><span class="status-pill @(definition.IsCompatible ? "status-active" : "status-inactive")">@(definition.IsCompatible ? "Compatible" : "Needs attention")</span>@if (!definition.IsCompatible) { <small>@definition.ValidationMessage</small> }</td><td><button class="button button-secondary" @onclick="() => DeleteAsync(definition.Id)">Remove</button></td></tr> }</tbody></table></div> }
@@ -44,6 +43,7 @@ else
             </table>
             </div>
             <button class="button button-primary" @onclick="SaveAsync">Save destination</button>
+            @if (message is not null) { <div class="alert @messageClass" role="status">@message</div> }
         }
     </section>
 }

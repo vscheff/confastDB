@@ -28,6 +28,44 @@ public sealed record InspectionListItem(
     bool Accepted,
     bool Completed);
 
+public sealed class InspectionFindModel
+{
+    public string? PartNumber { get; set; }
+
+    public string? LotNumber { get; set; }
+
+    public string? ConformancePoNumber { get; set; }
+
+    public string? ManufacturerLotNumber { get; set; }
+
+    public DateOnly? DateReceived { get; set; }
+
+    public DateOnly? InspectionDate { get; set; }
+
+    public int? QuantityReceived { get; set; }
+
+    public int? QuantityInspected { get; set; }
+
+    public string? Inspector { get; set; }
+
+    public static InspectionFindModel Clone(InspectionFindModel source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new InspectionFindModel
+        {
+            PartNumber = source.PartNumber,
+            LotNumber = source.LotNumber,
+            ConformancePoNumber = source.ConformancePoNumber,
+            ManufacturerLotNumber = source.ManufacturerLotNumber,
+            DateReceived = source.DateReceived,
+            InspectionDate = source.InspectionDate,
+            QuantityReceived = source.QuantityReceived,
+            QuantityInspected = source.QuantityInspected,
+            Inspector = source.Inspector
+        };
+    }
+}
+
 public sealed record InspectionDeleteModel(
     long Id,
     string PartNumber,
@@ -188,6 +226,8 @@ public sealed class InspectionEditModel : IValidatableObject
 
     public InspectionFlipLineageItem? FlippedFrom { get; set; }
 
+    public List<InspectionLineageHistoryItem> LineageHistory { get; set; } = [];
+
     public bool IsMissingRequiredCertifications => Certifications.Any(x => x.IsMissingRequired);
 
     // Used only by the protected, short-lived package print route. It is never
@@ -219,6 +259,35 @@ public sealed class InspectionEditModel : IValidatableObject
 }
 
 public sealed record InspectionFlipLineageItem(long InspectionId, string? LotNumber, string PartNumber);
+
+public enum InspectionLineageOperation
+{
+    Duplicate,
+    Flip,
+    Transfer
+}
+
+public interface IInspectionLotLineage
+{
+    long Id { get; }
+    long SourceInspectionId { get; }
+    Inspection SourceInspection { get; }
+    long DestinationInspectionId { get; }
+    Inspection DestinationInspection { get; }
+    int? QuantityMoved { get; }
+    DateTimeOffset PerformedAtUtc { get; }
+}
+
+public sealed record InspectionLineageHistoryItem(
+    long Id,
+    InspectionLineageOperation Operation,
+    DateTimeOffset PerformedAtUtc,
+    long SourceInspectionId,
+    string? SourceLotNumber,
+    long DestinationInspectionId,
+    string? DestinationLotNumber,
+    int? QuantityMoved,
+    bool IsMostRecent = false);
 
 public sealed class InspectionCertificationListItem
 {
@@ -417,7 +486,8 @@ public enum InspectionOperationStatus
     NotFound,
     Conflict,
     NoCurrentRevision,
-    ValidationFailed
+    ValidationFailed,
+    ConfirmationRequired
 }
 
 public sealed record InspectionOperationResult(
