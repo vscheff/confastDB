@@ -39,6 +39,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     public DbSet<PartPlant> PartPlants => Set<PartPlant>();
 
+    public DbSet<PartFlipDefinition> PartFlipDefinitions => Set<PartFlipDefinition>();
+
+    public DbSet<PartFlipCriterionMapping> PartFlipCriterionMappings => Set<PartFlipCriterionMapping>();
+
     public DbSet<GageType> GageTypes => Set<GageType>();
 
     public DbSet<Gage> Gages => Set<Gage>();
@@ -59,6 +63,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<RevisionCertificationRequirement>();
 
     public DbSet<Inspection> Inspections => Set<Inspection>();
+
+    public DbSet<LotFlip> LotFlips => Set<LotFlip>();
 
     public DbSet<InspectionResult> InspectionResults => Set<InspectionResult>();
 
@@ -296,6 +302,30 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_part_plants_plants_plant_id");
         partPlant.HasIndex(x => x.PlantId).HasDatabaseName("IX_part_plants_plant_id");
+
+        var partFlipDefinition = modelBuilder.Entity<PartFlipDefinition>();
+        partFlipDefinition.ToTable("part_flip_definitions", table => table.HasCheckConstraint("CK_part_flip_definitions_different_parts", "source_part_id <> target_part_id"));
+        partFlipDefinition.HasKey(x => x.Id).HasName("PK_part_flip_definitions");
+        partFlipDefinition.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        partFlipDefinition.Property(x => x.SourcePartId).HasColumnName("source_part_id");
+        partFlipDefinition.Property(x => x.TargetPartId).HasColumnName("target_part_id");
+        partFlipDefinition.HasOne(x => x.SourcePart).WithMany(x => x.FlipDefinitionsFrom).HasForeignKey(x => x.SourcePartId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_part_flip_definitions_source_part_id");
+        partFlipDefinition.HasOne(x => x.TargetPart).WithMany(x => x.FlipDefinitionsTo).HasForeignKey(x => x.TargetPartId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_part_flip_definitions_target_part_id");
+        partFlipDefinition.HasIndex(x => new { x.SourcePartId, x.TargetPartId }).IsUnique().HasDatabaseName("UX_part_flip_definitions_source_target");
+        partFlipDefinition.HasIndex(x => x.TargetPartId).HasDatabaseName("IX_part_flip_definitions_target_part_id");
+
+        var partFlipMapping = modelBuilder.Entity<PartFlipCriterionMapping>();
+        partFlipMapping.ToTable("part_flip_criterion_mappings");
+        partFlipMapping.HasKey(x => x.Id).HasName("PK_part_flip_criterion_mappings");
+        partFlipMapping.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        partFlipMapping.Property(x => x.PartFlipDefinitionId).HasColumnName("part_flip_definition_id");
+        partFlipMapping.Property(x => x.SourceCriterionId).HasColumnName("source_criterion_id");
+        partFlipMapping.Property(x => x.TargetCriterionId).HasColumnName("target_criterion_id");
+        partFlipMapping.HasOne(x => x.PartFlipDefinition).WithMany(x => x.CriterionMappings).HasForeignKey(x => x.PartFlipDefinitionId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("FK_part_flip_criterion_mappings_definition_id");
+        partFlipMapping.HasOne(x => x.SourceCriterion).WithMany().HasForeignKey(x => x.SourceCriterionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_part_flip_criterion_mappings_source_criterion_id");
+        partFlipMapping.HasOne(x => x.TargetCriterion).WithMany().HasForeignKey(x => x.TargetCriterionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_part_flip_criterion_mappings_target_criterion_id");
+        partFlipMapping.HasIndex(x => new { x.PartFlipDefinitionId, x.SourceCriterionId }).IsUnique().HasDatabaseName("UX_part_flip_mappings_definition_source");
+        partFlipMapping.HasIndex(x => new { x.PartFlipDefinitionId, x.TargetCriterionId }).IsUnique().HasDatabaseName("UX_part_flip_mappings_definition_target");
 
         var gageType = modelBuilder.Entity<GageType>();
         gageType.ToTable("gage_types");
@@ -669,6 +699,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         inspection.HasIndex(x => x.LotNumber)
             .IsUnique()
             .HasDatabaseName("UX_inspections_lot_number");
+
+        var lotFlip = modelBuilder.Entity<LotFlip>();
+        lotFlip.ToTable("lot_flips", table => table.HasCheckConstraint("CK_lot_flips_different_inspections", "source_inspection_id <> destination_inspection_id"));
+        lotFlip.HasKey(x => x.Id).HasName("PK_lot_flips");
+        lotFlip.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        lotFlip.Property(x => x.SourceInspectionId).HasColumnName("source_inspection_id");
+        lotFlip.Property(x => x.DestinationInspectionId).HasColumnName("destination_inspection_id");
+        lotFlip.Property(x => x.PartFlipDefinitionId).HasColumnName("part_flip_definition_id");
+        lotFlip.Property(x => x.PerformedByUserId).HasColumnName("performed_by_user_id");
+        lotFlip.Property(x => x.PerformedAtUtc).HasColumnName("performed_at_utc").HasDefaultValueSql("CURRENT_TIMESTAMP");
+        lotFlip.HasOne(x => x.SourceInspection).WithMany(x => x.FlipsFrom).HasForeignKey(x => x.SourceInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_source_inspection_id");
+        lotFlip.HasOne(x => x.DestinationInspection).WithMany(x => x.FlippedFrom).HasForeignKey(x => x.DestinationInspectionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_destination_inspection_id");
+        lotFlip.HasOne(x => x.PartFlipDefinition).WithMany(x => x.LotFlips).HasForeignKey(x => x.PartFlipDefinitionId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_definition_id");
+        lotFlip.HasOne<Confast.Web.Features.Identity.ApplicationUser>().WithMany().HasForeignKey(x => x.PerformedByUserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("FK_lot_flips_user_id");
+        lotFlip.HasIndex(x => x.SourceInspectionId).HasDatabaseName("IX_lot_flips_source_inspection_id");
+        lotFlip.HasIndex(x => x.DestinationInspectionId).IsUnique().HasDatabaseName("UX_lot_flips_destination_inspection_id");
 
         var inspectionResult = modelBuilder.Entity<InspectionResult>();
 

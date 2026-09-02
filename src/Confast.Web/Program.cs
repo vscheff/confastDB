@@ -128,6 +128,7 @@ builder.Services.AddScoped<ICertificationEmailService, CertificationEmailService
 builder.Services.AddScoped<NominalToleranceSettingsService>();
 builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<PartService>();
+builder.Services.AddScoped<PartFlipService>();
 
 if (builder.Environment.IsDevelopment())
 {

@@ -137,7 +137,10 @@ else
             <h2>Requirements</h2>
             @if (revision.CanEdit)
             {
-                <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add criterion</button>
+                <div class="heading-actions">
+                    <button class="button button-secondary" type="button" @onclick="AlignAllCriterionDecimalPlacesAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Match decimal places</button>
+                    <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add criterion</button>
+                </div>
             }
         </div>
 
@@ -836,6 +839,35 @@ else
         string.IsNullOrWhiteSpace(value) ? "blank" : $"'{value}'";
 
     private Task SaveEditAsync() => SaveEditAsync(addAnother: false);
+
+    private async Task AlignAllCriterionDecimalPlacesAsync()
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var result = await CriteriaService.AlignCriterionDecimalPlacesAsync(PartId, RevisionId);
+            if (result.Status == CriteriaOperationStatus.Succeeded)
+            {
+                await LoadAsync();
+                message = "Decimal places matched for numeric requirements.";
+                messageClass = "alert-success";
+                return;
+            }
+
+            SetOperationMessage(result);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to match criterion decimal places for revision {RevisionId}", RevisionId);
+            message = "The requirement decimal places could not be matched. Please try again.";
+            messageClass = "alert-error";
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
 
     private async Task SaveEditAsync(bool addAnother)
     {

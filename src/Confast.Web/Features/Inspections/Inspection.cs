@@ -46,4 +46,8 @@ public sealed class Inspection
     public ICollection<InspectionCertificationRequirement> CertificationRequirements { get; } = [];
 
     public ICollection<InspectionCertification> Certifications { get; } = [];
+
+    public ICollection<LotFlip> FlipsFrom { get; } = [];
+
+    public ICollection<LotFlip> FlippedFrom { get; } = [];
 }

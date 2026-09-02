@@ -71,6 +71,7 @@ else
             {
                 part.CustomerId = CustomerId.Value;
                 plantOptions = await PartService.GetPlantOptionsAsync(part.CustomerId);
+                SelectSoleDestinationPlant();
             }
         }
         catch (Exception exception)
@@ -87,6 +88,18 @@ else
     private async Task LoadPlantsAsync(long customerId)
     {
         plantOptions = customerId > 0 ? await PartService.GetPlantOptionsAsync(customerId) : [];
+        SelectSoleDestinationPlant();
+    }
+
+    private void SelectSoleDestinationPlant()
+    {
+        if (plantOptions.Count != 1)
+        {
+            return;
+        }
+
+        part.PlantIds.Clear();
+        part.PlantIds.Add(plantOptions[0].Id);
     }
 
     private async Task CreatePartAsync()

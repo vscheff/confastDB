@@ -23,6 +23,10 @@ public static class InspectionResultEvaluator
         @"(?<![A-Za-z])(?:Reference|Ref\.)(?![A-Za-z])|(?<![A-Za-z])Ref(?![A-Za-z\.])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    private static readonly Regex TrailingPrecisionQualifier = new(
+        @"^\s*(?<number>[+-]?(?:\d+(?:,\d{3})*(?:\.\d*)?|\.\d+))\s+(?:Nominal|Nom\.?|Reference|Ref\.?)\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
     private static readonly Regex IgnorableTaggedPunctuation = new(
         @"[\(\)\[\]:;]",
         RegexOptions.CultureInvariant);
@@ -162,12 +166,83 @@ public static class InspectionResultEvaluator
         && TryParseNumber(recordedMaximum, out var maximum)
         && minimum > maximum;
 
+    public static string? EnsureRecordedDecimalPlaces(
+        string? recordedValue,
+        string? specifiedMinimum,
+        string? specifiedMaximum)
+    {
+        if (!TryGetPlainNumberDecimalPlaceCount(recordedValue, out var recordedDecimalPlaces))
+        {
+            return recordedValue;
+        }
+
+        var normalizedRecordedValue = AddLeadingZero(recordedValue!);
+
+        var requiredDecimalPlaces = 0;
+        if (TryGetSpecifiedDecimalPlaceCount(specifiedMinimum, out var minimumDecimalPlaces))
+        {
+            requiredDecimalPlaces = minimumDecimalPlaces;
+        }
+
+        if (TryGetSpecifiedDecimalPlaceCount(specifiedMaximum, out var maximumDecimalPlaces))
+        {
+            requiredDecimalPlaces = Math.Max(requiredDecimalPlaces, maximumDecimalPlaces);
+        }
+
+        return requiredDecimalPlaces <= recordedDecimalPlaces
+            ? normalizedRecordedValue
+            : normalizedRecordedValue.Contains('.')
+                ? normalizedRecordedValue + new string('0', requiredDecimalPlaces - recordedDecimalPlaces)
+                : normalizedRecordedValue + "." + new string('0', requiredDecimalPlaces);
+    }
+
     public static bool TryParseNumber(string? value, out decimal result) =>
         decimal.TryParse(
             value?.Trim(),
             NumberStyles.Number,
             CultureInfo.InvariantCulture,
             out result);
+
+    private static bool TryGetSpecifiedDecimalPlaceCount(string? specification, out int decimalPlaces)
+    {
+        if (TryGetPlainNumberDecimalPlaceCount(specification, out decimalPlaces))
+        {
+            return true;
+        }
+
+        var qualifierMatch = specification is null ? null : TrailingPrecisionQualifier.Match(specification);
+        return qualifierMatch is not null
+            && qualifierMatch.Success
+            && TryGetPlainNumberDecimalPlaceCount(qualifierMatch.Groups["number"].Value, out decimalPlaces);
+    }
+
+    private static bool TryGetPlainNumberDecimalPlaceCount(string? value, out int decimalPlaces)
+    {
+        decimalPlaces = 0;
+        if (string.IsNullOrWhiteSpace(value)
+            || value != value.Trim()
+            || !TryParseNumber(value, out _))
+        {
+            return false;
+        }
+
+        var decimalSeparatorIndex = value.IndexOf('.');
+        if (decimalSeparatorIndex < 0 || decimalSeparatorIndex != value.LastIndexOf('.'))
+        {
+            return decimalSeparatorIndex < 0;
+        }
+
+        decimalPlaces = value.Length - decimalSeparatorIndex - 1;
+        return true;
+    }
+
+    private static string AddLeadingZero(string value) => value switch
+    {
+        [ '.', .. ] => "0" + value,
+        [ '-', '.', .. ] => "-0" + value[1..],
+        [ '+', '.', .. ] => "+0" + value[1..],
+        _ => value
+    };
 
     private static bool ContainsSpecifier(string? value, Regex specifier) =>
         !string.IsNullOrWhiteSpace(value) && specifier.IsMatch(value);

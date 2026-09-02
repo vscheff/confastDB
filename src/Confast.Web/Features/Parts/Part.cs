@@ -29,6 +29,10 @@ public sealed class Part
     public ICollection<Inspection> Inspections { get; } = [];
 
     public ICollection<PartPlant> PartPlants { get; } = [];
+
+    public ICollection<PartFlipDefinition> FlipDefinitionsFrom { get; } = [];
+
+    public ICollection<PartFlipDefinition> FlipDefinitionsTo { get; } = [];
 }
 
 public sealed class PartPlant

@@ -1,5 +1,6 @@
 @page "/inspections"
 @using Confast.Web.Features.Inspections
+@using System.Globalization
 @inject InspectionService InspectionService
 @inject ILogger<Index> Logger
 @inject NavigationManager Navigation
@@ -87,12 +88,30 @@ else
                             {
                                 <div class="row-actions inspection-list-actions">
                                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}")">Open</a>
-                                    <button class="button button-secondary"
-                                            type="button"
-                                            @onclick="() => DuplicateInspectionAsync(inspection.Id)"
-                                            disabled="@isDuplicating">
-                                        @(isDuplicating ? "Duplicating…" : "Duplicate")
-                                    </button>
+                                    @if (pendingDuplicateId == inspection.Id)
+                                    {
+                                        <div class="row-actions delete-confirmation">
+                                            <label>
+                                                New lot number
+                                                <input required @bind="duplicateLotNumber" />
+                                            </label>
+                                            <label>
+                                                Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))
+                                                <input inputmode="numeric"
+                                                       value="@(duplicateQuantity?.ToString("N0", CultureInfo.InvariantCulture))"
+                                                       @oninput="UpdateDuplicateQuantity"
+                                                       @onkeydown="@(args => HandleDuplicateQuantityKeyDownAsync(inspection.Id, args))" />
+                                            </label>
+                                            <button class="button button-secondary button-compact" type="button" @onclick="() => DuplicateInspectionAsync(inspection.Id)" disabled="@isDuplicating">
+                                                @(isDuplicating ? "Duplicating…" : "Confirm")
+                                            </button>
+                                            <button class="button button-secondary button-compact" type="button" @onclick="CancelDuplicate" disabled="@isDuplicating">Cancel</button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="button button-secondary" type="button" @onclick="() => BeginDuplicate(inspection)" disabled="@isDuplicating">Duplicate</button>
+                                    }
                                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
                                     <details class="inspection-print-options">
                                         <summary class="button button-secondary">Print / Download</summary>
@@ -125,6 +144,9 @@ else
     private bool isDeleting;
     private bool isDuplicating;
     private long? pendingDeleteId;
+    private long? pendingDuplicateId;
+    private int? duplicateQuantity;
+    private string? duplicateLotNumber;
     private string? loadError;
     private string? actionMessage;
     private string actionMessageClass = "alert-error";
@@ -159,6 +181,61 @@ else
     }
 
     private void CancelDelete() => pendingDeleteId = null;
+
+    private void BeginDuplicate(InspectionListItem inspection)
+    {
+        actionMessage = null;
+        if (inspection.QuantityReceived is not > 1)
+        {
+            actionMessage = "Quantity received must be greater than one before an inspection can be split.";
+            actionMessageClass = "alert-error";
+            return;
+        }
+
+        pendingDuplicateId = inspection.Id;
+        duplicateQuantity = null;
+        duplicateLotNumber = null;
+    }
+
+    private void CancelDuplicate()
+    {
+        pendingDuplicateId = null;
+        duplicateQuantity = null;
+        duplicateLotNumber = null;
+    }
+
+    private void UpdateDuplicateQuantity(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            duplicateQuantity = null;
+            return;
+        }
+
+        if (int.TryParse(
+                value,
+                NumberStyles.Integer | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var parsedQuantity))
+        {
+            duplicateQuantity = parsedQuantity;
+            actionMessage = null;
+            return;
+        }
+
+        duplicateQuantity = null;
+        actionMessage = "Enter a valid whole number.";
+        actionMessageClass = "alert-error";
+    }
+
+    private async Task HandleDuplicateQuantityKeyDownAsync(long inspectionId, KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await DuplicateInspectionAsync(inspectionId);
+        }
+    }
 
     private async Task DeleteInspectionAsync(InspectionListItem inspection)
     {
@@ -202,14 +279,32 @@ else
 
     private async Task DuplicateInspectionAsync(long inspectionId)
     {
+        if (string.IsNullOrWhiteSpace(duplicateLotNumber))
+        {
+            actionMessage = "Enter the new lot number.";
+            actionMessageClass = "alert-error";
+            return;
+        }
+
+        if (duplicateQuantity is not int quantityToMove)
+        {
+            actionMessage = "Enter the quantity to move to the duplicated inspection.";
+            actionMessageClass = "alert-error";
+            return;
+        }
+
         isDuplicating = true;
         actionMessage = null;
 
         try
         {
-            var result = await InspectionService.DuplicateInspectionAsync(inspectionId);
+            var result = await InspectionService.DuplicateInspectionAsync(
+                inspectionId,
+                quantityToMove,
+                duplicateLotNumber);
             if (result.Status == InspectionOperationStatus.Succeeded)
             {
+                CancelDuplicate();
                 Navigation.NavigateTo($"/inspections/{result.InspectionId}");
                 return;
             }
@@ -218,6 +313,7 @@ else
             {
                 InspectionOperationStatus.NotFound => "This inspection no longer exists.",
                 InspectionOperationStatus.Conflict => "The inspection changed while it was being duplicated. Please try again.",
+                InspectionOperationStatus.ValidationFailed => result.Message,
                 _ => "The inspection could not be duplicated. Please try again."
             };
             actionMessageClass = result.Status == InspectionOperationStatus.Conflict

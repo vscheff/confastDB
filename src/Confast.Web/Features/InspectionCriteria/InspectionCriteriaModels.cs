@@ -176,6 +176,49 @@ public static class InspectionCriterionRangeValidator
         decimal.TryParse(minimum?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedMinimum)
         && decimal.TryParse(maximum?.Trim(), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedMaximum)
         && parsedMinimum > parsedMaximum;
+
+    public static (string? Minimum, string? MaximumOrTolerance) AlignDecimalPlaces(
+        string? minimum,
+        string? maximumOrTolerance)
+    {
+        if (!TryGetDecimalPlaceCount(minimum, out var minimumDecimalPlaces)
+            || !TryGetDecimalPlaceCount(maximumOrTolerance, out var maximumDecimalPlaces))
+        {
+            return (minimum, maximumOrTolerance);
+        }
+
+        var decimalPlaces = Math.Max(minimumDecimalPlaces, maximumDecimalPlaces);
+        return (
+            AddTrailingZeros(minimum!, decimalPlaces - minimumDecimalPlaces),
+            AddTrailingZeros(maximumOrTolerance!, decimalPlaces - maximumDecimalPlaces));
+    }
+
+    private static bool TryGetDecimalPlaceCount(string? value, out int decimalPlaces)
+    {
+        decimalPlaces = 0;
+        if (string.IsNullOrWhiteSpace(value)
+            || value != value.Trim()
+            || !decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _))
+        {
+            return false;
+        }
+
+        var decimalSeparatorIndex = value.IndexOf('.');
+        if (decimalSeparatorIndex < 0 || decimalSeparatorIndex != value.LastIndexOf('.'))
+        {
+            return decimalSeparatorIndex < 0;
+        }
+
+        decimalPlaces = value.Length - decimalSeparatorIndex - 1;
+        return true;
+    }
+
+    private static string AddTrailingZeros(string value, int count) =>
+        count == 0
+            ? value
+            : value.Contains('.')
+                ? value + new string('0', count)
+                : value + "." + new string('0', count);
 }
 
 public enum CriteriaOperationStatus

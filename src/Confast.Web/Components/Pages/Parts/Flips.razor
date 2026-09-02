@@ -1,0 +1,65 @@
+@page "/parts/{PartId:long}/flips"
+@using Confast.Web.Features.Identity
+@using Confast.Web.Features.Parts
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@inject PartFlipService FlipService
+
+<PageTitle>Flip configuration</PageTitle>
+<p><a class="back-link" href="@($"/parts/{PartId}/edit")">← Part</a></p>
+<h1>Flip Configuration</h1>
+@if (configuration is null) { <p class="status-message">Loading…</p> }
+else
+{
+    <p>Allowed destinations are directional. A mapping is valid only for the current criteria revisions; publishing a new revision deliberately makes stale mappings invalid.</p>
+    @if (message is not null) { <div class="alert @messageClass" role="status">@message</div> }
+    <section class="linked-records flip-configuration-section"><h2>Allowed Flip Destinations</h2>
+        @if (configuration.Definitions.Count == 0) { <p>No destinations configured.</p> }
+        else { <div class="flip-destinations-shell"><table class="flip-destinations-table"><thead><tr><th>Part</th><th>Customer</th><th>Compatibility</th><th></th></tr></thead><tbody>@foreach (var definition in configuration.Definitions) { <tr><td><strong>@definition.TargetPartNumber</strong></td><td>@definition.CustomerName</td><td><span class="status-pill @(definition.IsCompatible ? "status-active" : "status-inactive")">@(definition.IsCompatible ? "Compatible" : "Needs attention")</span>@if (!definition.IsCompatible) { <small>@definition.ValidationMessage</small> }</td><td><button class="button button-secondary" @onclick="() => DeleteAsync(definition.Id)">Remove</button></td></tr> }</tbody></table></div> }
+    </section>
+    <section class="linked-records flip-configuration-section"><h2>Add Flip Destination</h2>
+        <div class="form-field"><label for="flip-destination">Part</label><select id="flip-destination" @bind="targetPartId" @bind:after="LoadTargetCriteriaAsync"><option value="0">Select part</option>@foreach (var target in configuration.AvailableTargets) { <option value="@target.Id">@target.PartNumber</option> }</select></div>
+        @if (targetCriteria.Count > 0)
+        {
+            <p>Map each source criterion to one target criterion. Units must match; tolerances may differ.</p>
+            <div class="flip-mapping-shell">
+            <table class="flip-mapping-table">
+                <thead>
+                    <tr class="flip-mapping-group-row"><th colspan="3" scope="colgroup">Source criterion</th><th colspan="3" scope="colgroup">Target criterion</th></tr>
+                    <tr><th>Criterion</th><th>Maximum / Tolerance</th><th>Minimum</th><th>Criterion</th><th>Maximum / Tolerance</th><th>Minimum</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var source in configuration.SourceCriteria)
+                    {
+                        var selectedTarget = targetCriteria.SingleOrDefault(x => x.Id == selectedTargets.GetValueOrDefault(source.Id));
+                        <tr>
+                            <td class="flip-criterion-name"><strong>@source.Name</strong>@if (source.Unit is not null) { <small>@source.Unit</small> }</td>
+                            <td class="flip-limit">@(source.MaximumOrTolerance ?? "—")</td>
+                            <td class="flip-limit">@(source.Minimum ?? "—")</td>
+                            <td class="flip-target-picker"><select aria-label="Target criterion for @source.Name" @bind="selectedTargets[source.Id]"><option value="0">Select criterion</option>@foreach (var target in targetCriteria.Where(x => string.Equals(x.Unit?.Trim(), source.Unit?.Trim(), StringComparison.OrdinalIgnoreCase))) { <option value="@target.Id">@target.Name</option> }</select></td>
+                            <td class="flip-limit">@(selectedTarget?.MaximumOrTolerance ?? "—")</td>
+                            <td class="flip-limit">@(selectedTarget?.Minimum ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+            <button class="button button-primary" @onclick="SaveAsync">Save destination</button>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public long PartId { get; set; }
+    private PartFlipConfiguration? configuration;
+    private long targetPartId;
+    private IReadOnlyList<PartFlipCriterionOption> targetCriteria = [];
+    private readonly Dictionary<long, long> selectedTargets = [];
+    private string? message;
+    private string messageClass = "alert-error";
+
+    protected override async Task OnParametersSetAsync() => await ReloadAsync();
+    private async Task ReloadAsync() { configuration = await FlipService.GetConfigurationAsync(PartId); }
+    private async Task LoadTargetCriteriaAsync() { targetCriteria = targetPartId == 0 ? [] : await FlipService.GetCurrentCriterionOptionsAsync(targetPartId); selectedTargets.Clear(); if (configuration is not null) foreach (var source in configuration.SourceCriteria) { var candidate = targetCriteria.Where(x => string.Equals(x.Name.Trim(), source.Name.Trim(), StringComparison.OrdinalIgnoreCase) && string.Equals(x.Unit?.Trim(), source.Unit?.Trim(), StringComparison.OrdinalIgnoreCase)).ToList(); selectedTargets[source.Id] = candidate.Count == 1 ? candidate[0].Id : 0; } }
+    private async Task SaveAsync() { if (configuration is null) return; var result = await FlipService.SaveDefinitionAsync(PartId, targetPartId, configuration.SourceCriteria.Select(x => new PartFlipMappingInput(x.Id, selectedTargets.GetValueOrDefault(x.Id))).ToList()); message = result.Status == SavePartFlipStatus.Saved ? "Flip destination saved." : result.Message ?? "The flip destination could not be saved."; messageClass = result.Status == SavePartFlipStatus.Saved ? "alert-success" : "alert-error"; if (result.Status == SavePartFlipStatus.Saved) { targetPartId = 0; targetCriteria = []; await ReloadAsync(); } }
+    private async Task DeleteAsync(long id) { if (!await FlipService.DeleteDefinitionAsync(id)) { message = "This definition cannot be removed because a flip already depends on it."; messageClass = "alert-error"; return; } await ReloadAsync(); }
+}

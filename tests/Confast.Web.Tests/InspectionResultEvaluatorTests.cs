@@ -250,6 +250,56 @@ public sealed class InspectionResultEvaluatorTests
     }
 
     [Theory]
+    [InlineData("1.2", "0.12", "0.123", "1.200")]
+    [InlineData("1.2", "0.123 Nom", null, "1.200")]
+    [InlineData("1.2", "0.123 Nom.", null, "1.200")]
+    [InlineData("1.2", "0.123 nOmInAl", null, "1.200")]
+    [InlineData("1.2", "0.123 Ref", null, "1.200")]
+    [InlineData("1.2", "0.123 Ref.", null, "1.200")]
+    [InlineData("1.2", "0.123 Reference", null, "1.200")]
+    [InlineData("1.2345", "0.12", "0.123", "1.2345")]
+    public void RecordedMeasurementsArePaddedToTheGreatestSpecifiedPrecision(
+        string recordedValue,
+        string? specifiedMinimum,
+        string? specifiedMaximum,
+        string expected)
+    {
+        var formatted = InspectionResultEvaluator.EnsureRecordedDecimalPlaces(
+            recordedValue,
+            specifiedMinimum,
+            specifiedMaximum);
+
+        Assert.Equal(expected, formatted);
+    }
+
+    [Theory]
+    [InlineData("Pass")]
+    [InlineData("1.2")]
+    public void RecordedMeasurementsAreNotFormattedWithoutANumericSpecification(string recordedValue)
+    {
+        var formatted = InspectionResultEvaluator.EnsureRecordedDecimalPlaces(
+            recordedValue,
+            "Reference",
+            "GO / NO-GO");
+
+        Assert.Equal(recordedValue, formatted);
+    }
+
+    [Theory]
+    [InlineData(".546", "0.546")]
+    [InlineData("-.546", "-0.546")]
+    [InlineData("+.546", "+0.546")]
+    public void RecordedMeasurementsWithoutALeadingZeroAreNormalized(string recordedValue, string expected)
+    {
+        var formatted = InspectionResultEvaluator.EnsureRecordedDecimalPlaces(
+            recordedValue,
+            null,
+            null);
+
+        Assert.Equal(expected, formatted);
+    }
+
+    [Theory]
     [InlineData("pass", "Pass")]
     [InlineData("pASS", "Pass")]
     [InlineData(" Pass ", "Pass")]

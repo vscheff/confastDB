@@ -54,10 +54,14 @@ else
             <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
             <button class="button button-secondary"
                     type="button"
-                    @onclick="DuplicateInspectionAsync"
+                    @onclick="BeginDuplicate"
                     disabled="@(isSaving || isCertificationWorking || isDuplicating)">
                 @(isDuplicating ? "Duplicating…" : "Duplicate")
             </button>
+            @if (flipPreview?.Destinations.Any(x => x.IsCompatible) == true)
+            {
+                <button class="button button-secondary" type="button" @onclick="BeginFlip" disabled="@(isSaving || isCertificationWorking || isFlipping)">@(isFlipping ? "Flipping…" : "Flip")</button>
+            }
             <details class="inspection-print-options">
                 <summary class="button button-secondary">Print / Download</summary>
                 <div class="inspection-print-options-menu">
@@ -79,6 +83,79 @@ else
             <a class="button button-danger-outline" href="@($"/inspections/{inspection.Id}/delete")">Delete inspection</a>
         </div>
     </div>
+
+    @if (inspection.FlippedFrom is not null || inspection.FlippedTo.Count > 0)
+    {
+        <div class="alert alert-warning">
+            @if (inspection.FlippedFrom is not null) { <span>Flipped from: <a href="@($"/inspections/{inspection.FlippedFrom.InspectionId}")">@(inspection.FlippedFrom.LotNumber ?? "—") · Part @inspection.FlippedFrom.PartNumber</a></span> }
+            @if (inspection.FlippedTo.Count > 0) { <span> Flipped to: @foreach (var item in inspection.FlippedTo) { <a href="@($"/inspections/{item.InspectionId}")">@(item.LotNumber ?? "—") · Part @item.PartNumber</a> }</span> }
+        </div>
+    }
+
+    @if (showDuplicateQuantityPrompt)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal duplicate-inspection-modal" role="dialog" aria-modal="true" aria-labelledby="duplicate-inspection-title">
+                <h2 id="duplicate-inspection-title">Duplicate inspection</h2>
+                <p class="duplicate-inspection-introduction">Move part of this lot to a new inspection. The original keeps the remainder.</p>
+                @if (duplicateMessage is not null)
+                {
+                    <div class="alert alert-error" role="alert">@duplicateMessage</div>
+                }
+                <div class="form-field">
+                    <label for="duplicate-lot-number">New lot number</label>
+                    <input id="duplicate-lot-number" required @bind="duplicateLotNumber" />
+                </div>
+                <div class="form-field">
+                    <label for="duplicate-quantity">Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))</label>
+                    <input id="duplicate-quantity"
+                           inputmode="numeric"
+                           value="@(duplicateQuantity?.ToString("N0", CultureInfo.InvariantCulture))"
+                           @oninput="UpdateDuplicateQuantity"
+                           @onkeydown="HandleDuplicateQuantityKeyDownAsync" />
+                </div>
+                <div class="duplicate-inspection-actions">
+                    <button class="button button-primary" type="button" @onclick="DuplicateInspectionAsync" disabled="@isDuplicating">@(isDuplicating ? "Duplicating…" : "Duplicate")</button>
+                    <button class="button button-secondary" type="button" @onclick="CancelDuplicate" disabled="@isDuplicating">Cancel</button>
+                </div>
+            </section>
+        </div>
+    }
+
+    @if (showFlipPrompt && flipPreview is not null)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal flip-inspection-modal" role="dialog" aria-modal="true" aria-labelledby="flip-inspection-title">
+                <h2 id="flip-inspection-title">Flip inspection</h2>
+                <p class="duplicate-inspection-introduction">Move part of this lot to the target part. Measurements are evaluated against the target part's current criteria.</p>
+                @if (flipMessage is not null) { <div class="alert alert-error" role="alert">@flipMessage</div> }
+                <div class="form-field"><label for="flip-target">Destination part</label><select id="flip-target" @bind="selectedFlipDefinitionId">@foreach (var destination in flipPreview.Destinations.Where(x => x.IsCompatible)) { <option value="@destination.DefinitionId">@destination.TargetPartNumber</option> }</select></div>
+                <div class="form-field"><label for="flip-lot-number">New lot number</label><input id="flip-lot-number" @bind="flipLotNumber" /></div>
+                <div class="form-field"><label for="flip-quantity">Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))</label><input id="flip-quantity" inputmode="numeric" value="@(flipQuantity?.ToString("N0", CultureInfo.InvariantCulture))" @oninput="UpdateFlipQuantity" /></div>
+                @if (SelectedFlipDestination is not null)
+                {
+                    <details class="flip-preview-details" open>
+                        <summary>Criterion mapping and recorded measurements</summary>
+                        <div class="flip-preview-table-shell">
+                            <table class="flip-preview-table">
+                                <thead>
+                                    <tr class="flip-preview-group-row"><th scope="col">Source criterion</th><th colspan="2" scope="colgroup">Recorded measurement</th><th scope="col">Target criterion</th></tr>
+                                    <tr><th>Criterion</th><th>Recorded Max</th><th>Recorded Min</th><th>Criterion</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var mapping in SelectedFlipDestination.Mappings)
+                                    {
+                                        <tr><td>@mapping.SourceCriterion</td><td class="flip-preview-value">@(mapping.RecordedMaximum ?? "—")</td><td class="flip-preview-value">@(mapping.RecordedMinimum ?? "—")</td><td>@mapping.TargetCriterion</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                }
+                <div class="duplicate-inspection-actions"><button class="button button-primary" type="button" @onclick="FlipInspectionAsync" disabled="@isFlipping">@(isFlipping ? "Flipping…" : "Confirm flip")</button><button class="button button-secondary" type="button" @onclick="CancelFlip" disabled="@isFlipping">Cancel</button></div>
+            </section>
+        </div>
+    }
 
     @if (showCertificationPackage)
     {
@@ -665,6 +742,17 @@ else
     private bool isLoading = true;
     private bool isSaving;
     private bool isDuplicating;
+    private bool showDuplicateQuantityPrompt;
+    private int? duplicateQuantity;
+    private string? duplicateLotNumber;
+    private string? duplicateMessage;
+    private InspectionFlipPreview? flipPreview;
+    private bool showFlipPrompt;
+    private bool isFlipping;
+    private long selectedFlipDefinitionId;
+    private string? flipLotNumber;
+    private int? flipQuantity;
+    private string? flipMessage;
     private bool saveSucceeded;
     private bool isCertificationWorking;
     private bool showCertificationPackage;
@@ -707,6 +795,8 @@ else
 
     private InspectionCertificationListItem? SelectedCertification => inspection?.Certifications
         .SingleOrDefault(x => x.CertificationTypeId == selectedCertificationTypeId);
+
+    private InspectionFlipDestination? SelectedFlipDestination => flipPreview?.Destinations.SingleOrDefault(x => x.DefinitionId == selectedFlipDefinitionId);
 
     private string CertificationDocumentUrl(long documentId) =>
         $"/inspections/{InspectionId}/certifications/documents/{documentId}";
@@ -759,10 +849,121 @@ else
         }
     }
 
+    private void BeginDuplicate()
+    {
+        if (inspection?.QuantityReceived is not > 1)
+        {
+            saveSucceeded = false;
+            saveMessage = "Quantity received must be greater than one before an inspection can be split.";
+            return;
+        }
+
+        saveMessage = null;
+        showDuplicateQuantityPrompt = true;
+        duplicateQuantity = null;
+        duplicateLotNumber = null;
+        duplicateMessage = null;
+    }
+
+    private void BeginFlip()
+    {
+        if (inspection?.QuantityReceived is not > 1)
+        {
+            saveSucceeded = false;
+            saveMessage = "Quantity received must be greater than one before an inspection can be flipped.";
+            return;
+        }
+        var destination = flipPreview?.Destinations.FirstOrDefault(x => x.IsCompatible);
+        if (destination is null) return;
+        selectedFlipDefinitionId = destination.DefinitionId;
+        flipLotNumber = null;
+        flipQuantity = null;
+        flipMessage = null;
+        showFlipPrompt = true;
+    }
+
+    private void CancelFlip() { showFlipPrompt = false; flipLotNumber = null; flipQuantity = null; flipMessage = null; }
+
+    private void UpdateFlipQuantity(ChangeEventArgs args)
+    {
+        if (int.TryParse(args.Value?.ToString(), NumberStyles.Integer | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var quantity)) { flipQuantity = quantity; flipMessage = null; return; }
+        flipQuantity = null;
+        if (!string.IsNullOrWhiteSpace(args.Value?.ToString())) flipMessage = "Enter a valid whole number.";
+    }
+
+    private async Task FlipInspectionAsync()
+    {
+        if (inspection is null || string.IsNullOrWhiteSpace(flipLotNumber)) { flipMessage = "Enter the new lot number."; return; }
+        if (flipQuantity is not int quantityToMove) { flipMessage = "Enter the quantity to move to the flipped inspection."; return; }
+        isFlipping = true;
+        try
+        {
+            var saveResult = await SavePendingInspectionAsync();
+            if (saveResult.Status != InspectionOperationStatus.Succeeded) { flipMessage = saveResult.Message ?? "Save the inspection before flipping it."; return; }
+            CaptureCommittedMeasurements();
+            var result = await InspectionService.FlipInspectionAsync(inspection.Id, selectedFlipDefinitionId, quantityToMove, flipLotNumber);
+            if (result.Status == InspectionOperationStatus.Succeeded) { Navigation.NavigateTo($"/inspections/{result.InspectionId}"); return; }
+            flipMessage = result.Message ?? "The inspection could not be flipped. The configuration may have changed.";
+        }
+        finally { isFlipping = false; }
+    }
+
+    private void CancelDuplicate()
+    {
+        showDuplicateQuantityPrompt = false;
+        duplicateQuantity = null;
+        duplicateLotNumber = null;
+        duplicateMessage = null;
+    }
+
+    private void UpdateDuplicateQuantity(ChangeEventArgs args)
+    {
+        var value = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            duplicateQuantity = null;
+            return;
+        }
+
+        if (int.TryParse(
+                value,
+                NumberStyles.Integer | NumberStyles.AllowThousands,
+                CultureInfo.InvariantCulture,
+                out var parsedQuantity))
+        {
+            duplicateQuantity = parsedQuantity;
+            duplicateMessage = null;
+            return;
+        }
+
+        duplicateQuantity = null;
+        duplicateMessage = "Enter a valid whole number.";
+    }
+
+    private async Task HandleDuplicateQuantityKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await DuplicateInspectionAsync();
+        }
+    }
+
     private async Task DuplicateInspectionAsync()
     {
         if (inspection is null || isSaving || isCertificationWorking || isDuplicating)
         {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(duplicateLotNumber))
+        {
+            duplicateMessage = "Enter the new lot number.";
+            return;
+        }
+
+        if (duplicateQuantity is not int quantityToMove)
+        {
+            duplicateMessage = "Enter the quantity to move to the duplicated inspection.";
             return;
         }
 
@@ -788,10 +989,20 @@ else
             }
 
             CaptureCommittedMeasurements();
-            var duplicateResult = await InspectionService.DuplicateInspectionAsync(inspection.Id);
+            var duplicateResult = await InspectionService.DuplicateInspectionAsync(
+                inspection.Id,
+                quantityToMove,
+                duplicateLotNumber);
             if (duplicateResult.Status == InspectionOperationStatus.Succeeded)
             {
+                CancelDuplicate();
                 Navigation.NavigateTo($"/inspections/{duplicateResult.InspectionId}");
+                return;
+            }
+
+            if (duplicateResult.Status == InspectionOperationStatus.ValidationFailed)
+            {
+                duplicateMessage = duplicateResult.Message;
                 return;
             }
 
@@ -1101,6 +1312,7 @@ else
             var qualityUserDisplayNamesTask = UserAdministrationService.GetQualityUserDisplayNamesAsync();
             await Task.WhenAll(inspectionTask, qualityUserDisplayNamesTask);
             inspection = await inspectionTask;
+            flipPreview = inspection is null ? null : await InspectionService.GetFlipPreviewAsync(InspectionId);
             qualityUserDisplayNames = await qualityUserDisplayNamesTask;
             if (inspection is not null
                 && (selectedCertificationTypeId is null
@@ -1177,6 +1389,11 @@ else
             return;
         }
 
+        result.ActualMax = InspectionResultEvaluator.EnsureRecordedDecimalPlaces(
+            result.ActualMax,
+            result.SpecifiedMinimum,
+            result.SpecifiedMaximum);
+
         if (InspectionResultEvaluator.HasInvalidRecordedOrder(result.ActualMin, result.ActualMax))
         {
             var previousValue = committedMaximums.GetValueOrDefault(result.Id);
@@ -1205,6 +1422,11 @@ else
             SetBothRecordedValues(result, passingEntry);
             return;
         }
+
+        result.ActualMin = InspectionResultEvaluator.EnsureRecordedDecimalPlaces(
+            result.ActualMin,
+            result.SpecifiedMinimum,
+            result.SpecifiedMaximum);
 
         if (InspectionResultEvaluator.HasInvalidRecordedOrder(result.ActualMin, result.ActualMax))
         {

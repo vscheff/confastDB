@@ -238,6 +238,64 @@ public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database
         Assert.Equal("GO / NO-GO", criterion.Minimum);
     }
 
+    [Theory]
+    [InlineData("1.2", "1.234", "1.200", "1.234")]
+    [InlineData("1.234", "1.2", "1.234", "1.200")]
+    [InlineData("1", "2.00", "1.00", "2.00")]
+    public void NumericTolerancesAreAlignedToTheSameDecimalPlaces(
+        string minimum,
+        string maximum,
+        string expectedMinimum,
+        string expectedMaximum)
+    {
+        var aligned = InspectionCriterionRangeValidator.AlignDecimalPlaces(minimum, maximum);
+
+        Assert.Equal(expectedMinimum, aligned.Minimum);
+        Assert.Equal(expectedMaximum, aligned.MaximumOrTolerance);
+    }
+
+    [Fact]
+    public void TextTolerancesAreNotChangedWhenAligningDecimalPlaces()
+    {
+        var aligned = InspectionCriterionRangeValidator.AlignDecimalPlaces("GO / NO-GO", "M4 - 0.7 6H");
+
+        Assert.Equal("GO / NO-GO", aligned.Minimum);
+        Assert.Equal("M4 - 0.7 6H", aligned.MaximumOrTolerance);
+    }
+
+    [Fact]
+    public async Task AlignCriterionDecimalPlacesUpdatesNumericRequirementsWithoutChangingTextRequirements()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        var revisionId = (await service.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 1,
+            Name = "Length",
+            GageTypeId = gageTypeId,
+            Minimum = "1.2",
+            MaximumOrTolerance = "1.234"
+        });
+        await service.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
+        {
+            InspectionNumber = 2,
+            Name = "Threads",
+            GageTypeId = gageTypeId,
+            Minimum = "GO / NO-GO",
+            MaximumOrTolerance = "M4 - 0.7 6H"
+        });
+
+        var result = await service.AlignCriterionDecimalPlacesAsync(partId, revisionId);
+
+        Assert.Equal(CriteriaOperationStatus.Succeeded, result.Status);
+        var criteria = (await service.GetRevisionAsync(partId, revisionId))!.Criteria;
+        Assert.Equal("1.200", criteria.Single(x => x.Name == "Length").Minimum);
+        Assert.Equal("1.234", criteria.Single(x => x.Name == "Length").MaximumOrTolerance);
+        Assert.Equal("GO / NO-GO", criteria.Single(x => x.Name == "Threads").Minimum);
+        Assert.Equal("M4 - 0.7 6H", criteria.Single(x => x.Name == "Threads").MaximumOrTolerance);
+    }
+
     [Fact]
     public async Task CriterionMinimumCannotExceedMaximum()
     {

@@ -921,6 +921,49 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         }
     }
 
+    public async Task<CriteriaOperationResult> AlignCriterionDecimalPlacesAsync(
+        long partId,
+        long revisionId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
+        if (revision is null)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.NotFound);
+        }
+
+        if (await IsRevisionProtectedAsync(db, revision, cancellationToken))
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.RevisionInUse);
+        }
+
+        var criteria = await db.InspectionCriteria
+            .Where(x => x.InspectionCriteriaRevisionId == revisionId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var criterion in criteria)
+        {
+            var aligned = InspectionCriterionRangeValidator.AlignDecimalPlaces(
+                criterion.Minimum,
+                criterion.MaximumOrTolerance);
+            criterion.Minimum = aligned.Minimum;
+            criterion.MaximumOrTolerance = aligned.MaximumOrTolerance;
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return new CriteriaOperationResult(CriteriaOperationStatus.Conflict);
+        }
+    }
+
     public async Task<CriteriaOperationResult> AddSecondaryProcessRequirementAsync(
         long partId,
         long revisionId,

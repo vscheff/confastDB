@@ -24,6 +24,7 @@ public sealed record InspectionListItem(
     DateOnly InspectionDate,
     DateTimeOffset CreatedAtUtc,
     uint Version,
+    int? QuantityReceived,
     bool Accepted,
     bool Completed);
 
@@ -183,6 +184,10 @@ public sealed class InspectionEditModel : IValidatableObject
 
     public List<InspectionCertificationListItem> Certifications { get; set; } = [];
 
+    public List<InspectionFlipLineageItem> FlippedTo { get; set; } = [];
+
+    public InspectionFlipLineageItem? FlippedFrom { get; set; }
+
     public bool IsMissingRequiredCertifications => Certifications.Any(x => x.IsMissingRequired);
 
     // Used only by the protected, short-lived package print route. It is never
@@ -212,6 +217,8 @@ public sealed class InspectionEditModel : IValidatableObject
         }
     }
 }
+
+public sealed record InspectionFlipLineageItem(long InspectionId, string? LotNumber, string PartNumber);
 
 public sealed class InspectionCertificationListItem
 {

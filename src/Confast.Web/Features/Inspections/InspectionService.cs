@@ -1,6 +1,9 @@
 using System.Data;
+using System.Globalization;
 using Confast.Web.Data;
 using Confast.Web.Features.InspectionCriteria;
+using Confast.Web.Features.Identity;
+using Confast.Web.Features.Parts;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -12,6 +15,7 @@ public sealed class InspectionService
 
     private readonly IDbContextFactory<AppDbContext> contextFactory;
     private readonly CertificationPreviewRenderer? certificationPreviewRenderer;
+    private readonly ICurrentUser? currentUser;
 
     public InspectionService(IDbContextFactory<AppDbContext> contextFactory)
     {
@@ -24,6 +28,15 @@ public sealed class InspectionService
         : this(contextFactory)
     {
         this.certificationPreviewRenderer = certificationPreviewRenderer;
+    }
+
+    public InspectionService(
+        IDbContextFactory<AppDbContext> contextFactory,
+        CertificationPreviewRenderer certificationPreviewRenderer,
+        ICurrentUser currentUser)
+        : this(contextFactory, certificationPreviewRenderer)
+    {
+        this.currentUser = currentUser;
     }
 
     public const long MaximumCertificationDocumentBytes = 25 * 1024 * 1024;
@@ -64,6 +77,7 @@ public sealed class InspectionService
                 x.InspectionDate,
                 x.CreatedAtUtc,
                 x.Version,
+                x.QuantityReceived,
                 false,
                 false))
             .ToListAsync(cancellationToken);
@@ -439,15 +453,24 @@ public sealed class InspectionService
 
     public async Task<InspectionOperationResult> DuplicateInspectionAsync(
         long inspectionId,
+        int quantityToMove,
+        string? newLotNumber,
         CancellationToken cancellationToken = default)
     {
+        var lotNumber = NormalizeOptionalText(newLotNumber);
+        if (lotNumber is null)
+        {
+            return new InspectionOperationResult(
+                InspectionOperationStatus.ValidationFailed,
+                Message: "Lot number is required for the duplicated inspection.");
+        }
+
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
 
         var source = await db.Inspections
-            .AsNoTracking()
             .AsSplitQuery()
             .Include(x => x.Results)
             .Include(x => x.SecondaryProcesses)
@@ -460,21 +483,40 @@ public sealed class InspectionService
             return new InspectionOperationResult(InspectionOperationStatus.NotFound);
         }
 
+        if (source.QuantityReceived is not int quantityReceived)
+        {
+            return new InspectionOperationResult(
+                InspectionOperationStatus.ValidationFailed,
+                Message: "Quantity received is required before an inspection can be split.");
+        }
+
+        if (quantityToMove <= 0 || quantityToMove >= quantityReceived)
+        {
+            return new InspectionOperationResult(
+                InspectionOperationStatus.ValidationFailed,
+                Message: $"Quantity to move must be greater than zero and less than the {quantityReceived:N0} received for this lot.");
+        }
+
         // A duplicate deliberately stays pinned to the source inspection's criteria
         // revision. Choosing today's revision would make this a new inspection, not a copy.
+        var originalInHouseNotes = source.InHouseNotes;
+        var today = DateOnly.FromDateTime(DateTime.Today)
+            .ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
         var duplicate = new Inspection
         {
             PartId = source.PartId,
             InspectionCriteriaRevisionId = source.InspectionCriteriaRevisionId,
-            LotNumber = null,
+            LotNumber = lotNumber,
             ConformancePoNumber = source.ConformancePoNumber,
             ManufacturerLotNumber = source.ManufacturerLotNumber,
             DateReceived = source.DateReceived,
-            QuantityReceived = source.QuantityReceived,
+            QuantityReceived = quantityToMove,
             QuantityInspected = source.QuantityInspected,
             Inspector = source.Inspector,
             InspectorNotes = source.InspectorNotes,
-            InHouseNotes = source.InHouseNotes,
+            InHouseNotes = AppendInHouseNote(
+                originalInHouseNotes,
+                $"{today} - Duplicated from Lot# {source.LotNumber ?? "—"}"),
             InspectionDate = source.InspectionDate
         };
 
@@ -539,6 +581,10 @@ public sealed class InspectionService
             duplicate.Certifications.Add(copiedCertification);
         }
 
+        source.QuantityReceived = quantityReceived - quantityToMove;
+        source.InHouseNotes = AppendInHouseNote(
+            originalInHouseNotes,
+            $"{today} - Moved {quantityToMove:N0} pieces to Lot# {lotNumber}");
         db.Inspections.Add(duplicate);
 
         try
@@ -549,6 +595,14 @@ public sealed class InspectionService
                 InspectionOperationStatus.Succeeded,
                 duplicate.Id);
         }
+        catch (DbUpdateException exception) when (HasPostgresError(
+            exception,
+            PostgresErrorCodes.UniqueViolation,
+            UniqueLotNumberConstraint))
+        {
+            return DuplicateLotNumberResult(
+                relatedInspectionId: await FindInspectionIdByLotNumberAsync(lotNumber, cancellationToken));
+        }
         catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception))
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict);
@@ -558,6 +612,85 @@ public sealed class InspectionService
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict);
         }
+    }
+
+    public async Task<InspectionFlipPreview?> GetFlipPreviewAsync(long inspectionId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var source = await db.Inspections.AsNoTracking().Include(x => x.Part).Include(x => x.Results).ThenInclude(x => x.InspectionCriterion).SingleOrDefaultAsync(x => x.Id == inspectionId, cancellationToken);
+        if (source is null) return null;
+        var definitions = await db.PartFlipDefinitions.AsNoTracking().Where(x => x.SourcePartId == source.PartId && x.TargetPart.IsActive)
+            .Include(x => x.TargetPart).Include(x => x.CriterionMappings).ThenInclude(x => x.SourceCriterion)
+            .Include(x => x.CriterionMappings).ThenInclude(x => x.TargetCriterion).ToListAsync(cancellationToken);
+        var destinationRows = new List<InspectionFlipDestination>();
+        var sourceCriteria = source.Results.Select(x => x.InspectionCriterion).ToList();
+        foreach (var definition in definitions)
+        {
+            var targetCriteria = await PartFlipService.CurrentCriteriaAsync(db, definition.TargetPartId, cancellationToken);
+            var mappings = definition.CriterionMappings.Select(x => new PartFlipMappingInput(x.SourceCriterionId, x.TargetCriterionId)).ToList();
+            var compatible = PartFlipService.ValidateMappings(sourceCriteria, targetCriteria, mappings);
+            var previewMappings = definition.CriterionMappings
+                .Select(x =>
+                {
+                    var recorded = source.Results.SingleOrDefault(
+                        r => r.InspectionCriterionId == x.SourceCriterionId);
+                    return new InspectionFlipMappingPreview(
+                        x.SourceCriterion.Name,
+                        x.TargetCriterion.Name,
+                        recorded?.ActualMax,
+                        recorded?.ActualMin);
+                })
+                .ToList();
+            destinationRows.Add(new InspectionFlipDestination(
+                definition.Id, definition.TargetPartId, definition.TargetPart.PartNumber,
+                compatible, compatible ? null : "The configured mapping does not match this lot and the target's current criteria.", previewMappings));
+        }
+        return new InspectionFlipPreview(source.Id, source.LotNumber, source.Part.PartNumber, destinationRows);
+    }
+
+    public async Task<InspectionOperationResult> FlipInspectionAsync(long inspectionId, long definitionId, int quantityToMove, string? newLotNumber, CancellationToken cancellationToken = default)
+    {
+        var lotNumber = NormalizeOptionalText(newLotNumber);
+        if (lotNumber is null) return new(InspectionOperationStatus.ValidationFailed, Message: "Lot number is required for the flipped inspection.");
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var source = await db.Inspections.AsSplitQuery().Include(x => x.Part).Include(x => x.Results).ThenInclude(x => x.InspectionCriterion).SingleOrDefaultAsync(x => x.Id == inspectionId, cancellationToken);
+        if (source is null) return new(InspectionOperationStatus.NotFound);
+        if (source.QuantityReceived is not int quantityReceived)
+        {
+            return new(InspectionOperationStatus.ValidationFailed, Message: "Quantity received is required before an inspection can be flipped.");
+        }
+        if (quantityToMove <= 0 || quantityToMove >= quantityReceived)
+        {
+            return new(InspectionOperationStatus.ValidationFailed, Message: $"Quantity to move must be greater than zero and less than the {quantityReceived:N0} received for this lot.");
+        }
+        var definition = await db.PartFlipDefinitions.Include(x => x.TargetPart).Include(x => x.CriterionMappings).SingleOrDefaultAsync(x => x.Id == definitionId && x.SourcePartId == source.PartId, cancellationToken);
+        if (definition is null || !definition.TargetPart.IsActive) return new(InspectionOperationStatus.ValidationFailed, Message: "This flip destination is no longer available.");
+        if (await db.Inspections.AnyAsync(x => x.LotNumber == lotNumber, cancellationToken)) return DuplicateLotNumberResult();
+        var targetRevision = await db.InspectionCriteriaRevisions.Include(x => x.Criteria).Include(x => x.SecondaryProcessRequirements).ThenInclude(x => x.SecondaryProcessType).Include(x => x.CertificationRequirements)
+            .SingleOrDefaultAsync(x => x.PartId == definition.TargetPartId && x.PublishedAtUtc != null && x.SupersededAtUtc == null, cancellationToken);
+        if (targetRevision is null) return new(InspectionOperationStatus.NoCurrentRevision);
+        var mappings = definition.CriterionMappings.Select(x => new PartFlipMappingInput(x.SourceCriterionId, x.TargetCriterionId)).ToList();
+        if (!PartFlipService.ValidateMappings(source.Results.Select(x => x.InspectionCriterion).ToList(), targetRevision.Criteria.ToList(), mappings)) return new(InspectionOperationStatus.ValidationFailed, Message: "The flip mapping is no longer compatible with this lot and the target's current criteria.");
+        var today = DateOnly.FromDateTime(DateTime.Today).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+        var target = new Inspection { PartId = definition.TargetPartId, InspectionCriteriaRevisionId = targetRevision.Id, LotNumber = lotNumber, ConformancePoNumber = source.ConformancePoNumber, ManufacturerLotNumber = source.ManufacturerLotNumber, DateReceived = source.DateReceived, QuantityReceived = quantityToMove, QuantityInspected = source.QuantityInspected, Inspector = source.Inspector, InspectorNotes = source.InspectorNotes, InHouseNotes = AppendInHouseNote(source.InHouseNotes, $"{today} - Flipped from Lot# {source.LotNumber ?? "—"}"), InspectionDate = source.InspectionDate };
+        var recordedByCriterion = source.Results.ToDictionary(x => x.InspectionCriterionId);
+        var sourceByTarget = mappings.ToDictionary(x => x.TargetCriterionId, x => x.SourceCriterionId);
+        foreach (var criterion in targetRevision.Criteria)
+        {
+            recordedByCriterion.TryGetValue(sourceByTarget[criterion.Id], out var recorded);
+            target.Results.Add(new InspectionResult { InspectionCriteriaRevisionId = targetRevision.Id, InspectionCriterionId = criterion.Id, ActualMin = recorded?.ActualMin, ActualMax = recorded?.ActualMax });
+        }
+        foreach (var requirement in targetRevision.SecondaryProcessRequirements) target.SecondaryProcesses.Add(new InspectionSecondaryProcess { InspectionCriteriaRevisionId = targetRevision.Id, SecondaryProcessRequirementId = requirement.Id, ProcessName = requirement.SecondaryProcessType.Name, Specification = requirement.Specification });
+        foreach (var requirement in targetRevision.CertificationRequirements) target.CertificationRequirements.Add(new InspectionCertificationRequirement { CertificationTypeId = requirement.CertificationTypeId, CertificationTypeName = requirement.CertificationTypeName, RequirementLevel = requirement.RequirementLevel, Notes = requirement.Notes });
+        db.Inspections.Add(target);
+        source.QuantityReceived = quantityReceived - quantityToMove;
+        source.InHouseNotes = AppendInHouseNote(source.InHouseNotes, $"{today} - Moved {quantityToMove:N0} pieces to Lot# {lotNumber}");
+        db.LotFlips.Add(new LotFlip { SourceInspection = source, DestinationInspection = target, PartFlipDefinitionId = definition.Id, PerformedByUserId = currentUser is null ? null : await currentUser.GetUserIdAsync(), PerformedAtUtc = DateTimeOffset.UtcNow });
+        try { await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return new(InspectionOperationStatus.Succeeded, target.Id); }
+        catch (DbUpdateException exception) when (HasPostgresError(exception, PostgresErrorCodes.UniqueViolation, UniqueLotNumberConstraint)) { return DuplicateLotNumberResult(await FindInspectionIdByLotNumberAsync(lotNumber, cancellationToken)); }
+        catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception)) { return new(InspectionOperationStatus.Conflict); }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.SerializationFailure) { return new(InspectionOperationStatus.Conflict); }
     }
 
     public async Task<InspectionEditModel?> GetInspectionAsync(
@@ -710,6 +843,16 @@ public sealed class InspectionService
                 };
             })
             .ToList();
+
+        model.FlippedTo = await db.LotFlips.AsNoTracking()
+            .Where(x => x.SourceInspectionId == inspectionId)
+            .OrderBy(x => x.PerformedAtUtc)
+            .Select(x => new InspectionFlipLineageItem(x.DestinationInspectionId, x.DestinationInspection.LotNumber, x.DestinationInspection.Part.PartNumber))
+            .ToListAsync(cancellationToken);
+        model.FlippedFrom = await db.LotFlips.AsNoTracking()
+            .Where(x => x.DestinationInspectionId == inspectionId)
+            .Select(x => new InspectionFlipLineageItem(x.SourceInspectionId, x.SourceInspection.LotNumber, x.SourceInspection.Part.PartNumber))
+            .SingleOrDefaultAsync(cancellationToken);
 
         var gageTypeIds = model.Results
             .Where(x => x.GageTypeId is not null)
@@ -1362,6 +1505,11 @@ public sealed class InspectionService
             inspectionId,
             "Lot number must be unique. An inspection already uses that lot number.",
             relatedInspectionId);
+
+    private static string AppendInHouseNote(string? existingNotes, string note) =>
+        string.IsNullOrWhiteSpace(existingNotes)
+            ? note
+            : $"{existingNotes.TrimEnd()}\n\n{note}";
 
     private static bool HasRecordedResultChanged(
         InspectionResultEditModel submitted,

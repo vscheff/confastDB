@@ -909,7 +909,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
-    public async Task DuplicatingAnInspectionCopiesItsDataAndClearsOnlyTheLotNumber()
+    public async Task DuplicatingAnInspectionMovesTheRequestedQuantityAndClearsOnlyTheLotNumber()
     {
         var partId = await CreatePartAsync();
         var gageTypeId = await CreateGageTypeAsync();
@@ -974,22 +974,25 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             await db.SaveChangesAsync();
         }
 
-        var duplicate = await inspectionService.DuplicateInspectionAsync(sourceId);
+        var duplicate = await inspectionService.DuplicateInspectionAsync(sourceId, 30, "DUPLICATE-LOT");
         Assert.Equal(InspectionOperationStatus.Succeeded, duplicate.Status);
 
         var copied = await inspectionService.GetInspectionAsync(duplicate.InspectionId!.Value);
         Assert.NotNull(copied);
-        Assert.Null(copied!.LotNumber);
+        Assert.Equal("DUPLICATE-LOT", copied!.LotNumber);
         Assert.Equal(partId, copied.PartId);
         Assert.Equal(revisionId, copied.InspectionCriteriaRevisionId);
         Assert.Equal("CONF-100", copied.ConformancePoNumber);
         Assert.Equal("MFG-100", copied.ManufacturerLotNumber);
         Assert.Equal(new DateOnly(2026, 8, 20), copied.DateReceived);
-        Assert.Equal(100, copied.QuantityReceived);
+        Assert.Equal(30, copied.QuantityReceived);
         Assert.Equal(11, copied.QuantityInspected);
         Assert.Equal("Alice", copied.Inspector);
         Assert.Equal("Inspector notes", copied.InspectorNotes);
-        Assert.Equal("In-house notes", copied.InHouseNotes);
+        var today = DateOnly.FromDateTime(DateTime.Today).ToString("dd/MM/yyyy");
+        Assert.Equal(
+            $"In-house notes\n\n{today} - Duplicated from Lot# SOURCE-LOT",
+            copied.InHouseNotes);
         Assert.Equal(new DateOnly(2026, 8, 21), copied.InspectionDate);
         var copiedResult = Assert.Single(copied.Results);
         Assert.Equal(gageId, copiedResult.GageId);
@@ -1009,6 +1012,61 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             x => x.InspectionCertification.InspectionId == duplicate.InspectionId);
         Assert.Equal("%PDF-1.7\nmaterial\n%%EOF"u8.ToArray(), copiedDocument.Content);
         Assert.Equal("preview"u8.ToArray(), copiedDocument.PreviewContent);
+
+        var updatedSource = await inspectionService.GetInspectionAsync(sourceId);
+        Assert.Equal(70, updatedSource!.QuantityReceived);
+        Assert.Equal(
+            $"In-house notes\n\n{today} - Moved 30 pieces to Lot# DUPLICATE-LOT",
+            updatedSource.InHouseNotes);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    [InlineData(101)]
+    public async Task DuplicatingAnInspectionRejectsQuantitiesThatDoNotLeaveSomeOfTheLotOnTheOriginal(
+        int quantityToMove)
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            QuantityReceived = 100,
+            InspectionDate = new DateOnly(2026, 8, 21)
+        });
+
+        var result = await inspectionService.DuplicateInspectionAsync(
+            create.InspectionId!.Value,
+            quantityToMove,
+            "DUPLICATE-LOT");
+
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, result.Status);
+        var source = await inspectionService.GetInspectionAsync(create.InspectionId.Value);
+        Assert.Equal(100, source!.QuantityReceived);
+    }
+
+    [Fact]
+    public async Task DuplicatingAnInspectionRequiresANewLotNumber()
+    {
+        var partId = await CreatePartAsync();
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(partId, gageTypeId, "20", "21");
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            QuantityReceived = 100,
+            InspectionDate = new DateOnly(2026, 8, 21)
+        });
+
+        var result = await inspectionService.DuplicateInspectionAsync(
+            create.InspectionId!.Value,
+            50,
+            "   ");
+
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, result.Status);
+        Assert.Equal("Lot number is required for the duplicated inspection.", result.Message);
     }
 
     [Fact]
@@ -1195,14 +1253,80 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         return revisionId;
     }
 
-    private async Task<long> CreatePartAsync(string? specificationUsed = null)
+    [Fact]
+    public async Task FlipCreatesTargetInspectionTransfersObservationsAndPreservesLineage()
+    {
+        var sourcePartId = await CreatePartAsync(partNumber: "FLIP-SOURCE");
+        var targetPartId = await CreatePartAsync(partNumber: "FLIP-TARGET");
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21");
+        await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20.2", "21");
+        var flipService = new PartFlipService(database);
+        var definition = await flipService.SaveDefinitionAsync(sourcePartId, targetPartId);
+        Assert.Equal(SavePartFlipStatus.Saved, definition.Status);
+        var sourceCreate = await inspectionService.CreateInspectionAsync(new CreateInspectionModel { PartId = sourcePartId, LotNumber = "FLIP-SOURCE-LOT", QuantityReceived = 10, InspectionDate = new DateOnly(2026, 9, 1) });
+        var source = await inspectionService.GetInspectionAsync(sourceCreate.InspectionId!.Value);
+        source!.Results[0].ActualMin = "20.1";
+        source.Results[0].ActualMax = "20.1";
+        Assert.Equal(InspectionOperationStatus.Succeeded, (await inspectionService.SaveInspectionAsync(source)).Status);
+
+        var invalidQuantity = await inspectionService.FlipInspectionAsync(source.Id, definition.DefinitionId!.Value, 10, "INVALID-FLIP-LOT");
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, invalidQuantity.Status);
+
+        var flipped = await inspectionService.FlipInspectionAsync(source.Id, definition.DefinitionId!.Value, 4, "FLIP-TARGET-LOT");
+
+        Assert.Equal(InspectionOperationStatus.Succeeded, flipped.Status);
+        var target = await inspectionService.GetInspectionAsync(flipped.InspectionId!.Value);
+        Assert.Equal(targetPartId, target!.PartId);
+        Assert.Equal(4, target.QuantityReceived);
+        Assert.Equal("20.1", target.Results[0].ActualMin);
+        Assert.Equal("20.1", target.Results[0].ActualMax);
+        Assert.Equal("20.2", target.Results[0].SpecifiedMinimum); // target tolerance, not copied source specification
+        var unchangedSource = await inspectionService.GetInspectionAsync(source.Id);
+        Assert.Equal("FLIP-SOURCE-LOT", unchangedSource!.LotNumber);
+        Assert.Equal(6, unchangedSource.QuantityReceived);
+        Assert.Equal("20.1", unchangedSource.Results[0].ActualMin);
+        await using var db = database.CreateDbContext();
+        var lineage = await db.LotFlips.SingleAsync();
+        Assert.Equal(source.Id, lineage.SourceInspectionId);
+        Assert.Equal(target.Id, lineage.DestinationInspectionId);
+    }
+
+    [Fact]
+    public async Task FlipDefinitionsRejectSelfAndDuplicateDestinations()
+    {
+        var sourcePartId = await CreatePartAsync(partNumber: "FLIP-A");
+        var targetPartId = await CreatePartAsync(partNumber: "FLIP-B");
+        var gageTypeId = await CreateGageTypeAsync();
+        await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21");
+        await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20", "21");
+        var service = new PartFlipService(database);
+        Assert.Equal(SavePartFlipStatus.Invalid, (await service.SaveDefinitionAsync(sourcePartId, sourcePartId)).Status);
+        Assert.Equal(SavePartFlipStatus.Saved, (await service.SaveDefinitionAsync(sourcePartId, targetPartId)).Status);
+        await using (var db = database.CreateDbContext())
+        {
+            var definitions = await db.PartFlipDefinitions
+                .Include(x => x.CriterionMappings)
+                .OrderBy(x => x.SourcePartId)
+                .ToListAsync();
+            Assert.Equal(2, definitions.Count);
+            var reverse = Assert.Single(definitions, x => x.SourcePartId == targetPartId);
+            Assert.Equal(sourcePartId, reverse.TargetPartId);
+            var original = Assert.Single(definitions, x => x.SourcePartId == sourcePartId);
+            Assert.Equal(original.CriterionMappings.Single().SourceCriterionId, reverse.CriterionMappings.Single().TargetCriterionId);
+            Assert.Equal(original.CriterionMappings.Single().TargetCriterionId, reverse.CriterionMappings.Single().SourceCriterionId);
+        }
+        Assert.Equal(SavePartFlipStatus.Duplicate, (await service.SaveDefinitionAsync(sourcePartId, targetPartId)).Status);
+    }
+
+    private async Task<long> CreatePartAsync(string? specificationUsed = null, string partNumber = "INSPECT-100")
     {
         await using var db = database.CreateDbContext();
         var customer = new Customer { Name = "Inspection Test Customer" };
         var part = new Part
         {
             Customer = customer,
-            PartNumber = "INSPECT-100",
+            PartNumber = partNumber,
             SpecificationUsed = specificationUsed
         };
         db.Parts.Add(part);
