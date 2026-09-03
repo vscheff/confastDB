@@ -373,6 +373,13 @@ If a requested change exposes a deeper architectural problem, explain the proble
 
 ## AI Behavior
 
+### Authenticated browser testing
+
+- Authenticated browser tests must use the configured Development `BrowserTestUser` account.
+- Obtain its credentials from the configured Development environment (prefer .NET User Secrets); never fabricate credentials or use a real employee account.
+- Authenticate through the application's actual login UI. Do not bypass, disable, or replace authentication for browser testing.
+- If the browser-test credentials are missing, report that condition clearly and leave authentication unbypassed.
+
 When assisting with this project:
 
 - Inspect existing code before proposing substantial changes.

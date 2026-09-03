@@ -54,6 +54,20 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<SupplierOption>> GetSupplierOptionsAsync(
+        long? includedSupplierId = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await db.Suppliers
+            .AsNoTracking()
+            .Where(x => x.IsActive || x.Id == includedSupplierId)
+            .OrderBy(x => x.Name)
+            .Select(x => new SupplierOption(x.Id, x.Name))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<PartEditModel?> GetPartAsync(
         long id,
         CancellationToken cancellationToken = default)
@@ -67,6 +81,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             {
                 Id = x.Id,
                 CustomerId = x.CustomerId,
+                SupplierId = x.SupplierId,
                 PartNumber = x.PartNumber,
                 Description = x.Description,
                 SpecificationUsed = x.SpecificationUsed,
@@ -112,9 +127,15 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             return new SavePartResult(SavePartStatus.CustomerNotFound);
         }
 
+        if (!await IsSupplierAvailableAsync(db, model.SupplierId, cancellationToken))
+        {
+            return new SavePartResult(SavePartStatus.SupplierUnavailable);
+        }
+
         var part = new Part
         {
             CustomerId = model.CustomerId,
+            SupplierId = model.SupplierId,
             PartNumber = model.PartNumber.Trim(),
             Description = NormalizeOptionalText(model.Description),
             SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed),
@@ -179,6 +200,12 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             return new SavePartResult(SavePartStatus.CustomerNotFound);
         }
 
+        if (part.SupplierId != model.SupplierId
+            && !await IsSupplierAvailableAsync(db, model.SupplierId, cancellationToken))
+        {
+            return new SavePartResult(SavePartStatus.SupplierUnavailable);
+        }
+
         db.Entry(part).Property(x => x.Version).OriginalValue = model.Version;
 
         var selectedPlantIds = model.PlantIds.Distinct().ToArray();
@@ -198,6 +225,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         }
 
         part.CustomerId = model.CustomerId;
+        part.SupplierId = model.SupplierId;
         part.PartNumber = model.PartNumber.Trim();
         part.Description = NormalizeOptionalText(model.Description);
         part.SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed);
@@ -273,6 +301,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             x.PartNumber,
             x.Revision,
             x.Description,
+            x.Supplier == null ? null : x.Supplier.Name,
             x.IsActive,
             x.PartPlants
                 .OrderBy(partPlant => partPlant.Plant.Name)
@@ -299,6 +328,14 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         var normalized = value?.Trim();
         return string.IsNullOrEmpty(normalized) ? null : normalized;
     }
+
+    private static Task<bool> IsSupplierAvailableAsync(
+        AppDbContext db,
+        long? supplierId,
+        CancellationToken cancellationToken) =>
+        supplierId is null
+            ? Task.FromResult(true)
+            : db.Suppliers.AnyAsync(x => x.Id == supplierId && x.IsActive, cancellationToken);
 
     private static bool HasPostgresError(
         DbUpdateException exception,

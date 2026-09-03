@@ -1,5 +1,6 @@
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Parts;
+using Confast.Web.Features.Suppliers;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -43,6 +44,52 @@ public sealed class PlantTests(PostgresTestDatabase database) : IAsyncLifetime
         Assert.Equal(SavePartStatus.Saved, result.Status);
         await using var db = database.CreateDbContext();
         Assert.Equal(2, await db.PartPlants.CountAsync(x => x.PartId == result.Id));
+    }
+
+    [Fact]
+    public async Task PartSupplierMustBeActiveWhenAssignedButCanBeRetainedAfterDeactivation()
+    {
+        var customerId = await CreateCustomerAsync("Acme");
+        await using var db = database.CreateDbContext();
+        var activeSupplier = new Supplier { Name = "Active supplier" };
+        var inactiveSupplier = new Supplier { Name = "Inactive supplier", IsActive = false };
+        db.Suppliers.AddRange(activeSupplier, inactiveSupplier);
+        await db.SaveChangesAsync();
+
+        var created = await partService.CreatePartAsync(new PartEditModel
+        {
+            CustomerId = customerId,
+            PartNumber = "P-SUPPLIER",
+            SupplierId = activeSupplier.Id
+        });
+
+        Assert.Equal(SavePartStatus.Saved, created.Status);
+        var part = await partService.GetPartAsync(created.Id!.Value);
+        Assert.Equal(activeSupplier.Id, part!.SupplierId);
+        Assert.Contains(await partService.GetPartsAsync(), x => x.Id == created.Id && x.SupplierName == activeSupplier.Name);
+
+        activeSupplier.IsActive = false;
+        await db.SaveChangesAsync();
+        part.Description = "Supplier retained after deactivation";
+        Assert.Equal(SavePartStatus.Saved, (await partService.SavePartAsync(part)).Status);
+
+        var unavailable = await partService.CreatePartAsync(new PartEditModel
+        {
+            CustomerId = customerId,
+            PartNumber = "P-INACTIVE-SUPPLIER",
+            SupplierId = inactiveSupplier.Id
+        });
+        Assert.Equal(SavePartStatus.SupplierUnavailable, unavailable.Status);
+
+        await using var invalidDb = database.CreateDbContext();
+        invalidDb.Parts.Add(new Part
+        {
+            CustomerId = customerId,
+            PartNumber = "P-MISSING-SUPPLIER",
+            SupplierId = long.MaxValue
+        });
+        var exception = await Record.ExceptionAsync(() => invalidDb.SaveChangesAsync());
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, Assert.IsType<PostgresException>(exception!.GetBaseException()).SqlState);
     }
 
     [Fact]

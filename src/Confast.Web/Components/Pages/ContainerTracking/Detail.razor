@@ -1,0 +1,331 @@
+@page "/container-tracking/containers/{Id:long}"
+@page "/container-tracking/shipments/{ShipmentId:long}/containers/create"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Confast.Web.Features.ContainerTracking
+@inject ContainerTrackingService Tracking
+@inject TrackingAccess Access
+@inject NavigationManager Navigation
+@inject ILogger<Detail> Logger
+
+<PageTitle>@(Id == 0 ? "Create container" : $"Container {metadata.ContainerNumber}")</PageTitle>
+<p><a class="back-link" href="/container-tracking">← Container Tracking</a></p>
+@if (message is not null) { <div class="alert @(isError ? "alert-error" : "alert-success")" role="status">@message</div> }
+@if (!loaded)
+{
+    <p class="status-message">@(busy ? "Loading container…" : "Container unavailable.")</p>
+}
+else
+{
+    <div class="page-heading tracking-container-heading">
+        <div><span class="tracking-eyebrow">Shipment</span><p>@string.Join(" · ", shipmentBills)</p>
+            <h1>@(Id == 0 ? "Create container" : $"Container {metadata.ContainerNumber}")</h1></div>
+        <div class="heading-actions">
+            <button class="button button-secondary" @onclick="ReloadAsync" disabled="@busy">Reload / discard edits</button>
+            @if (CanDelete)
+            {
+                @if (confirmDelete)
+                {
+                    <button type="button" class="button button-danger" @onclick="DeleteContainerAsync" disabled="@busy">Confirm delete</button>
+                    <button type="button" class="button button-secondary" @onclick="() => confirmDelete = false" disabled="@busy">Cancel</button>
+                }
+                else
+                {
+                    <button type="button" class="button button-danger-outline" @onclick="() => confirmDelete = true" disabled="@busy">Delete container</button>
+                }
+            }
+        </div>
+    </div>
+    @if (confirmDelete)
+    {
+        <div class="alert alert-warning" role="alert">Deleting this container also removes its groups and part lines. B/L records are retained.</div>
+    }
+    @if (Locked)
+    {
+        <div class="alert alert-warning" role="status"><strong>Departed / Locked</strong> — groups, B/L assignments, and part lines are read-only.
+            Receipt and production-schedule status can still be recorded.
+            @if (permissions.IsAdministrator) { <span>As an administrator, you can correct container metadata below.</span> }
+        </div>
+    }
+    @if (!permissions.CanEdit) { <p class="status-message">Read-only access.</p> }
+    <EditForm Model="metadata" OnValidSubmit="SaveMetadataAsync" FormName="container-metadata" class="record-form tracking-form">
+        <DataAnnotationsValidator /><ValidationSummary />
+        <div class="tracking-grid tracking-metadata-grid">
+            <fieldset class="tracking-fields" disabled="@(!CanEditMetadata || busy)">
+                <div class="form-field container-number-field"><label for="container-number">Container number</label><InputText id="container-number" @bind-Value="metadata.ContainerNumber" maxlength="100" /></div>
+                <div class="form-field container-cbp-field"><label for="container-cbp-number">CBP number</label><InputText id="container-cbp-number" @bind-Value="metadata.CbpNumber" maxlength="100" /></div>
+                <div class="form-field container-etd-field"><label for="container-etd">Estimated departure</label><InputDate id="container-etd" @bind-Value="metadata.EstimatedDepartureDate" @bind-Value:after="SetEstimatedArrivalFromDeparture" /></div>
+                <div class="form-field container-eta-field"><label for="container-eta">Estimated arrival</label><InputDate id="container-eta" @bind-Value="metadata.EstimatedArrivalDate" /></div>
+                <div class="form-field container-rate-field"><label for="container-rate">Quoted rate ($)</label><ThousandsSeparatedMoneyInput id="container-rate" @bind-Value="metadata.QuotedRate" /></div>
+                <div class="form-field container-drayage-field"><label for="container-drayage">Drayage ($)</label><ThousandsSeparatedMoneyInput id="container-drayage" @bind-Value="metadata.DrayageCharge" /></div>
+            </fieldset>
+            @if (Id != 0)
+            {
+                <fieldset class="tracking-fields" disabled="@(!permissions.CanEdit || busy)">
+                    <div class="form-field container-received-field"><label for="container-received">Received date</label><InputDate id="container-received" @bind-Value="metadata.ReceivedDate" /></div>
+                    <div class="checkbox-field container-schedule-field"><InputCheckbox id="container-schedule" @bind-Value="metadata.AddedToProductionSchedule" /><label for="container-schedule">Added to production schedule</label></div>
+                </fieldset>
+            }
+        </div>
+        @if (permissions.CanEdit)
+        { <div class="form-actions"><button class="button button-primary" disabled="@(busy || editingBill)">@(Id == 0 ? "Create container" : "Save container")</button></div> }
+    </EditForm>
+    @if (Id != 0)
+    {
+        <EditForm Model="contents" OnValidSubmit="SaveContentsAsync" FormName="container-contents" class="tracking-contents">
+            <DataAnnotationsValidator /><ValidationSummary />
+            <div class="section-heading"><h2>Groups</h2>
+                <div class="heading-actions">
+                    <span>@contents.Groups.Count groups · @contents.Groups.Sum(x => x.PalletCount ?? 0).ToString("N0") pallets · @contents.Groups.Sum(x => x.TotalWeight ?? 0).ToString("N2") kg</span>
+                    <button type="button" class="button button-secondary" @onclick="ToggleGroupsExpanded" aria-expanded="@groupsExpanded">
+                        @(groupsExpanded ? "Collapse groups" : "Expand groups")
+                    </button>
+                </div>
+            </div>
+            @if (!groupsExpanded)
+            {
+                <div class="table-shell tracking-group-summary">
+                    <table class="data-table"><thead><tr><th>Supplier</th><th>B/L</th><th>Duty</th><th>Weight (kg)</th><th>Pallets</th><th>Invoice</th><th>Certifications</th><th>Parts</th></tr></thead><tbody>
+                        @foreach (var group in contents.Groups)
+                        {
+                            var bill = bills.FirstOrDefault(x => x.Id == group.BillOfLadingId);
+                            <tr @key="group">
+                                <td>@(bill?.SupplierName ?? "—")</td>
+                                <td>@(bill?.Number ?? "—")</td>
+                                <td>@(bill?.Duty?.ToString("C2") ?? "—")</td>
+                                <td>@(group.TotalWeight?.ToString("N3") ?? "—")</td>
+                                <td>@(group.PalletCount?.ToString("N0") ?? "—")</td>
+                                <td>@(group.InvoiceNumber ?? "—")</td>
+                                <td>@(group.CertificationsReceived ? "Received" : "Not received")</td>
+                                <td>
+                                    @if (group.Parts.Count == 0) { <span>—</span> }
+                                    else
+                                    {
+                                        <ul class="tracking-part-summary">
+                                            @foreach (var part in group.Parts)
+                                            {
+                                                <li>@PartLabel(part.PartId) · @part.PurchaseOrderNumber · @(part.Quantity?.ToString("N0") ?? "—")</li>
+                                            }
+                                        </ul>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody></table>
+                </div>
+            }
+            else
+            {
+                @foreach (var group in contents.Groups)
+                {
+                    var bill = bills.FirstOrDefault(x => x.Id == group.BillOfLadingId);
+                    @if (editingBill && billTarget == group)
+                    {
+                        <BillEditor @key="billEditorKey" BillId="editingBillId" Saved="BillSavedAsync" Cancelled="CloseBillEditor" />
+                    }
+                    <fieldset class="tracking-fields" disabled="@(!CanEditContents || busy || editingBill)">
+                        <section class="tracking-group" @key="group">
+                            <div class="section-heading">
+                                <div><h3>@(bill?.SupplierName ?? "Select a B/L and supplier")</h3>
+                                    <p>B/L @(bill?.Number ?? "—") · Duty @(bill?.Duty?.ToString("C2") ?? "—")</p></div>
+                                @if (CanEditContents)
+                                {
+                                    <button type="button" class="button button-danger-outline" @onclick="() => contents.Groups.Remove(group)">Remove group</button>
+                                }
+                            </div>
+                            <div class="tracking-grid">
+                                <div class="form-field tracking-bl-choice"><label>B/L — Supplier
+                                    <InputSelect @bind-Value="group.BillOfLadingId" @bind-Value:after="() => ClearPartsForOtherSupplier(group)">
+                                        <option value="0">Select B/L</option>
+                                        @foreach (var option in bills) { <option value="@option.Id">@option.Number — @option.SupplierName</option> }
+                                    </InputSelect></label>
+                                    @if (CanEditContents)
+                                    {
+                                        <div class="heading-actions">
+                                            <button type="button" class="button button-secondary" @onclick="() => OpenBillEditor(group, 0)">New B/L</button>
+                                            <button type="button" class="button button-secondary" disabled="@(group.BillOfLadingId == 0)" @onclick="() => OpenBillEditor(group, group.BillOfLadingId)">Edit B/L</button>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="form-field"><label>Total Weight (kg)<ThousandsSeparatedDecimalInput @bind-Value="group.TotalWeight" min="0" step="0.001" /></label></div>
+                                <div class="form-field"><label>Pallet count<InputNumber @bind-Value="group.PalletCount" min="0" /></label></div>
+                                <div class="form-field"><label>Invoice number<InputText @bind-Value="group.InvoiceNumber" maxlength="100" /></label></div>
+                                <div class="checkbox-field"><label><InputCheckbox @bind-Value="group.CertificationsReceived" /> Certifications received</label></div>
+                            </div>
+                            <div class="table-shell tracking-table">
+                                <table class="data-table tracking-parts"><thead><tr><th>Part — Customer</th><th>PO number</th><th>Quantity</th><th>Actions</th></tr></thead><tbody>
+                                    @foreach (var part in group.Parts)
+                                    {
+                                        <tr @key="part">
+                                            <td><InputSelect @bind-Value="part.PartId" aria-label="Part"><option value="0">Select Part</option>
+                                                @foreach (var option in GetPartsForGroup(group)) { <option value="@option.Id">@option.Label</option> }
+                                            </InputSelect></td>
+                                            <td><InputText @bind-Value="part.PurchaseOrderNumber" aria-label="PO number" maxlength="100" /></td>
+                                            <td><ThousandsSeparatedIntegerInput @bind-Value="part.Quantity" aria-label="Quantity" /></td>
+                                            <td>@if (CanEditContents) { <button type="button" class="button button-danger-outline" @onclick="() => group.Parts.Remove(part)">Remove</button> }</td>
+                                        </tr>
+                                    }
+                                </tbody></table>
+                            </div>
+                            @if (CanEditContents) { <button type="button" class="button button-secondary" @onclick="() => group.Parts.Add(new())">Add part line</button> }
+                            @if (group.Parts.Count == 0) { <p class="status-message">No part lines.</p> }
+                        </section>
+                    </fieldset>
+                }
+            }
+            @if (groupsExpanded && CanEditContents)
+            {
+                <fieldset class="tracking-fields" disabled="@(busy || editingBill)">
+                    <div class="form-actions">
+                        <button type="button" class="button button-secondary" @onclick="() => contents.Groups.Add(new())">Add group</button>
+                        <button class="button button-primary">Save groups and part lines</button>
+                    </div>
+                </fieldset>
+            }
+            @if (contents.Groups.Count == 0) { <p class="status-message">No groups on this container.</p> }
+        </EditForm>
+    }
+}
+
+@code {
+    [Parameter] public long Id { get; set; }
+    [Parameter] public long ShipmentId { get; set; }
+    private ContainerEditModel metadata = new();
+    private ContainerContentsEditModel contents = new();
+    private TrackingPermissions permissions = new(false, false);
+    private List<string> shipmentBills = [];
+    private List<BillOfLadingChoice> bills = [];
+    private List<TrackingChoice> parts = [];
+    private DateOnly? persistedEtd;
+    private bool busy, loaded, isError, editingBill, confirmDelete, groupsExpanded;
+    private long editingBillId;
+    private Guid billEditorKey;
+    private ContainerGroupEditModel? billTarget;
+    private string? message;
+    private bool Locked => Id != 0 && ContainerEditPolicy.HasDeparted(persistedEtd, Tracking.Today);
+    private bool CanEditContents => permissions.CanEdit && !Locked;
+    private bool CanEditMetadata => permissions.CanEdit && (!Locked || permissions.IsAdministrator);
+    private bool CanDelete => Id != 0 && CanEditMetadata;
+    private void ToggleGroupsExpanded()
+    {
+        groupsExpanded = !groupsExpanded;
+        if (!groupsExpanded) CloseBillEditor();
+    }
+    private string PartLabel(long partId) => parts.FirstOrDefault(x => x.Id == partId)?.Label ?? "—";
+    public override Task SetParametersAsync(ParameterView parameters)
+    {
+        // Blazor reuses this component between its create and detail routes.
+        Id = 0;
+        ShipmentId = 0;
+        return base.SetParametersAsync(parameters);
+    }
+    protected override Task OnParametersSetAsync() => ReloadAsync();
+    private async Task ReloadAsync()
+    {
+        busy = true; loaded = false; message = null; editingBill = false; confirmDelete = false;
+        try
+        {
+            permissions = await Access.GetAsync();
+            if (Id == 0)
+            {
+                var shipment = await Tracking.GetShipmentAsync(ShipmentId);
+                if (shipment is null) { message = "Shipment no longer exists."; isError = true; return; }
+                metadata = new() { ShipmentId = ShipmentId };
+                shipmentBills = shipment.BillNumbers.Select(x => x.Number).ToList();
+            }
+            else
+            {
+                var detail = await Tracking.GetContainerAsync(Id);
+                if (detail is null) { message = "Container no longer exists."; isError = true; return; }
+                metadata = detail.Metadata; contents = detail.Contents; shipmentBills = detail.ShipmentBills;
+                bills = await Tracking.GetBillsAsync(); parts = await Tracking.GetPartsAsync();
+            }
+            persistedEtd = metadata.EstimatedDepartureDate; loaded = true;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load container {ContainerId}", Id); message = "Container could not be loaded."; isError = true; }
+        finally { busy = false; }
+    }
+    private async Task SaveMetadataAsync()
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            var result = await Tracking.SaveContainerAsync(metadata);
+            message = result.Message ?? "Container metadata saved."; isError = !result.Succeeded;
+            if (result.Succeeded)
+            {
+                if (Id == 0) Navigation.NavigateTo($"/container-tracking/containers/{result.Id}");
+                else { metadata.Version = result.Version!.Value; contents.Version = metadata.Version; persistedEtd = metadata.EstimatedDepartureDate; }
+            }
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to save container {ContainerId}", Id); message = "Container could not be saved."; isError = true; }
+        finally { busy = false; }
+    }
+    private async Task DeleteContainerAsync()
+    {
+        if (busy || Id == 0) return;
+        busy = true;
+        try
+        {
+            var result = await Tracking.DeleteContainerAsync(Id, metadata.Version);
+            if (result.Succeeded)
+            {
+                Navigation.NavigateTo("/container-tracking");
+                return;
+            }
+            message = result.Message;
+            isError = true;
+            confirmDelete = false;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to delete container {ContainerId}", Id); message = "Container could not be deleted."; isError = true; }
+        finally { busy = false; }
+    }
+    private void SetEstimatedArrivalFromDeparture()
+    {
+        if (Id == 0 && metadata.EstimatedDepartureDate is { } departure)
+            metadata.EstimatedArrivalDate = departure.AddMonths(1);
+    }
+    private async Task SaveContentsAsync()
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            var result = await Tracking.SaveContentsAsync(contents);
+            message = result.Message ?? "Groups and part lines saved."; isError = !result.Succeeded;
+            if (result.Succeeded)
+            {
+                var saved = await Tracking.GetContainerAsync(Id);
+                if (saved is not null)
+                {
+                    contents = saved.Contents;
+                    // Keep unsaved metadata fields while advancing their shared concurrency token.
+                    metadata.Version = result.Version!.Value;
+                }
+            }
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to save container contents {ContainerId}", Id); message = "Groups and part lines could not be saved."; isError = true; }
+        finally { busy = false; }
+    }
+    private void OpenBillEditor(ContainerGroupEditModel group, long id)
+    { billTarget = group; editingBillId = id; billEditorKey = Guid.NewGuid(); editingBill = true; }
+    private void CloseBillEditor() { editingBill = false; billTarget = null; }
+    private async Task BillSavedAsync(long id)
+    {
+        bills = await Tracking.GetBillsAsync();
+        if (billTarget is not null) billTarget.BillOfLadingId = id;
+        CloseBillEditor();
+        message = "B/L selected. Save groups and part lines to save its assignment."; isError = false;
+    }
+    private IEnumerable<TrackingChoice> GetPartsForGroup(ContainerGroupEditModel group)
+    {
+        var supplierId = bills.FirstOrDefault(x => x.Id == group.BillOfLadingId)?.SupplierId;
+        return supplierId is null ? [] : parts.Where(x => x.SupplierId == supplierId);
+    }
+    private void ClearPartsForOtherSupplier(ContainerGroupEditModel group)
+    {
+        var availablePartIds = GetPartsForGroup(group).Select(x => x.Id).ToHashSet();
+        foreach (var part in group.Parts.Where(x => x.PartId != 0 && !availablePartIds.Contains(x.PartId)))
+            part.PartId = 0;
+    }
+}

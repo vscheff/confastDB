@@ -9,6 +9,7 @@ public sealed record PartListItem(
     string PartNumber,
     string? Revision,
     string? Description,
+    string? SupplierName,
     bool IsActive,
     IReadOnlyList<PlantOption> Plants);
 
@@ -22,12 +23,20 @@ public sealed record PlantOption(long Id, string Name, string? PlantCode)
     public string DisplayName => string.IsNullOrWhiteSpace(PlantCode) ? Name : $"{Name} ({PlantCode})";
 }
 
+public sealed record SupplierOption(long Id, string Name)
+{
+    public string DisplayName => Name;
+}
+
 public sealed class PartEditModel
 {
     public long Id { get; set; }
 
     [Range(1, long.MaxValue, ErrorMessage = "Customer is required.")]
     public long CustomerId { get; set; }
+
+    [Display(Name = "Supplier")]
+    public long? SupplierId { get; set; }
 
     [Required(ErrorMessage = "Part number is required.")]
     [Display(Name = "Part number")]
@@ -61,6 +70,7 @@ public enum SavePartStatus
     Conflict,
     DuplicatePartNumber,
     CustomerNotFound,
+    SupplierUnavailable,
     ValidationFailed
 }
 

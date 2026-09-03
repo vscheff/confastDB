@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260903181859_AddContainerGroupInvoiceNumber")]
+    partial class AddContainerGroupInvoiceNumber
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -80,11 +83,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<bool>("AddedToProductionSchedule")
                         .HasColumnType("boolean")
                         .HasColumnName("added_to_production_schedule");
-
-                    b.Property<string>("CbpNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("cbp_number");
 
                     b.Property<string>("ContainerNumber")
                         .IsRequired()
@@ -237,11 +235,6 @@ namespace Confast.Web.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal?>("FreightCost")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)")
-                        .HasColumnName("freight_cost");
-
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at_utc");
@@ -254,10 +247,7 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("shipments", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_shipments_freight_cost", "freight_cost >= 0");
-                        });
+                    b.ToTable("shipments", (string)null);
                 });
 
             modelBuilder.Entity("Confast.Web.Features.ContainerTracking.ShipmentBillNumber", b =>

@@ -98,6 +98,50 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task BrowserTestUserProvisioning_CreatesQualityUserWithoutAdministratorRole()
+    {
+        await using var services = CreateServices(new BrowserTestUserOptions
+        {
+            Username = "browser-test",
+            Password = "Browser-test1!"
+        });
+
+        await IdentityBootstrapper.EnsureBrowserTestUserAsync(services);
+
+        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.FindByNameAsync("browser-test");
+        Assert.NotNull(user);
+        Assert.True(await userManager.CheckPasswordAsync(user, "Browser-test1!"));
+        Assert.True(await userManager.IsInRoleAsync(user, AppRoles.Quality));
+        Assert.False(await userManager.IsInRoleAsync(user, AppRoles.Administrator));
+    }
+
+    [Fact]
+    public async Task BrowserTestUserProvisioning_SkipsWhenCredentialsAreMissing()
+    {
+        await using var services = CreateServices(new BrowserTestUserOptions());
+
+        await IdentityBootstrapper.EnsureBrowserTestUserAsync(services);
+
+        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        Assert.Null(await userManager.FindByNameAsync("browser-test"));
+    }
+
+    [Fact]
+    public async Task BrowserTestUserProvisioning_RejectsPartialCredentials()
+    {
+        await using var services = CreateServices(new BrowserTestUserOptions
+        {
+            Username = "browser-test"
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => IdentityBootstrapper.EnsureBrowserTestUserAsync(services));
+
+        Assert.Contains("BrowserTestUser requires both Username and Password", exception.Message);
+    }
+
+    [Fact]
     public async Task CaliperChoices_OnlyIncludeActiveDigitalCalipers()
     {
         await using (var db = database.CreateDbContext())
@@ -242,10 +286,20 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         Assert.NotNull(await userManager.FindByIdAsync(administrator.UserId!));
     }
 
-    private ServiceProvider CreateServices()
+    private ServiceProvider CreateServices(BrowserTestUserOptions? browserTestUser = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddOptions<BrowserTestUserOptions>().Configure(options =>
+        {
+            if (browserTestUser is null)
+            {
+                return;
+            }
+
+            options.Username = browserTestUser.Username;
+            options.Password = browserTestUser.Password;
+        });
         services.AddHttpContextAccessor();
         services.AddAuthentication();
         services.AddDataProtection();

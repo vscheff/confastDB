@@ -49,7 +49,7 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
     {
         await using var db = CreateDbContext();
         await db.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE identity_users, certification_documents, inspection_certifications, inspection_certification_requirements, inspection_secondary_processes, inspection_results, inspections, revision_certification_requirements, secondary_process_requirements, inspection_criteria, inspection_criteria_revisions, gages, gage_types, part_plants, parts, plants, customers RESTART IDENTITY CASCADE");
+            "TRUNCATE TABLE shipments, suppliers, identity_users, certification_documents, inspection_certifications, inspection_certification_requirements, inspection_secondary_processes, inspection_results, inspections, revision_certification_requirements, secondary_process_requirements, inspection_criteria, inspection_criteria_revisions, gages, gage_types, part_plants, parts, plants, customers RESTART IDENTITY CASCADE");
         await db.Database.ExecuteSqlRawAsync("""
             INSERT INTO certification_email_templates (template_type, subject_template, html_body_template)
             VALUES

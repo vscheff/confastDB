@@ -4,6 +4,7 @@
 @using System.Globalization
 @inject InspectionService InspectionService
 @inject UserAdministrationService UserAdministrationService
+@inject ICurrentUser CurrentUser
 @inject NavigationManager Navigation
 @inject ILogger<Create> Logger
 @inject IJSRuntime Js
@@ -167,10 +168,16 @@ else
         try
         {
             var partOptionsTask = InspectionService.GetPartOptionsAsync();
-            var qualityUserDisplayNamesTask = UserAdministrationService.GetQualityUserDisplayNamesAsync();
-            await Task.WhenAll(partOptionsTask, qualityUserDisplayNamesTask);
+            // UserManager uses the scoped Identity DbContext, so these two user queries
+            // must not overlap even though the independent part query can run concurrently.
+            qualityUserDisplayNames = await UserAdministrationService.GetQualityUserDisplayNamesAsync();
+            var currentUserId = await CurrentUser.GetUserIdAsync();
+            var inspectorDisplayName = await UserAdministrationService.GetUserDisplayNameAsync(currentUserId);
             partOptions = await partOptionsTask;
-            qualityUserDisplayNames = await qualityUserDisplayNamesTask;
+            if (string.IsNullOrWhiteSpace(inspection.Inspector))
+            {
+                inspection.Inspector = inspectorDisplayName;
+            }
             if (PreselectedPartId is not null
                 && partOptions.Any(x => x.Id == PreselectedPartId.Value))
             {

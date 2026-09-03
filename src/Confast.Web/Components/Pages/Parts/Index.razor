@@ -43,6 +43,7 @@ else
                     <th>Revision</th>
                     <th>Description</th>
                     <th>Customer</th>
+                    <th>Supplier</th>
                     <th>Destination plants</th>
                     <th>Status</th>
                     <th><span class="visually-hidden">Actions</span></th>
@@ -60,6 +61,7 @@ else
                         <td data-label="Customer">
                             <a href="@($"/customers/{part.CustomerId}/edit")">@part.CustomerName</a>
                         </td>
+                        <td data-label="Supplier">@(part.SupplierName ?? "—")</td>
                         <td data-label="Destination plants"><PartPlantMenu Plants="part.Plants" /></td>
                         <td data-label="Status">
                             <span class="status-pill @(part.IsActive ? "status-active" : "status-inactive")">@(part.IsActive ? "Active" : "Inactive")</span>

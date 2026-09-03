@@ -36,6 +36,8 @@ h1:focus { outline: none; }
 .subtab:focus-visible { outline: 3px solid rgb(31 124 175 / 25%); outline-offset: 2px; }
 .subtab-active { color: #176b9c; background: #fff; border-color: #c8d2d9 #c8d2d9 #fff; }
 .list-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; margin-bottom: .75rem; }
+.gage-tab-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+.gage-tab-toolbar h2 { margin-bottom: 0; }
 .sort-label { color: #526373; font-size: .9rem; font-weight: 700; }
 .sort-controls { display: flex; gap: .4rem; }
 .sort-button-active { color: #10577f; background: #e5f2f8; border-color: #70a8c5; }
@@ -56,6 +58,9 @@ h1:focus { outline: none; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th, .data-table td { padding: .9rem 1rem; text-align: left; vertical-align: top; border-bottom: 1px solid #e2e7eb; }
 .data-table th { color: #526373; background: #f8fafb; font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; }
+.gage-table th, .gage-table td { padding: .55rem .75rem; vertical-align: middle; }
+.gage-table .button { min-height: 32px; padding: .4rem .65rem; font-size: .84rem; white-space: nowrap; }
+.gage-table .row-actions { align-items: center; }
 .inspection-sort-header { display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem; margin: -.35rem -.5rem; padding: .35rem .5rem; color: inherit; background: transparent; border: 1px solid transparent; border-radius: .3rem; cursor: pointer; font: inherit; font-weight: 750; letter-spacing: inherit; text-transform: inherit; }
 .inspection-sort-header:hover, .inspection-sort-header:focus-visible { color: #10577f; background: #e5f2f8; border-color: #70a8c5; }
 .inspection-sort-header-active { color: #10577f; }
@@ -572,7 +577,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .part-detail-page .linked-records > .section-heading { align-items: center; margin-bottom: .65rem; }
 .part-detail-page .linked-records > .section-heading h2 { margin-bottom: .2rem; font-size: 1.15rem; }
 .part-detail-page .linked-records > .section-heading p { font-size: .85rem; }
-.part-edit-form { grid-template-columns: minmax(11rem, .85fr) minmax(10rem, .8fr) minmax(5.5rem, .35fr) minmax(18rem, 1.25fr) minmax(7rem, .45fr) minmax(13rem, .85fr); grid-template-areas: "customer part-number revision description description description" "specification-used specification-used destination-plants destination-plants active actions"; align-items: end; gap: .45rem .65rem; margin-bottom: .75rem; padding: .55rem .65rem; }
+.part-edit-form { grid-template-columns: minmax(11rem, .85fr) minmax(10rem, .8fr) minmax(5.5rem, .35fr) minmax(18rem, 1.25fr) minmax(20rem, 1.25fr) minmax(7rem, .45fr) minmax(13rem, .85fr); grid-template-areas: "customer part-number revision description description description description" "specification-used specification-used destination-plants destination-plants supplier active actions"; align-items: end; gap: .45rem .65rem; margin-bottom: .75rem; padding: .55rem .65rem; }
 .part-edit-form .form-field-wide { grid-column: auto; }
 .part-edit-form .part-customer-field { grid-area: customer; }
 .part-edit-form .part-number-field { grid-area: part-number; }
@@ -580,6 +585,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .part-edit-form .part-description-field { grid-area: description; }
 .part-edit-form .part-specification-used-field { grid-area: specification-used; min-width: 20rem; }
 .part-edit-form .destination-plants-field { grid-area: destination-plants; }
+.part-edit-form .part-supplier-field { grid-area: supplier; max-width: 20rem; }
 .part-edit-form .part-active-field { grid-area: active; }
 .part-edit-form .form-actions { grid-area: actions; }
 .part-edit-form .form-field { gap: .18rem; min-width: 0; }
@@ -688,7 +694,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
     .user-admin-grid { grid-template-columns: 1fr; }
     .form-field-wide { grid-column: auto; }
     .part-edit-form { grid-template-areas: none; }
-    .part-edit-form .part-customer-field, .part-edit-form .part-number-field, .part-edit-form .part-revision-field, .part-edit-form .part-description-field, .part-edit-form .part-specification-used-field, .part-edit-form .destination-plants-field, .part-edit-form .part-active-field, .part-edit-form .form-actions { grid-area: auto; }
+.part-edit-form .part-customer-field, .part-edit-form .part-number-field, .part-edit-form .part-revision-field, .part-edit-form .part-description-field, .part-edit-form .part-specification-used-field, .part-edit-form .destination-plants-field, .part-edit-form .part-supplier-field, .part-edit-form .part-active-field, .part-edit-form .form-actions { grid-area: auto; }
     .certification-recipient-row { grid-template-columns: 1fr; }
     .certification-type-checklist { grid-template-columns: 1fr; }
     .certification-package-controls { grid-template-columns: 1fr 1fr; }
@@ -716,3 +722,65 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
     .inspection-print-results tbody tr:nth-child(even), .inspection-print-small-table tbody tr:nth-child(even) { background-color: #f3f3f3 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .inspection-print-results, .inspection-print-lower-grid > div { break-inside: avoid; }
 }
+
+/* Container Tracking: compact aggregate editor, retaining the shared form/table language. */
+.tracking-search { display: flex; align-items: end; gap: .65rem; margin-bottom: 1.2rem; }
+.tracking-search .form-field { flex: 1; max-width: 48rem; }
+.tracking-search input { min-height: 40px; padding: .55rem .7rem; border: 1px solid #9eabb5; border-radius: .35rem; width: 100%; }
+.tracking-form { display: block; padding: 1rem; margin-bottom: 1.25rem; }
+.tracking-fields { border: 0; padding: 0; margin: 0 0 .8rem; min-width: 0; }
+.tracking-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .8rem; align-items: end; }
+.tracking-metadata-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.tracking-metadata-grid > fieldset { display: contents; }
+.tracking-metadata-grid .container-number-field { grid-area: 1 / 1; }
+.tracking-metadata-grid .container-cbp-field { grid-area: 1 / 2; }
+.tracking-metadata-grid .container-etd-field { grid-area: 1 / 3; }
+.tracking-metadata-grid .container-eta-field { grid-area: 1 / 4; }
+.tracking-metadata-grid .container-received-field { grid-area: 1 / 5; }
+.tracking-metadata-grid .container-rate-field { grid-area: 2 / 1; }
+.tracking-metadata-grid .container-schedule-field { grid-area: 2 / 3; }
+.tracking-metadata-grid .container-drayage-field { grid-area: 2 / 2; }
+.tracking-form .form-field label, .tracking-group .form-field label { display: grid; gap: .35rem; }
+.tracking-form input:disabled, .tracking-form select:disabled, .tracking-contents input:disabled, .tracking-contents select:disabled { color: #344757; background: #f2f5f7; opacity: 1; }
+.tracking-form h2 { margin-top: 0; }
+.tracking-container-heading > div, .tracking-shipment .section-heading > div { min-width: 0; }
+.tracking-container-heading h1, .tracking-shipment h2 { overflow-wrap: anywhere; }
+.tracking-grid input, .tracking-grid select { font-weight: 400; }
+.tracking-bill-row { display: flex; align-items: end; gap: .6rem; margin-bottom: .6rem; }
+.tracking-bill-row .form-field { flex: 1; max-width: 34rem; }
+.tracking-shipment { margin: 1.4rem 0; }
+.tracking-eyebrow { display: block; font-size: .8rem; color: #617080; font-weight: 650; }
+.tracking-lock { display: block; color: #8b5819; margin-top: .25rem; }
+.tracking-group, .tracking-bill-editor { border: 1px solid #cbd6dd; background: #fff; border-radius: .5rem; padding: 1rem; margin-bottom: 1rem; }
+.tracking-group h3 { margin: 0 0 .3rem; }
+.tracking-bl-choice { grid-column: span 2; }
+.tracking-table { overflow-x: auto; margin: .8rem 0; }
+.tracking-parts { min-width: 680px; }
+.tracking-parts input, .tracking-parts select { width: 100%; min-height: 38px; padding: .45rem .55rem; border: 1px solid #9eabb5; border-radius: .3rem; }
+.tracking-parts th:first-child { width: 44%; }
+.tracking-parts th:nth-child(2), .tracking-parts th:nth-child(3) { width: 22%; }
+.tracking-group-summary { margin-bottom: 1rem; }
+.tracking-group-summary .data-table { min-width: 980px; }
+.tracking-part-summary { margin: 0; padding-left: 1.1rem; }
+.tracking-part-summary li + li { margin-top: .2rem; }
+.tracking-contents .button, .tracking-form .button, .tracking-shipment .button { white-space: nowrap; }
+@media (max-width: 1200px) {
+    .app-header { flex-wrap: wrap; gap: .35rem 1.25rem; padding: .5rem 1rem; }
+    .app-header nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; gap: .35rem 1rem; }
+    .app-header nav a, .app-header .user-menu { white-space: nowrap; }
+}
+@media (max-width: 760px) {
+    .tracking-grid, .tracking-metadata-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tracking-metadata-grid .container-number-field, .tracking-metadata-grid .container-cbp-field, .tracking-metadata-grid .container-etd-field, .tracking-metadata-grid .container-eta-field, .tracking-metadata-grid .container-received-field, .tracking-metadata-grid .container-rate-field, .tracking-metadata-grid .container-schedule-field, .tracking-metadata-grid .container-drayage-field { grid-area: auto; }
+    .tracking-search { flex-wrap: wrap; }
+    .tracking-search .form-field { min-width: 100%; }
+    .tracking-group .section-heading, .tracking-shipment .section-heading { align-items: start; flex-wrap: wrap; }
+    .tracking-group input, .tracking-group select, .tracking-group .button { min-height: 44px; }
+    .tracking-table .data-table { display: table; min-width: 680px; }
+    .tracking-table .data-table thead { display: table-header-group; }
+    .tracking-table .data-table tbody { display: table-row-group; }
+    .tracking-table .data-table tr { display: table-row; }
+    .tracking-table .data-table td, .tracking-table .data-table th { display: table-cell; }
+    .tracking-table .data-table td::before { display: none; }
+}
+@media (max-width: 440px) { .tracking-grid { grid-template-columns: 1fr; } .tracking-bl-choice { grid-column: auto; } }

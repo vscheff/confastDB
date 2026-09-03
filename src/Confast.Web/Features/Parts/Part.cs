@@ -1,6 +1,7 @@
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.Suppliers;
 
 namespace Confast.Web.Features.Parts;
 
@@ -11,6 +12,10 @@ public sealed class Part
     public long CustomerId { get; set; }
 
     public Customer Customer { get; set; } = null!;
+
+    public long? SupplierId { get; set; }
+
+    public Supplier? Supplier { get; set; }
 
     public string PartNumber { get; set; } = string.Empty;
 

@@ -39,6 +39,7 @@ else
     <PartForm Model="part"
               CustomerOptions="customerOptions"
               PlantOptions="plantOptions"
+              SupplierOptions="supplierOptions"
               OnCustomerChanged="LoadPlantsAsync"
               OnValidSubmit="CreatePartAsync"
               FormName="create-part"
@@ -53,6 +54,7 @@ else
     private readonly PartEditModel part = new();
     private IReadOnlyList<CustomerOption> customerOptions = [];
     private IReadOnlyList<PlantOption> plantOptions = [];
+    private IReadOnlyList<SupplierOption> supplierOptions = [];
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
@@ -65,7 +67,11 @@ else
 
         try
         {
-            customerOptions = await PartService.GetCustomerOptionsAsync();
+            var customerOptionsTask = PartService.GetCustomerOptionsAsync();
+            var supplierOptionsTask = PartService.GetSupplierOptionsAsync();
+            await Task.WhenAll(customerOptionsTask, supplierOptionsTask);
+            customerOptions = await customerOptionsTask;
+            supplierOptions = await supplierOptionsTask;
 
             if (CustomerId is not null && customerOptions.Any(x => x.Id == CustomerId))
             {
@@ -123,6 +129,8 @@ else
                     "That customer already has a part with this part number.",
                 SavePartStatus.CustomerNotFound =>
                     "The selected customer no longer exists. Reload the page and choose another customer.",
+                SavePartStatus.SupplierUnavailable =>
+                    "The selected supplier is no longer active. Reload the page and choose another supplier.",
                 SavePartStatus.ValidationFailed => result.Message,
                 _ => "The part could not be created. Please try again."
             };

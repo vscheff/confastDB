@@ -2,6 +2,8 @@ using System.Globalization;
 using Confast.Web.Components;
 using Confast.Web.Data;
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.ContainerTracking;
+using Confast.Web.Features.Suppliers;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
@@ -101,12 +103,17 @@ builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<ICurrentEmailSender, CurrentEmailSender>();
 builder.Services.AddScoped<UserAdministrationService>();
 builder.Services.Configure<BootstrapAdminOptions>(builder.Configuration.GetSection("BootstrapAdmin"));
+builder.Services.Configure<BrowserTestUserOptions>(builder.Configuration.GetSection("BrowserTestUser"));
 builder.Services.AddSingleton<CertificationPackageFilenameFormatter>();
 builder.Services.AddSingleton<CertificationEmailHtmlSanitizer>();
 builder.Services.AddSingleton<CertificationEmailTemplateRenderer>();
 builder.Services.AddScoped<ICertificationEmailTemplateResolver, CertificationEmailTemplateResolver>();
 builder.Services.AddScoped<ICertificationEmailTemplateService, CertificationEmailTemplateService>();
 builder.Services.AddScoped<CustomerService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<TrackingAccess>();
+builder.Services.AddScoped<ContainerTrackingService>();
+builder.Services.AddScoped<SupplierService>();
 builder.Services.AddScoped<GageService>();
 builder.Services.AddScoped<InspectionCriteriaService>();
 builder.Services.AddSingleton(new CertificationPreviewOptions
@@ -396,6 +403,10 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 await IdentityBootstrapper.CreateInitialAdministratorAsync(app.Services);
+if (app.Environment.IsDevelopment())
+{
+    await IdentityBootstrapper.EnsureBrowserTestUserAsync(app.Services);
+}
 
 app.Run();
 

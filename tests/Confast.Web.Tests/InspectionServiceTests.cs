@@ -2,6 +2,7 @@ using Confast.Web.Features.Customers;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -594,6 +595,63 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             x => x.Id == selectedGageId && x.GageNumber == "MIC-001");
         Assert.Contains(reopenedResult.GageChoices, x => x.Id == otherMicrometerId);
         Assert.DoesNotContain(reopenedResult.GageChoices, x => x.Id == caliperId);
+    }
+
+    [Fact]
+    public async Task NewInspectionUsesTheInspectorsDigitalCaliper()
+    {
+        var partId = await CreatePartAsync("CALIPER-DEFAULT");
+        var digitalCaliperTypeId = await CreateGageTypeAsync("Digital Calipers");
+        await CreateAndPublishRevisionAsync(partId, digitalCaliperTypeId, "20", "21");
+        var firstCaliperId = await CreateGageAsync(digitalCaliperTypeId, "CAL-001");
+        var selectedCaliperId = await CreateGageAsync(digitalCaliperTypeId, "CAL-002");
+        var userId = Guid.NewGuid().ToString();
+
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(new ApplicationUser
+            {
+                Id = userId,
+                UserName = "inspection.user",
+                NormalizedUserName = "INSPECTION.USER",
+                Email = "inspection.user@example.com",
+                NormalizedEmail = "INSPECTION.USER@EXAMPLE.COM",
+                DisplayName = "Inspection User",
+                SecurityStamp = Guid.NewGuid().ToString(),
+                ConcurrencyStamp = Guid.NewGuid().ToString(),
+                CaliperId = selectedCaliperId
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            Inspector = "Inspection User",
+            InspectionDate = new DateOnly(2026, 9, 3)
+        });
+
+        var inspection = await inspectionService.GetInspectionAsync(create.InspectionId!.Value);
+        Assert.Equal(selectedCaliperId, Assert.Single(inspection!.Results).GageId);
+        Assert.NotEqual(firstCaliperId, inspection.Results[0].GageId);
+    }
+
+    [Fact]
+    public async Task NewInspectionLeavesDigitalCaliperUnselectedWhenUserHasNoCaliper()
+    {
+        var partId = await CreatePartAsync("CALIPER-NONE");
+        var digitalCaliperTypeId = await CreateGageTypeAsync("Digital Caliper");
+        await CreateAndPublishRevisionAsync(partId, digitalCaliperTypeId, "20", "21");
+        await CreateGageAsync(digitalCaliperTypeId, "CAL-ONLY");
+
+        var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
+        {
+            PartId = partId,
+            InspectionDate = new DateOnly(2026, 9, 3)
+        });
+
+        var inspection = await inspectionService.GetInspectionAsync(create.InspectionId!.Value);
+        Assert.Null(Assert.Single(inspection!.Results).GageId);
     }
 
     [Fact]
@@ -1579,4 +1637,5 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         document.Save(output, closeStream: false);
         return output.ToArray();
     }
+
 }

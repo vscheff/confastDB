@@ -60,6 +60,18 @@
         </details>
     </fieldset>
 
+    <div class="form-field form-field-wide part-supplier-field">
+        <label for="part-supplier">Supplier</label>
+        <InputSelect id="part-supplier" @bind-Value="Model.SupplierId">
+            <option value="">No supplier assigned</option>
+            @foreach (var supplier in SupplierOptions)
+            {
+                <option value="@supplier.Id">@supplier.DisplayName</option>
+            }
+        </InputSelect>
+        <ValidationMessage For="() => Model.SupplierId" />
+    </div>
+
     <div class="form-field form-field-wide checkbox-field part-active-field">
         <InputCheckbox id="part-is-active" @bind-Value="Model.IsActive" />
         <label for="part-is-active">Active part</label>
@@ -82,6 +94,9 @@
 
     [Parameter]
     public IReadOnlyList<PlantOption> PlantOptions { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<SupplierOption> SupplierOptions { get; set; } = [];
 
     [Parameter]
     public EventCallback<long> OnCustomerChanged { get; set; }

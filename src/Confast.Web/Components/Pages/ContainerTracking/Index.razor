@@ -1,0 +1,144 @@
+@page "/container-tracking"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Confast.Web.Features.ContainerTracking
+@inject ContainerTrackingService Tracking
+@inject TrackingAccess Access
+@inject ILogger<Index> Logger
+
+<PageTitle>Container Tracking</PageTitle>
+<div class="page-heading">
+    <div><h1>Container Tracking</h1><p>Inbound shipments, containers, and supplier material.</p></div>
+    <div class="heading-actions">
+        <a class="button button-secondary" href="/suppliers">Suppliers</a>
+        @if (permissions.CanEdit) { <button class="button button-primary" @onclick="NewShipment">Create shipment</button> }
+    </div>
+</div>
+@if (message is not null) { <div class="alert @(isError ? "alert-error" : "alert-success")" role="status">@message</div> }
+<form class="tracking-search" @onsubmit="LoadAsync" @onsubmit:preventDefault>
+    <div class="form-field"><label for="tracking-search">Shipment bill, container, B/L, supplier, or part number</label><input type="search" id="tracking-search" @bind="search" /></div>
+    <button class="button button-secondary" disabled="@busy">Search</button>
+</form>
+@if (editing is not null)
+{
+    <EditForm Model="editing" OnValidSubmit="SaveShipmentAsync" FormName="shipment" class="record-form tracking-form">
+        <DataAnnotationsValidator /><ValidationSummary />
+        <h2>@(editing.Id == 0 ? "Create shipment" : "Shipment bill numbers")</h2>
+        <fieldset disabled="@busy" class="tracking-fields">
+            <div class="form-field"><label>Freight cost ($)<ThousandsSeparatedMoneyInput @bind-Value="editing.FreightCost" /></label></div>
+            @foreach (var bill in editing.BillNumbers)
+            {
+                <div class="tracking-bill-row" @key="bill">
+                    <div class="form-field"><label>Bill number<InputText @bind-Value="bill.Number" maxlength="100" /></label></div>
+                    <button type="button" class="button button-danger-outline" @onclick="() => editing.BillNumbers.Remove(bill)">Remove</button>
+                </div>
+            }
+        </fieldset>
+        <div class="form-actions">
+            <button type="button" class="button button-secondary" @onclick="() => editing.BillNumbers.Add(new())" disabled="@busy">Add bill number</button>
+            <button class="button button-primary" disabled="@busy">Save shipment</button>
+            <button type="button" class="button button-secondary" @onclick="() => editing = null" disabled="@busy">Cancel</button>
+        </div>
+    </EditForm>
+}
+@foreach (var shipment in shipments)
+{
+    <section class="tracking-shipment" @key="shipment.Id">
+        <div class="section-heading">
+            <div><span class="tracking-eyebrow">Shipment</span><h2>@string.Join(" · ", shipment.BillNumbers)</h2>
+                @if (shipment.FreightCost is not null) { <p class="status-message">Freight cost: @shipment.FreightCost.Value.ToString("C2")</p> }</div>
+            @if (permissions.CanEdit)
+            {
+                <div class="heading-actions">
+                    <button class="button button-secondary" @onclick="() => EditShipmentAsync(shipment.Id)" disabled="@busy">Edit bills</button>
+                    <a class="button button-primary" href="@($"/container-tracking/shipments/{shipment.Id}/containers/create")">Add container</a>
+                    @if (shipment.Containers.Count == 0)
+                    {
+                        @if (confirmShipmentDeleteId == shipment.Id)
+                        {
+                            <button type="button" class="button button-danger" @onclick="() => DeleteShipmentAsync(shipment)" disabled="@busy">Confirm delete</button>
+                            <button type="button" class="button button-secondary" @onclick="() => confirmShipmentDeleteId = null" disabled="@busy">Cancel</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="button button-danger-outline" @onclick="() => confirmShipmentDeleteId = shipment.Id" disabled="@busy">Delete shipment</button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+        @if (confirmShipmentDeleteId == shipment.Id)
+        {
+            <div class="alert alert-warning" role="alert">Deleting this shipment also removes its bill-number rows.</div>
+        }
+        <div class="table-shell tracking-table">
+            <table class="data-table"><thead><tr><th>Container</th><th>CBP number</th><th>ETD</th><th>ETA</th><th>Receipt</th><th>Groups</th><th>Pallets</th><th>Weight (lb)</th><th>On schedule</th></tr></thead><tbody>
+            @foreach (var container in shipment.Containers)
+            {
+                <tr><td><a class="record-link" href="@($"/container-tracking/containers/{container.Id}")">@container.Number</a>
+                    @if (ContainerEditPolicy.HasDeparted(container.Etd, Tracking.Today)) { <small class="tracking-lock">Departed / Locked</small> }</td>
+                    <td>@(container.CbpNumber ?? "—")</td>
+                    <td>@Date(container.Etd)</td><td>@Date(container.Eta)</td><td>@(container.ReceivedDate is null ? "Not received" : Date(container.ReceivedDate))</td>
+                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.AddedToProductionSchedule ? "Yes" : "No")</td></tr>
+            }
+            </tbody></table>
+        </div>
+        @if (shipment.Containers.Count == 0) { <p class="status-message">No containers yet. Add a container to begin tracking its material.</p> }
+        else if (permissions.CanEdit) { <p class="status-message">Delete its containers before deleting this shipment.</p> }
+    </section>
+}
+@if (!busy && shipments.Count == 0) { <div class="empty-state"><h2>No shipments found</h2><p>Create a shipment or change your search.</p></div> }
+
+@code {
+    private TrackingPermissions permissions = new(false, false);
+    private List<ShipmentSummary> shipments = [];
+    private ShipmentEditModel? editing;
+    private string? search, message;
+    private bool busy, isError;
+    private long? confirmShipmentDeleteId;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private static string Date(DateOnly? value) => value?.ToString("MMM d, yyyy") ?? "—";
+    private void NewShipment() { editing = new() { BillNumbers = [new()] }; message = null; }
+    private async Task LoadAsync()
+    {
+        busy = true; confirmShipmentDeleteId = null;
+        try { permissions = await Access.GetAsync(); shipments = await Tracking.SearchAsync(search); }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load shipments"); message = "Shipments could not be loaded."; isError = true; }
+        finally { busy = false; }
+    }
+    private async Task EditShipmentAsync(long id)
+    {
+        try { editing = await Tracking.GetShipmentAsync(id); message = editing is null ? "Shipment no longer exists." : null; }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to open shipment {ShipmentId}", id); message = "Shipment could not be opened."; isError = true; }
+    }
+    private async Task SaveShipmentAsync()
+    {
+        if (busy || editing is null) return;
+        busy = true;
+        try
+        {
+            var result = await Tracking.SaveShipmentAsync(editing);
+            message = result.Message ?? "Shipment saved."; isError = !result.Succeeded;
+            if (result.Succeeded) { editing = null; search = null; shipments = await Tracking.SearchAsync(); }
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to save shipment"); message = "Shipment could not be saved."; isError = true; }
+        finally { busy = false; }
+    }
+    private async Task DeleteShipmentAsync(ShipmentSummary shipment)
+    {
+        if (busy || shipment.Containers.Count != 0) return;
+        busy = true;
+        try
+        {
+            var result = await Tracking.DeleteShipmentAsync(shipment.Id, shipment.Version);
+            message = result.Message ?? "Shipment deleted.";
+            isError = !result.Succeeded;
+            if (result.Succeeded)
+            {
+                confirmShipmentDeleteId = null;
+                shipments = await Tracking.SearchAsync(search);
+            }
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to delete shipment {ShipmentId}", shipment.Id); message = "Shipment could not be deleted."; isError = true; }
+        finally { busy = false; }
+    }
+}

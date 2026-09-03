@@ -46,11 +46,8 @@ else
     @if (activeTab == GageTab.Types)
     {
     <section>
-        <div class="page-heading section-heading">
-            <div>
-                <h2>Gage types</h2>
-                <p>These are the inspection methods offered on inspection criteria.</p>
-            </div>
+        <div class="gage-tab-toolbar">
+            <h2>Gage Types</h2>
             <button class="button button-primary" type="button" @onclick="BeginAddType" disabled="@(isSaving || typeModel is not null)">Add gage type</button>
         </div>
 
@@ -74,7 +71,7 @@ else
         }
 
         <div class="table-shell">
-            <table class="data-table">
+            <table class="data-table gage-table">
                 <thead><tr><th>Name</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
                 <tbody>
                     @foreach (var type in gageTypes)
@@ -98,11 +95,8 @@ else
     else
     {
     <section>
-        <div class="page-heading section-heading">
-            <div>
-                <h2>Physical gages</h2>
-                <p>These records identify actual instruments; they are not assigned to criteria yet.</p>
-            </div>
+        <div class="gage-tab-toolbar">
+            <h2>Physical Gages</h2>
             <button class="button button-primary" type="button" @onclick="BeginAddGage" disabled="@(isSaving || gageModel is not null || gageTypes.Count == 0)">Add gage</button>
         </div>
 
@@ -136,30 +130,30 @@ else
             </EditForm>
         }
 
-        <div class="list-toolbar" aria-label="Physical gage sorting">
-            <span class="sort-label">Sort by</span>
-            <div class="sort-controls">
-                <button class="button button-secondary @(gageSortField == GageSortField.Number ? "sort-button-active" : null)"
-                        type="button"
-                        aria-pressed="@(gageSortField == GageSortField.Number)"
-                        @onclick="() => SetGageSortField(GageSortField.Number)">
-                    Gage Number
-                </button>
-                <button class="button button-secondary @(gageSortField == GageSortField.Type ? "sort-button-active" : null)"
-                        type="button"
-                        aria-pressed="@(gageSortField == GageSortField.Type)"
-                        @onclick="() => SetGageSortField(GageSortField.Type)">
-                    Gage Type
-                </button>
-                <button class="button button-secondary" type="button" @onclick="ToggleGageSortDirection">
-                    @(gageSortAscending ? "↑ Ascending" : "↓ Descending")
-                </button>
-            </div>
-        </div>
-
         <div class="table-shell">
-            <table class="data-table">
-                <thead><tr><th>Gage number</th><th>Gage type</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+            <table class="data-table gage-table">
+                <thead>
+                    <tr>
+                        <th aria-sort="@(GetAriaSort(GageSortField.Number))">
+                            <button class="inspection-sort-header @(gageSortField == GageSortField.Number ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Gage number @(GetSortDirectionLabel(GageSortField.Number))"
+                                    @onclick="() => ToggleGageSort(GageSortField.Number)">
+                                Gage number <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(GageSortField.Number)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(GageSortField.Type))">
+                            <button class="inspection-sort-header @(gageSortField == GageSortField.Type ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Gage type @(GetSortDirectionLabel(GageSortField.Type))"
+                                    @onclick="() => ToggleGageSort(GageSortField.Type)">
+                                Gage type <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(GageSortField.Type)</span>
+                            </button>
+                        </th>
+                        <th>Status</th>
+                        <th><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
                 <tbody>
                     @foreach (var gage in SortedGages)
                     {
@@ -238,9 +232,30 @@ else
             .ThenByDescending(x => x.GageNumber, StringComparer.OrdinalIgnoreCase)
     };
 
-    private void SetGageSortField(GageSortField field) => gageSortField = field;
+    private void ToggleGageSort(GageSortField field)
+    {
+        if (gageSortField == field)
+        {
+            gageSortAscending = !gageSortAscending;
+            return;
+        }
 
-    private void ToggleGageSortDirection() => gageSortAscending = !gageSortAscending;
+        gageSortField = field;
+        gageSortAscending = true;
+    }
+
+    private string GetAriaSort(GageSortField field) =>
+        gageSortField != field
+            ? "none"
+            : gageSortAscending ? "ascending" : "descending";
+
+    private string GetSortIndicator(GageSortField field) =>
+        gageSortField != field ? "↕" : gageSortAscending ? "↑" : "↓";
+
+    private string GetSortDirectionLabel(GageSortField field) =>
+        gageSortField != field
+            ? ""
+            : gageSortAscending ? "descending next" : "ascending next";
 
     private async Task LoadAsync()
     {

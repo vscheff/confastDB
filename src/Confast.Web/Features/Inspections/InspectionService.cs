@@ -428,12 +428,23 @@ public sealed class InspectionService
         var activeGages = await db.Gages
             .AsNoTracking()
             .Where(x => x.IsActive && criterionGageTypeIds.Contains(x.GageTypeId))
-            .Select(x => new { x.Id, x.GageTypeId, x.GageNumber })
+        .Select(x => new InspectorCaliper(x.Id, x.GageTypeId, x.GageNumber))
             .ToListAsync(cancellationToken);
         var soleActiveGagesByType = activeGages
             .GroupBy(x => x.GageTypeId)
             .Where(group => group.Count() == 1)
             .ToDictionary(group => group.Key, group => group.Single());
+        var digitalCaliperTypeIds = await db.GageTypes
+            .AsNoTracking()
+            .Where(x => criterionGageTypeIds.Contains(x.Id)
+                && EF.Functions.ILike(x.Name, "Digital Caliper%"))
+            .Select(x => x.Id)
+            .ToHashSetAsync(cancellationToken);
+        var inspectorName = NormalizeOptionalText(model.Inspector);
+        var inspectorCaliper = await GetInspectorCaliperAsync(
+            db,
+            inspectorName,
+            cancellationToken);
 
         var inspection = new Inspection
         {
@@ -446,21 +457,27 @@ public sealed class InspectionService
             QuantityReceived = model.QuantityReceived,
             QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(model.QuantityReceived)
                 ?? model.QuantityInspected,
-            Inspector = NormalizeOptionalText(model.Inspector),
+            Inspector = inspectorName,
             InspectionDate = model.InspectionDate!.Value
         };
 
         foreach (var criterion in revision.Criteria)
         {
-            soleActiveGagesByType.TryGetValue(
-                criterion.GageTypeId ?? 0,
-                out var soleActiveGage);
+            var isDigitalCaliperRequirement = criterion.GageTypeId is long gageTypeId
+                && digitalCaliperTypeIds.Contains(gageTypeId);
+            var selectedGage = isDigitalCaliperRequirement
+                ? inspectorCaliper is not null
+                    && criterion.GageTypeId == inspectorCaliper.GageTypeId
+                        ? inspectorCaliper
+                        : null
+                : soleActiveGagesByType.GetValueOrDefault(criterion.GageTypeId ?? 0);
+
             inspection.Results.Add(new InspectionResult
             {
                 InspectionCriteriaRevisionId = revision.Id,
                 InspectionCriterionId = criterion.Id,
-                GageId = soleActiveGage?.Id,
-                GageNumber = soleActiveGage?.GageNumber
+                GageId = selectedGage?.Id,
+                GageNumber = selectedGage?.GageNumber
             });
         }
 
@@ -803,6 +820,32 @@ public sealed class InspectionService
         catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception)) { return new(InspectionOperationStatus.Conflict); }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.SerializationFailure) { return new(InspectionOperationStatus.Conflict); }
     }
+
+    private static async Task<InspectorCaliper?> GetInspectorCaliperAsync(
+        AppDbContext db,
+        string? inspectorName,
+        CancellationToken cancellationToken)
+    {
+        if (inspectorName is null)
+        {
+            return null;
+        }
+
+        return await db.Users
+            .AsNoTracking()
+            .Where(x => x.DisplayName == inspectorName
+                && x.Caliper != null
+                && x.Caliper.IsActive
+                && EF.Functions.ILike(x.Caliper.GageType.Name, "Digital Caliper%"))
+            .OrderBy(x => x.UserName)
+            .Select(x => new InspectorCaliper(
+                x.Caliper!.Id,
+                x.Caliper.GageTypeId,
+                x.Caliper.GageNumber))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private sealed record InspectorCaliper(long Id, long GageTypeId, string GageNumber);
 
     public async Task<InspectionOperationResult> UndoLineageOperationAsync(
         long inspectionId,

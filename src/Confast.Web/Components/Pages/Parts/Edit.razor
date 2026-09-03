@@ -50,6 +50,7 @@ else
     <PartForm Model="part"
               CustomerOptions="customerOptions"
               PlantOptions="plantOptions"
+              SupplierOptions="supplierOptions"
               OnCustomerChanged="LoadPlantsAsync"
               OnValidSubmit="SavePartAsync"
               FormName="edit-part"
@@ -287,6 +288,7 @@ else
     private PartEditModel? part;
     private IReadOnlyList<CustomerOption> customerOptions = [];
     private IReadOnlyList<PlantOption> plantOptions = [];
+    private IReadOnlyList<SupplierOption> supplierOptions = [];
     private PartInspectionCriteriaSummary? criteriaSummary;
     private InspectionCriteriaRevisionDetails? currentRevision;
     private IReadOnlyList<CertificationTypeChoice> certificationTypeChoices = [];
@@ -325,7 +327,11 @@ else
             certificationTypeChoices = await certificationTypesTask;
             if (part is not null)
             {
-                plantOptions = await PartService.GetPlantOptionsAsync(part.CustomerId);
+                var plantOptionsTask = PartService.GetPlantOptionsAsync(part.CustomerId);
+                var supplierOptionsTask = PartService.GetSupplierOptionsAsync(part.SupplierId);
+                await Task.WhenAll(plantOptionsTask, supplierOptionsTask);
+                plantOptions = await plantOptionsTask;
+                supplierOptions = await supplierOptionsTask;
             }
 
             if (criteriaSummary?.CurrentRevision is not null)
@@ -389,6 +395,10 @@ else
                     break;
                 case SavePartStatus.CustomerNotFound:
                     saveMessage = "The selected customer no longer exists. Reload the page and choose another customer.";
+                    saveMessageClass = "alert-error";
+                    break;
+                case SavePartStatus.SupplierUnavailable:
+                    saveMessage = "The selected supplier is no longer active. Reload the page and choose another supplier.";
                     saveMessageClass = "alert-error";
                     break;
                 case SavePartStatus.ValidationFailed:

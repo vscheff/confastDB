@@ -142,6 +142,17 @@ public sealed class UserAdministrationService(
         };
     }
 
+    public async Task<string?> GetUserDisplayNameAsync(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return null;
+        }
+
+        var user = await userManager.FindByIdAsync(userId);
+        return user?.DisplayName;
+    }
+
     public async Task<UserAdministrationResult> CreateUserAsync(CreateUserInput input)
     {
         var invalidRoles = GetInvalidRoles(input.Roles);

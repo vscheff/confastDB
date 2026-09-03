@@ -46,6 +46,39 @@ Development startup uses an ephemeral Data Protection key ring and Console loggi
 This keeps local sandboxed runs independent of Windows DPAPI and Event Log permissions;
 production uses the normal persistent Data Protection and logging configuration.
 
+To enable authenticated browser testing, configure a dedicated Development-only account
+with User Secrets. The account is created on Development startup with the `Quality` role,
+which exercises normal inspection workflows without granting administration privileges:
+
+```powershell
+dotnet user-secrets set --project src/Confast.Web "BrowserTestUser:Username" "browser-test"
+dotnet user-secrets set --project src/Confast.Web "BrowserTestUser:Password" "REPLACE-WITH-A-UNIQUE-LONG-PASSWORD"
+```
+
+The password placeholder above is not a credential; replace it locally with a password
+that meets the application's normal Identity policy. Environment variables can override
+the same settings as `BrowserTestUser__Username` and `BrowserTestUser__Password`.
+When either setting is missing, browser-test-user provisioning is skipped and Production
+never provisions this account.
+
+### Browser-testing startup
+
+Codex or another local browser tester can start the app without coordinating with an
+already-open Visual Studio instance:
+
+```powershell
+.\scripts\start-browser-test.ps1
+```
+
+The helper first probes `http://127.0.0.1:5105/` and reuses it when it is healthy. If
+that port is occupied but not serving ConfastDB, it selects the next available port
+starting at `5167`. New instances explicitly run in Development, and normal builds use
+the isolated `src/Confast.Web/.codex/browser-build-output` path so a separately running
+Debug instance does not lock the browser-test build. Use `-NoBuild` only after the
+isolated output has already been built. Development data-protection keys are ephemeral,
+so restarting an instance invalidates old login/antiforgery cookies; use a fresh browser
+profile or clear the local site's cookies when testing across a restart.
+
 ## Authentication and users
 
 Confast DB uses ASP.NET Core Identity in the existing PostgreSQL database. Applying

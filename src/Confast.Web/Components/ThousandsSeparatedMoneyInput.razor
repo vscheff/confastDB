@@ -1,0 +1,42 @@
+@using System.Globalization
+@inherits InputBase<decimal?>
+
+<input @attributes="AdditionalAttributes"
+       type="text"
+       class="@CssClass"
+       inputmode="decimal"
+       value="@CurrentValueAsString"
+       @onchange="HandleChange" />
+
+@code {
+    private void HandleChange(ChangeEventArgs args) =>
+        CurrentValueAsString = args.Value?.ToString();
+
+    protected override string? FormatValueAsString(decimal? value) =>
+        value?.ToString("N2", CultureInfo.InvariantCulture);
+
+    protected override bool TryParseValueFromString(
+        string? value,
+        out decimal? result,
+        out string validationErrorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            result = null;
+            validationErrorMessage = null!;
+            return true;
+        }
+
+        if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedValue)
+            && decimal.Round(parsedValue, 2) == parsedValue)
+        {
+            result = parsedValue;
+            validationErrorMessage = null!;
+            return true;
+        }
+
+        result = null;
+        validationErrorMessage = "Enter an amount with no more than two decimal places.";
+        return false;
+    }
+}

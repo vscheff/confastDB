@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260903161453_AddContainerTracking")]
+    partial class AddContainerTracking
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -80,11 +83,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<bool>("AddedToProductionSchedule")
                         .HasColumnType("boolean")
                         .HasColumnName("added_to_production_schedule");
-
-                    b.Property<string>("CbpNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("cbp_number");
 
                     b.Property<string>("ContainerNumber")
                         .IsRequired()
@@ -159,11 +157,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("container_id");
 
-                    b.Property<string>("InvoiceNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("invoice_number");
-
                     b.Property<int?>("PalletCount")
                         .HasColumnType("integer")
                         .HasColumnName("pallet_count");
@@ -237,11 +230,6 @@ namespace Confast.Web.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<decimal?>("FreightCost")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)")
-                        .HasColumnName("freight_cost");
-
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at_utc");
@@ -254,10 +242,7 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("shipments", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_shipments_freight_cost", "freight_cost >= 0");
-                        });
+                    b.ToTable("shipments", (string)null);
                 });
 
             modelBuilder.Entity("Confast.Web.Features.ContainerTracking.ShipmentBillNumber", b =>
@@ -1800,10 +1785,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("specification_used");
 
-                    b.Property<long?>("SupplierId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("supplier_id");
-
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -1812,9 +1793,6 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("PK_parts");
-
-                    b.HasIndex("SupplierId")
-                        .HasDatabaseName("IX_parts_supplier_id");
 
                     b.HasIndex("CustomerId", "PartNumber")
                         .IsUnique()
@@ -2601,15 +2579,7 @@ namespace Confast.Web.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_parts_customers_customer_id");
 
-                    b.HasOne("Confast.Web.Features.Suppliers.Supplier", "Supplier")
-                        .WithMany("Parts")
-                        .HasForeignKey("SupplierId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_parts_suppliers_supplier_id");
-
                     b.Navigation("Customer");
-
-                    b.Navigation("Supplier");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Parts.PartFlipCriterionMapping", b =>
@@ -2845,11 +2815,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("CriterionMappings");
 
                     b.Navigation("LotFlips");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Suppliers.Supplier", b =>
-                {
-                    b.Navigation("Parts");
                 });
 #pragma warning restore 612, 618
         }

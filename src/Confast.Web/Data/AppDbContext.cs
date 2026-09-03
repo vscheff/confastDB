@@ -1,4 +1,6 @@
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.ContainerTracking;
+using Confast.Web.Features.Suppliers;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
@@ -13,6 +15,13 @@ namespace Confast.Web.Data;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<Shipment> Shipments => Set<Shipment>();
+    public DbSet<ShipmentBillNumber> ShipmentBillNumbers => Set<ShipmentBillNumber>();
+    public DbSet<Container> Containers => Set<Container>();
+    public DbSet<BillOfLading> BillsOfLading => Set<BillOfLading>();
+    public DbSet<ContainerGroup> ContainerGroups => Set<ContainerGroup>();
+    public DbSet<ContainerGroupPart> ContainerGroupParts => Set<ContainerGroupPart>();
     public DbSet<Customer> Customers => Set<Customer>();
 
     public DbSet<Plant> Plants => Set<Plant>();
@@ -87,6 +96,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     {
         base.OnModelCreating(modelBuilder);
         ConfigureIdentity(modelBuilder);
+        ContainerTrackingConfiguration.Configure(modelBuilder);
 
         var customer = modelBuilder.Entity<Customer>();
 
@@ -269,6 +279,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasColumnName("id")
             .UseIdentityByDefaultColumn();
         part.Property(x => x.CustomerId).HasColumnName("customer_id");
+        part.Property(x => x.SupplierId).HasColumnName("supplier_id");
         part.Property(x => x.PartNumber)
             .HasColumnName("part_number")
             .IsRequired();
@@ -285,6 +296,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasForeignKey(x => x.CustomerId)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_parts_customers_customer_id");
+
+        part.HasOne(x => x.Supplier)
+            .WithMany(x => x.Parts)
+            .HasForeignKey(x => x.SupplierId)
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName("FK_parts_suppliers_supplier_id");
+
+        part.HasIndex(x => x.SupplierId)
+            .HasDatabaseName("IX_parts_supplier_id");
 
         part.HasIndex(x => new { x.CustomerId, x.PartNumber })
             .IsUnique()
