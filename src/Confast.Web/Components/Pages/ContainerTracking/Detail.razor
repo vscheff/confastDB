@@ -6,6 +6,8 @@
 @inject TrackingAccess Access
 @inject NavigationManager Navigation
 @inject ILogger<Detail> Logger
+@inject IJSRuntime Js
+@implements IAsyncDisposable
 
 <PageTitle>@(Id == 0 ? "Create container" : $"Container {metadata.ContainerNumber}")</PageTitle>
 <p><a class="back-link" href="/container-tracking">← Container Tracking</a></p>
@@ -53,8 +55,8 @@ else
             <fieldset class="tracking-fields" disabled="@(!CanEditMetadata || busy)">
                 <div class="form-field container-number-field"><label for="container-number">Container number</label><InputText id="container-number" @bind-Value="metadata.ContainerNumber" maxlength="100" /></div>
                 <div class="form-field container-cbp-field"><label for="container-cbp-number">CBP number</label><InputText id="container-cbp-number" @bind-Value="metadata.CbpNumber" maxlength="100" /></div>
-                <div class="form-field container-etd-field"><label for="container-etd">Estimated departure</label><InputDate id="container-etd" @bind-Value="metadata.EstimatedDepartureDate" @bind-Value:after="SetEstimatedArrivalFromDeparture" /></div>
-                <div class="form-field container-eta-field"><label for="container-eta">Estimated arrival</label><InputDate id="container-eta" @bind-Value="metadata.EstimatedArrivalDate" /></div>
+                <div class="form-field container-etd-field"><label for="container-etd">Estimated departure</label><span @ref="estimatedDepartureDateField"><InputDate id="container-etd" @bind-Value="metadata.EstimatedDepartureDate" @bind-Value:after="SetEstimatedArrivalFromDeparture" /></span></div>
+                <div class="form-field container-eta-field"><label for="container-eta">Estimated arrival</label><span @ref="estimatedArrivalDateField"><InputDate id="container-eta" @bind-Value="metadata.EstimatedArrivalDate" /></span></div>
                 <div class="form-field container-rate-field"><label for="container-rate">Quoted rate ($)</label><ThousandsSeparatedMoneyInput id="container-rate" @bind-Value="metadata.QuotedRate" /></div>
                 <div class="form-field container-drayage-field"><label for="container-drayage">Drayage ($)</label><ThousandsSeparatedMoneyInput id="container-drayage" @bind-Value="metadata.DrayageCharge" /></div>
             </fieldset>
@@ -84,11 +86,11 @@ else
             @if (!groupsExpanded)
             {
                 <div class="table-shell tracking-group-summary">
-                    <table class="data-table"><thead><tr><th>Supplier</th><th>B/L</th><th>Duty</th><th>Weight (kg)</th><th>Pallets</th><th>Invoice</th><th>Certifications</th><th>Parts</th></tr></thead><tbody>
+                    <table class="data-table"><thead><tr><th>Supplier</th><th>B/L</th><th>Duty</th><th>Weight (kg)</th><th>Pallets</th><th>Invoice</th><th>Certifications</th></tr></thead><tbody>
                         @foreach (var group in contents.Groups)
                         {
                             var bill = bills.FirstOrDefault(x => x.Id == group.BillOfLadingId);
-                            <tr @key="group">
+                            <tr class="tracking-group-details-row" @key="group">
                                 <td>@(bill?.SupplierName ?? "—")</td>
                                 <td>@(bill?.Number ?? "—")</td>
                                 <td>@(bill?.Duty?.ToString("C2") ?? "—")</td>
@@ -96,17 +98,31 @@ else
                                 <td>@(group.PalletCount?.ToString("N0") ?? "—")</td>
                                 <td>@(group.InvoiceNumber ?? "—")</td>
                                 <td>@(group.CertificationsReceived ? "Received" : "Not received")</td>
-                                <td>
-                                    @if (group.Parts.Count == 0) { <span>—</span> }
-                                    else
-                                    {
-                                        <ul class="tracking-part-summary">
-                                            @foreach (var part in group.Parts)
+                            </tr>
+                            <tr class="tracking-group-parts-row">
+                                <td colspan="7">
+                                    <div class="table-shell tracking-collapsed-parts">
+                                        <div class="tracking-collapsed-parts-heading">Parts</div>
+                                        <table class="data-table"><thead><tr><th>Part</th><th>PO number</th><th>Quantity</th><th>Customer</th></tr></thead><tbody>
+                                            @if (group.Parts.Count == 0)
                                             {
-                                                <li>@PartLabel(part.PartId) · @part.PurchaseOrderNumber · @(part.Quantity?.ToString("N0") ?? "—")</li>
+                                                <tr><td colspan="4">No part lines.</td></tr>
                                             }
-                                        </ul>
-                                    }
+                                            else
+                                            {
+                                                @foreach (var part in group.Parts)
+                                                {
+                                                    var choice = parts.FirstOrDefault(x => x.Id == part.PartId);
+                                                    <tr @key="part">
+                                                        <td>@(choice?.PartNumber ?? "—")</td>
+                                                        <td>@(part.PurchaseOrderNumber ?? "—")</td>
+                                                        <td>@(part.Quantity?.ToString("N0") ?? "—")</td>
+                                                        <td>@(choice?.CustomerName ?? "—")</td>
+                                                    </tr>
+                                                }
+                                            }
+                                        </tbody></table>
+                                    </div>
                                 </td>
                             </tr>
                         }
@@ -201,6 +217,10 @@ else
     private Guid billEditorKey;
     private ContainerGroupEditModel? billTarget;
     private string? message;
+    private ElementReference estimatedDepartureDateField;
+    private ElementReference estimatedArrivalDateField;
+    private IJSObjectReference? dateInputNavigationModule;
+    private bool isDateInputNavigationConfigured;
     private bool Locked => Id != 0 && ContainerEditPolicy.HasDeparted(persistedEtd, Tracking.Today);
     private bool CanEditContents => permissions.CanEdit && !Locked;
     private bool CanEditMetadata => permissions.CanEdit && (!Locked || permissions.IsAdministrator);
@@ -219,9 +239,34 @@ else
         return base.SetParametersAsync(parameters);
     }
     protected override Task OnParametersSetAsync() => ReloadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Id != 0 || !loaded || isDateInputNavigationConfigured)
+        {
+            return;
+        }
+
+        dateInputNavigationModule ??= await Js.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./date-input-tab-navigation.js");
+
+        await dateInputNavigationModule.InvokeVoidAsync("skipNativePickerOnTab", estimatedDepartureDateField);
+        await dateInputNavigationModule.InvokeVoidAsync("skipNativePickerOnTab", estimatedArrivalDateField);
+        isDateInputNavigationConfigured = true;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (dateInputNavigationModule is not null)
+        {
+            await dateInputNavigationModule.DisposeAsync();
+        }
+    }
+
     private async Task ReloadAsync()
     {
-        busy = true; loaded = false; message = null; editingBill = false; confirmDelete = false;
+        busy = true; loaded = false; message = null; editingBill = false; confirmDelete = false; isDateInputNavigationConfigured = false;
         try
         {
             permissions = await Access.GetAsync();
@@ -239,7 +284,9 @@ else
                 metadata = detail.Metadata; contents = detail.Contents; shipmentBills = detail.ShipmentBills;
                 bills = await Tracking.GetBillsAsync(); parts = await Tracking.GetPartsAsync();
             }
-            persistedEtd = metadata.EstimatedDepartureDate; loaded = true;
+            persistedEtd = metadata.EstimatedDepartureDate;
+            groupsExpanded = contents.Groups.Count == 0;
+            loaded = true;
         }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load container {ContainerId}", Id); message = "Container could not be loaded."; isError = true; }
         finally { busy = false; }

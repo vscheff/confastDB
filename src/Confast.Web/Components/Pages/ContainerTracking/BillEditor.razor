@@ -22,7 +22,7 @@
                 @foreach (var supplier in suppliers.Where(x => x.IsActive || x.Id == model.SupplierId))
                 { <option value="@supplier.Id">@supplier.Name@(!supplier.IsActive ? " (inactive)" : "")</option> }
             </InputSelect></div>
-            <div class="form-field"><label for="bl-duty">Duty ($)</label><InputNumber id="bl-duty" @bind-Value="model.Duty" min="0" step="0.01" /></div>
+            <div class="form-field"><label for="bl-duty">Duty ($)</label><ThousandsSeparatedMoneyInput id="bl-duty" @bind-Value="model.Duty" min="0" step="0.01" /></div>
         </fieldset>
         <div class="form-actions">
             <button class="button button-primary" disabled="@(busy || !loaded)">Save B/L</button>

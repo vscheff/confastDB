@@ -88,10 +88,16 @@ public sealed class ContainerPartEditModel
     public int? Quantity { get; set; }
 }
 
-public sealed record TrackingChoice(long Id, long? SupplierId, string Label);
+public sealed record TrackingChoice(long Id, long? SupplierId, string PartNumber, string CustomerName, bool IsActive)
+{
+    public string Label => PartNumber + " — " + CustomerName + (IsActive ? "" : " (inactive)");
+}
 public sealed record BillOfLadingChoice(long Id, long SupplierId, string Number, string SupplierName, decimal? Duty);
 public sealed record ContainerSummary(long Id, string Number, string? CbpNumber, DateOnly? Etd, DateOnly? Eta, DateOnly? ReceivedDate,
-    bool AddedToProductionSchedule, int GroupCount, int Pallets, decimal Weight);
+    bool AddedToProductionSchedule, int GroupCount, int Pallets, decimal Weight, List<ContainerGroupSummary> Groups);
+public sealed record ContainerGroupSummary(string SupplierName, string BillNumber, decimal? Duty, decimal? Weight,
+    int? Pallets, string? InvoiceNumber, bool CertificationsReceived, List<ContainerPartSummary> Parts);
+public sealed record ContainerPartSummary(string PartNumber, string CustomerName, string PurchaseOrderNumber, int Quantity);
 public sealed record ShipmentSummary(long Id, uint Version, decimal? FreightCost, List<string> BillNumbers, List<ContainerSummary> Containers);
 public sealed record ContainerDetail(ContainerEditModel Metadata, ContainerContentsEditModel Contents, List<string> ShipmentBills);
 

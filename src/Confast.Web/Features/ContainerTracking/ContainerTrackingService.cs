@@ -29,7 +29,11 @@ public sealed class ContainerTrackingService(
             s.BillNumbers.OrderBy(b => b.Id).Select(b => b.Number).ToList(),
             s.Containers.OrderBy(c => c.Id).Select(c => new ContainerSummary(c.Id, c.ContainerNumber, c.CbpNumber,
                 c.EstimatedDepartureDate, c.EstimatedArrivalDate, c.ReceivedDate, c.AddedToProductionSchedule,
-                c.Groups.Count, c.Groups.Sum(g => g.PalletCount ?? 0), c.Groups.Sum(g => g.TotalWeight ?? 0))).ToList()))
+                c.Groups.Count, c.Groups.Sum(g => g.PalletCount ?? 0), c.Groups.Sum(g => g.TotalWeight ?? 0),
+                c.Groups.OrderBy(g => g.Id).Select(g => new ContainerGroupSummary(g.BillOfLading.Supplier.Name,
+                    g.BillOfLading.Number, g.BillOfLading.Duty, g.TotalWeight, g.PalletCount, g.InvoiceNumber,
+                    g.CertificationsReceived, g.Parts.OrderBy(p => p.Id).Select(p => new ContainerPartSummary(
+                        p.Part.PartNumber, p.Part.Customer.Name, p.PurchaseOrderNumber, p.Quantity)).ToList())).ToList())).ToList()))
             .ToListAsync(cancellationToken);
     }
 
@@ -276,8 +280,7 @@ public sealed class ContainerTrackingService(
         await access.GetAsync(cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Parts.AsNoTracking().OrderBy(x => x.PartNumber).ThenBy(x => x.Customer.Name)
-            .Select(x => new TrackingChoice(x.Id, x.SupplierId,
-                x.PartNumber + " — " + x.Customer.Name + (x.IsActive ? "" : " (inactive)")))
+            .Select(x => new TrackingChoice(x.Id, x.SupplierId, x.PartNumber, x.Customer.Name, x.IsActive))
             .ToListAsync(cancellationToken);
     }
 

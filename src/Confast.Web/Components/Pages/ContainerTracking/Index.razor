@@ -10,6 +10,9 @@
     <div><h1>Container Tracking</h1><p>Inbound shipments, containers, and supplier material.</p></div>
     <div class="heading-actions">
         <a class="button button-secondary" href="/suppliers">Suppliers</a>
+        <button type="button" class="button button-secondary" @onclick="ToggleContainersExpanded" aria-expanded="@containersExpanded">
+            @(containersExpanded ? "Collapse containers" : "Expand containers")
+        </button>
         @if (permissions.CanEdit) { <button class="button button-primary" @onclick="NewShipment">Create shipment</button> }
     </div>
 </div>
@@ -44,8 +47,8 @@
 {
     <section class="tracking-shipment" @key="shipment.Id">
         <div class="section-heading">
-            <div><span class="tracking-eyebrow">Shipment</span><h2>@string.Join(" · ", shipment.BillNumbers)</h2>
-                @if (shipment.FreightCost is not null) { <p class="status-message">Freight cost: @shipment.FreightCost.Value.ToString("C2")</p> }</div>
+            <div><h2>@string.Join(" · ", shipment.BillNumbers)</h2>
+                @if (shipment.FreightCost is not null) { <p class="tracking-freight-cost">Freight cost: @shipment.FreightCost.Value.ToString("C2")</p> }</div>
             @if (permissions.CanEdit)
             {
                 <div class="heading-actions">
@@ -79,11 +82,52 @@
                     <td>@(container.CbpNumber ?? "—")</td>
                     <td>@Date(container.Etd)</td><td>@Date(container.Eta)</td><td>@(container.ReceivedDate is null ? "Not received" : Date(container.ReceivedDate))</td>
                     <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.AddedToProductionSchedule ? "Yes" : "No")</td></tr>
+                @if (containersExpanded)
+                {
+                    <tr class="tracking-container-groups-row">
+                        <td colspan="9">
+                            @if (container.Groups.Count == 0)
+                            {
+                                <p class="status-message">No groups on this container.</p>
+                            }
+                            else
+                            {
+                                <div class="table-shell tracking-group-summary">
+                                    <table class="data-table"><thead><tr><th>Supplier</th><th>B/L</th><th>Duty</th><th>Weight (kg)</th><th>Pallets</th><th>Invoice</th><th>Certifications</th></tr></thead><tbody>
+                                        @foreach (var group in container.Groups)
+                                        {
+                                            <tr @key="group"><td>@group.SupplierName</td><td>@group.BillNumber</td><td>@(group.Duty?.ToString("C2") ?? "—")</td><td>@(group.Weight?.ToString("N3") ?? "—")</td><td>@(group.Pallets?.ToString("N0") ?? "—")</td><td>@(group.InvoiceNumber ?? "—")</td><td>@(group.CertificationsReceived ? "Received" : "Not received")</td></tr>
+                                            <tr class="tracking-container-parts-row">
+                                                <td colspan="7">
+                                                    <div class="table-shell tracking-collapsed-parts">
+                                                        <div class="tracking-collapsed-parts-heading">Parts</div>
+                                                        <table class="data-table"><thead><tr><th>Part</th><th>PO number</th><th>Quantity</th><th>Customer</th></tr></thead><tbody>
+                                                            @if (group.Parts.Count == 0)
+                                                            {
+                                                                <tr><td colspan="4">No part lines.</td></tr>
+                                                            }
+                                                            else
+                                                            {
+                                                                @foreach (var part in group.Parts)
+                                                                {
+                                                                    <tr @key="part"><td>@part.PartNumber</td><td>@part.PurchaseOrderNumber</td><td>@part.Quantity.ToString("N0")</td><td>@part.CustomerName</td></tr>
+                                                                }
+                                                            }
+                                                        </tbody></table>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody></table>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
             }
             </tbody></table>
         </div>
         @if (shipment.Containers.Count == 0) { <p class="status-message">No containers yet. Add a container to begin tracking its material.</p> }
-        else if (permissions.CanEdit) { <p class="status-message">Delete its containers before deleting this shipment.</p> }
     </section>
 }
 @if (!busy && shipments.Count == 0) { <div class="empty-state"><h2>No shipments found</h2><p>Create a shipment or change your search.</p></div> }
@@ -93,10 +137,11 @@
     private List<ShipmentSummary> shipments = [];
     private ShipmentEditModel? editing;
     private string? search, message;
-    private bool busy, isError;
+    private bool busy, isError, containersExpanded;
     private long? confirmShipmentDeleteId;
     protected override Task OnInitializedAsync() => LoadAsync();
     private static string Date(DateOnly? value) => value?.ToString("MMM d, yyyy") ?? "—";
+    private void ToggleContainersExpanded() => containersExpanded = !containersExpanded;
     private void NewShipment() { editing = new() { BillNumbers = [new()] }; message = null; }
     private async Task LoadAsync()
     {

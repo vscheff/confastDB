@@ -35,34 +35,74 @@ else if (parts.Count == 0)
 }
 else
 {
-    <div class="table-shell">
-        <table class="data-table">
+    <div class="table-shell parts-list-table-shell">
+        <table class="data-table parts-list-table">
             <thead>
                 <tr>
-                    <th>Part number</th>
-                    <th>Revision</th>
-                    <th>Description</th>
-                    <th>Customer</th>
-                    <th>Supplier</th>
-                    <th>Destination plants</th>
-                    <th>Status</th>
+                    <th aria-sort="@(GetAriaSort(PartSortField.PartNumber))">
+                        <button class="inspection-sort-header @(partSortField == PartSortField.PartNumber ? "inspection-sort-header-active" : null)"
+                                type="button"
+                                aria-label="Sort by Part number @(GetSortDirectionLabel(PartSortField.PartNumber))"
+                                @onclick="() => TogglePartSort(PartSortField.PartNumber)">
+                            Part number <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.PartNumber)</span>
+                        </button>
+                    </th>
+                    <th aria-sort="@(GetAriaSort(PartSortField.Revision))">
+                        <button class="inspection-sort-header @(partSortField == PartSortField.Revision ? "inspection-sort-header-active" : null)"
+                                type="button"
+                                aria-label="Sort by Revision @(GetSortDirectionLabel(PartSortField.Revision))"
+                                @onclick="() => TogglePartSort(PartSortField.Revision)">
+                            Revision <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Revision)</span>
+                        </button>
+                    </th>
+                    <th class="parts-list-customer-column" aria-sort="@(GetAriaSort(PartSortField.Customer))">
+                        <button class="inspection-sort-header @(partSortField == PartSortField.Customer ? "inspection-sort-header-active" : null)"
+                                type="button"
+                                aria-label="Sort by Customer @(GetSortDirectionLabel(PartSortField.Customer))"
+                                @onclick="() => TogglePartSort(PartSortField.Customer)">
+                            Customer <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Customer)</span>
+                        </button>
+                    </th>
+                    <th class="parts-list-plants-column" aria-sort="@(GetAriaSort(PartSortField.DestinationPlants))">
+                        <button class="inspection-sort-header @(partSortField == PartSortField.DestinationPlants ? "inspection-sort-header-active" : null)"
+                                type="button"
+                                aria-label="Sort by Destination plants @(GetSortDirectionLabel(PartSortField.DestinationPlants))"
+                                @onclick="() => TogglePartSort(PartSortField.DestinationPlants)">
+                            Destination plants <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.DestinationPlants)</span>
+                        </button>
+                    </th>
+                    <th aria-sort="@(GetAriaSort(PartSortField.Supplier))">
+                        <button class="inspection-sort-header @(partSortField == PartSortField.Supplier ? "inspection-sort-header-active" : null)"
+                                type="button"
+                                aria-label="Sort by Supplier @(GetSortDirectionLabel(PartSortField.Supplier))"
+                                @onclick="() => TogglePartSort(PartSortField.Supplier)">
+                            Supplier <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Supplier)</span>
+                        </button>
+                    </th>
+                    <th aria-sort="@(GetAriaSort(PartSortField.Status))">
+                        <button class="inspection-sort-header @(partSortField == PartSortField.Status ? "inspection-sort-header-active" : null)"
+                                type="button"
+                                aria-label="Sort by Status @(GetSortDirectionLabel(PartSortField.Status))"
+                                @onclick="() => TogglePartSort(PartSortField.Status)">
+                            Status <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Status)</span>
+                        </button>
+                    </th>
                     <th><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
-                @foreach (var part in parts)
+                @foreach (var part in SortedParts)
                 {
                     <tr>
                         <td data-label="Part number">
                             <a class="record-link" href="@($"/parts/{part.Id}/edit")">@part.PartNumber</a>
                         </td>
                         <td data-label="Revision">@(part.Revision ?? "—")</td>
-                        <td data-label="Description">@(part.Description ?? "—")</td>
                         <td data-label="Customer">
                             <a href="@($"/customers/{part.CustomerId}/edit")">@part.CustomerName</a>
                         </td>
-                        <td data-label="Supplier">@(part.SupplierName ?? "—")</td>
                         <td data-label="Destination plants"><PartPlantMenu Plants="part.Plants" /></td>
+                        <td data-label="Supplier">@(part.SupplierName ?? "—")</td>
                         <td data-label="Status">
                             <span class="status-pill @(part.IsActive ? "status-active" : "status-inactive")">@(part.IsActive ? "Active" : "Inactive")</span>
                         </td>
@@ -83,6 +123,89 @@ else
     private IReadOnlyList<PartListItem> parts = [];
     private bool isLoading = true;
     private string? loadError;
+    private PartSortField partSortField = PartSortField.Customer;
+    private bool partSortAscending = true;
+
+    private IEnumerable<PartListItem> SortedParts =>
+        (partSortField, partSortAscending) switch
+        {
+            (PartSortField.PartNumber, true) => parts
+                .OrderBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            (PartSortField.PartNumber, false) => parts
+                .OrderByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id),
+            (PartSortField.Revision, true) => parts
+                .OrderBy(x => x.Revision is null)
+                .ThenBy(x => x.Revision, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase),
+            (PartSortField.Revision, false) => parts
+                .OrderBy(x => x.Revision is null)
+                .ThenByDescending(x => x.Revision, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase),
+            (PartSortField.Customer, true) => parts
+                .OrderBy(x => x.CustomerName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            (PartSortField.Customer, false) => parts
+                .OrderByDescending(x => x.CustomerName, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id),
+            (PartSortField.DestinationPlants, true) => parts
+                .OrderBy(GetDestinationPlantsSortValue, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            (PartSortField.DestinationPlants, false) => parts
+                .OrderByDescending(GetDestinationPlantsSortValue, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id),
+            (PartSortField.Supplier, true) => parts
+                .OrderBy(x => x.SupplierName is null)
+                .ThenBy(x => x.SupplierName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            (PartSortField.Supplier, false) => parts
+                .OrderBy(x => x.SupplierName is null)
+                .ThenByDescending(x => x.SupplierName, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id),
+            (PartSortField.Status, true) => parts
+                .OrderBy(x => x.IsActive)
+                .ThenBy(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Id),
+            _ => parts
+                .OrderByDescending(x => x.IsActive)
+                .ThenByDescending(x => x.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenByDescending(x => x.Id)
+        };
+
+    private static string GetDestinationPlantsSortValue(PartListItem part) =>
+        string.Join(", ", part.Plants.Select(x => x.DisplayName));
+
+    private void TogglePartSort(PartSortField field)
+    {
+        if (partSortField == field)
+        {
+            partSortAscending = !partSortAscending;
+            return;
+        }
+
+        partSortField = field;
+        partSortAscending = true;
+    }
+
+    private string GetAriaSort(PartSortField field) =>
+        partSortField != field
+            ? "none"
+            : partSortAscending ? "ascending" : "descending";
+
+    private string GetSortIndicator(PartSortField field) =>
+        partSortField != field ? "↕" : partSortAscending ? "↑" : "↓";
+
+    private string GetSortDirectionLabel(PartSortField field) =>
+        partSortField != field
+            ? ""
+            : partSortAscending ? "descending next" : "ascending next";
 
     protected override Task OnInitializedAsync() => LoadPartsAsync();
 
@@ -104,5 +227,15 @@ else
         {
             isLoading = false;
         }
+    }
+
+    private enum PartSortField
+    {
+        PartNumber,
+        Revision,
+        Customer,
+        DestinationPlants,
+        Supplier,
+        Status
     }
 }

@@ -327,6 +327,36 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
+    public async Task SearchIncludesEachContainerGroupSummary()
+    {
+        var (container, _, _) = await CreateMaterialAsync();
+
+        var summary = Assert.Single(Assert.Single(await tracking.SearchAsync()).Containers);
+        var group = Assert.Single(summary.Groups);
+
+        Assert.Equal(container.Metadata.Id, summary.Id);
+        Assert.Equal("Supplier ABC", group.SupplierName);
+        Assert.Equal("RWRD002500039301", group.BillNumber);
+        Assert.Equal(24492.09m, group.Duty);
+        Assert.Equal(14400m, group.Weight);
+        Assert.Equal(8, group.Pallets);
+        Assert.False(group.CertificationsReceived);
+        Assert.Collection(group.Parts,
+            part =>
+            {
+                Assert.Equal("P-12345", part.PartNumber);
+                Assert.Equal("Customer", part.CustomerName);
+                Assert.Equal("PO-9981", part.PurchaseOrderNumber);
+                Assert.Equal(50000, part.Quantity);
+            },
+            part =>
+            {
+                Assert.Equal("PO-9987", part.PurchaseOrderNumber);
+                Assert.Equal(80000, part.Quantity);
+            });
+    }
+
+    [Fact]
     public async Task SupplierCanOwnManyBillsAndIdenticalPartPoLinesAreStillIndependent()
     {
         var (container, billId, partId) = await CreateMaterialAsync();
