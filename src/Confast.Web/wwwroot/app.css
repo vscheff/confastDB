@@ -775,15 +775,29 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .tracking-container-groups-row .status-message { margin: 0; }
 .tracking-container-parts-row > td { padding: 0 .75rem .75rem; background: #f4f8fa; border-top: 0; }
 .tracking-group-details-row > td { background: #f4f8fa; border-top: 1px solid #cbd9e0; border-bottom: 0; }
-.tracking-group-details-row:not(:first-child) > td { border-top-width: .7rem; border-top-color: #fff; box-shadow: inset 0 1px #cbd9e0; background-clip: padding-box; }
+.tracking-group-details-row:not(:first-child) > td { border-top-width: .7rem; border-top-color: #fff; background-clip: padding-box; }
 .tracking-group-details-row > td:first-child { border-left: 1px solid #cbd9e0; border-radius: .45rem 0 0 0; color: #173f5c; font-weight: 750; }
 .tracking-group-details-row > td:last-child { border-right: 1px solid #cbd9e0; border-radius: 0 .45rem 0 0; }
 .tracking-group-parts-row > td { padding: 0 .75rem .75rem; background: #f4f8fa; border: 1px solid #cbd9e0; border-top: 0; border-radius: 0 0 .45rem .45rem; }
 .tracking-collapsed-parts { margin-top: .4rem; overflow-x: auto; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .tracking-collapsed-parts-heading { margin: 0 0 .3rem; color: #526373; font-size: .78rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
-.tracking-collapsed-parts .data-table { min-width: 680px; }
+.tracking-collapsed-parts .data-table { min-width: 680px; table-layout: fixed; }
+.tracking-collapsed-parts th:nth-child(1) { width: 28%; }
+.tracking-collapsed-parts th:nth-child(2) { width: 26%; }
+.tracking-collapsed-parts th:nth-child(3) { width: 23%; }
+.tracking-collapsed-parts th:nth-child(4) { width: 23%; }
 .tracking-collapsed-parts th, .tracking-collapsed-parts td { padding: .4rem .55rem; background: #fff; }
 .tracking-collapsed-parts th { background: #e8f0f4; }
+.receipt-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; padding: .8rem 1rem; color: #0f5132; background: #dff3e8; border: 1px solid #9dcdb2; border-radius: .5rem; }
+.receive-container-modal { width: min(100%, 470px); }
+.received-parts-toolbar { align-items: end; }
+.received-container { margin-top: 1.25rem; }
+.received-parts-table-shell { overflow-x: auto; }
+.received-parts-table-shell > .data-table { min-width: 1120px; }
+.received-allocation-row > td { padding: .55rem 1rem 1rem; background: #f4f8fa; }
+.allocation-history { margin-top: .5rem; font-size: .9rem; }
+.allocation-history .reversed-allocation { color: #687782; text-decoration: line-through; }
+.receipt-allocation-modal { width: min(100%, 680px); }
 .tracking-contents .button, .tracking-form .button, .tracking-shipment .button { white-space: nowrap; }
 @media (max-width: 1200px) {
     .app-header { flex-wrap: wrap; gap: .35rem 1.25rem; padding: .5rem 1rem; }

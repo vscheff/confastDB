@@ -96,8 +96,8 @@
                                     <table class="data-table"><thead><tr><th>Supplier</th><th>B/L</th><th>Duty</th><th>Weight (kg)</th><th>Pallets</th><th>Invoice</th><th>Certifications</th></tr></thead><tbody>
                                         @foreach (var group in container.Groups)
                                         {
-                                            <tr @key="group"><td>@group.SupplierName</td><td>@group.BillNumber</td><td>@(group.Duty?.ToString("C2") ?? "—")</td><td>@(group.Weight?.ToString("N3") ?? "—")</td><td>@(group.Pallets?.ToString("N0") ?? "—")</td><td>@(group.InvoiceNumber ?? "—")</td><td>@(group.CertificationsReceived ? "Received" : "Not received")</td></tr>
-                                            <tr class="tracking-container-parts-row">
+                                            <tr class="tracking-group-details-row" @key="group"><td>@group.SupplierName</td><td>@group.BillNumber</td><td>@(group.Duty?.ToString("C2") ?? "—")</td><td>@(group.Weight?.ToString("N3") ?? "—")</td><td>@(group.Pallets?.ToString("N0") ?? "—")</td><td>@(group.InvoiceNumber ?? "—")</td><td>@(group.CertificationsReceived ? "Received" : "Not received")</td></tr>
+                                            <tr class="tracking-group-parts-row">
                                                 <td colspan="7">
                                                     <div class="table-shell tracking-collapsed-parts">
                                                         <div class="tracking-collapsed-parts-heading">Parts</div>

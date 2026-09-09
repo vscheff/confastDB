@@ -1,0 +1,180 @@
+@page "/received-parts"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Quality + "," + AppRoles.Administrator)]
+@using Confast.Web.Features.ContainerTracking
+@using Confast.Web.Features.Identity
+@inject ReceivedPartsService ReceivedParts
+@inject UserAdministrationService Users
+@inject ICurrentUser CurrentUser
+@inject NavigationManager Navigation
+@inject ILogger<Index> Logger
+
+<PageTitle>Received Parts</PageTitle>
+<div class="page-heading">
+    <div><h1>Received Parts</h1><p>Allocation progress is separate from inspection completion.</p></div>
+</div>
+@if (message is not null) { <div class="alert @(isError ? "alert-error" : "alert-success")" role="status">@message</div> }
+<div class="list-toolbar received-parts-toolbar">
+    <div class="form-field"><label for="received-search">Container, Part, or PO</label><InputText id="received-search" @bind-Value="search" /></div>
+    <label class="checkbox-field"><InputCheckbox @bind-Value="includeFullyAssigned" /> Include fully assigned</label>
+    <button class="button button-primary" @onclick="LoadAsync" disabled="@busy">Search</button>
+</div>
+@if (busy && containers.Count == 0) { <p class="status-message">Loading received parts…</p> }
+else if (containers.Count == 0) { <p class="status-message">No received part lines match this view.</p> }
+else
+{
+    @foreach (var container in containers)
+    {
+        <section class="received-container">
+            <div class="section-heading"><h2>@container.ContainerNumber</h2><span>Received @container.ReceivedDate.ToString("MMM d, yyyy")</span></div>
+            <div class="table-shell received-parts-table-shell">
+                <table class="data-table"><thead><tr><th>Part</th><th>PO</th><th>Group / Supplier</th><th>Expected</th><th>Actual</th><th>Allocated</th><th>Remaining</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>
+                    @foreach (var line in container.Lines)
+                    {
+                        <tr @key="line.Id"><td data-label="Part"><strong>@line.PartNumber</strong><br /><small>@line.CustomerName</small></td>
+                            <td data-label="PO">@line.PurchaseOrderNumber</td><td data-label="Group / Supplier">@line.BillNumber<br /><small>@line.SupplierName</small></td>
+                            <td data-label="Expected">@line.ExpectedQuantity.ToString("N0")</td><td data-label="Actual">@line.ActualReceivedQuantity.ToString("N0")</td>
+                            <td data-label="Allocated">@line.AllocatedQuantity.ToString("N0")</td><td data-label="Remaining">@line.RemainingQuantity.ToString("N0")</td>
+                            <td data-label="Status"><span class="status-badge @AllocationStatusClass(line.AllocationStatus)">@AllocationStatusText(line.AllocationStatus)</span></td>
+                            <td data-label="Actions"><div class="table-actions">
+                                @if (line.RemainingQuantity > 0)
+                                {
+                                    <button class="button button-primary" @onclick="() => OpenBegin(line)">Begin Inspection</button>
+                                    @if (line.HasMatchingInspectionCandidates)
+                                    {
+                                        <button class="button button-secondary" @onclick="() => OpenBumpAsync(line)">Bump Up</button>
+                                    }
+                                }
+                                <button class="button button-secondary" @onclick="() => OpenCorrection(line)">Correct actual</button>
+                            </div></td></tr>
+                        @if (line.Allocations.Count > 0)
+                        {
+                            <tr class="received-allocation-row"><td colspan="9">
+                                <details><summary>@line.Allocations.Count allocation@(line.Allocations.Count == 1 ? "" : "s")</summary>
+                                    <table class="data-table allocation-history"><thead><tr><th>Manufacturer lot</th><th>Internal lot</th><th>Quantity</th><th>Action</th><th>Inspection</th><th>Inspection status</th><th>Recorded</th><th></th></tr></thead><tbody>
+                                    @foreach (var allocation in line.Allocations)
+                                    {
+                                        <tr class="@(allocation.ReversedAtUtc is null ? null : "reversed-allocation")"><td>@allocation.ManufacturerLotNumber</td><td>@(allocation.InternalLotNumber ?? "—")</td><td>@allocation.Quantity.ToString("N0")</td>
+                                            <td>@(allocation.Action == ReceiptAllocationAction.BeginInspection ? "Created inspection" : "Bump Up")</td>
+                                            <td>@if (allocation.InspectionId is long inspectionId) { <a href="@($"/inspections/{inspectionId}")">Open inspection</a> } else { <span>Removed after reversal</span> }</td>
+                                            <td>@(allocation.ReversedAtUtc is not null ? "Reversed" : allocation.InspectionCompleted ? "Completed" : allocation.InspectionAccepted ? "Accepted; not complete" : "In progress")</td>
+                                            <td>@allocation.PerformedAtUtc.ToLocalTime().ToString("g")<br /><small>@allocation.ActingUserId</small></td>
+                                            <td>@if (allocation.ReversedAtUtc is null) { <button class="button button-danger-outline" @onclick="() => OpenReversal(allocation)">Reverse</button> }</td></tr>
+                                    }
+                                    </tbody></table>
+                                </details>
+                            </td></tr>
+                        }
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+}
+
+@if (activeLine is not null && dialog is not null)
+{
+    <div class="modal-backdrop" role="presentation"><section class="modal receipt-allocation-modal" role="dialog" aria-modal="true">
+        <h2>@DialogTitle</h2><p><strong>@activeLine.PartNumber</strong> · PO @activeLine.PurchaseOrderNumber · @activeLine.RemainingQuantity.ToString("N0") remaining</p>
+        @if (dialog == "begin")
+        {
+            <div class="form-field"><label for="begin-manufacturer-lot">Manufacturer's lot</label><InputText id="begin-manufacturer-lot" @bind-Value="beginModel.ManufacturerLotNumber" /></div>
+            <div class="form-field"><label for="begin-internal-lot">Internal lot</label><InputText id="begin-internal-lot" @bind-Value="beginModel.InternalLotNumber" /></div>
+            <div class="form-field"><label for="begin-quantity">Quantity</label><ThousandsSeparatedIntegerInput id="begin-quantity" @bind-Value="beginQuantity" /></div>
+        }
+        else if (dialog == "bump")
+        {
+            @if (busy) { <p class="status-message">Loading matching inspections…</p> }
+            else if (candidates.Count == 0) { <div class="alert alert-warning">No inspections match this exact Part and PO. Begin a new inspection instead.</div> }
+            else
+            {
+                <div class="form-field form-field-wide"><label for="bump-inspection">Destination inspection</label><InputSelect id="bump-inspection" @bind-Value="selectedCandidateId" @bind-Value:after="CandidateChanged">
+                    <option value="0">Select an inspection</option>@foreach (var candidate in candidates) { <option value="@candidate.InspectionId">@candidate.InternalLotNumber — Mfr lot @(candidate.ManufacturerLotNumber ?? "MISSING") — @candidate.CurrentQuantity.ToString("N0") — @(candidate.Completed ? "Completed" : candidate.Accepted ? "Accepted" : "In progress")</option> }
+                </InputSelect></div>
+                <div class="form-field"><label for="bump-manufacturer-lot">Manufacturer's lot to verify</label><InputText id="bump-manufacturer-lot" @bind-Value="bumpModel.ManufacturerLotNumber" /></div>
+                <div class="form-field"><label for="bump-quantity">Incoming quantity</label><ThousandsSeparatedIntegerInput id="bump-quantity" @bind-Value="bumpQuantity" /></div>
+                @if (SelectedCandidate is { ManufacturerLotNumber: null })
+                {
+                    <label class="checkbox-field"><InputCheckbox @bind-Value="bumpModel.EstablishMissingManufacturerLot" /> Establish this missing manufacturer's lot</label>
+                    <div class="form-field form-field-wide"><label for="establish-reason">Reason</label><InputTextArea id="establish-reason" @bind-Value="bumpModel.EstablishmentReason" /></div>
+                }
+                @if (SelectedCandidate is { } selected) { <p>Current @selected.CurrentQuantity.ToString("N0") + incoming @(bumpQuantity ?? 0).ToString("N0") = <strong>@((selected.CurrentQuantity + (bumpQuantity ?? 0)).ToString("N0"))</strong></p> }
+            }
+        }
+        else if (dialog == "correct")
+        {
+            <p>Expected: @activeLine.ExpectedQuantity.ToString("N0") · Already allocated: @activeLine.AllocatedQuantity.ToString("N0")</p>
+            <div class="form-field"><label for="actual-quantity">Actual received</label><ThousandsSeparatedIntegerInput id="actual-quantity" @bind-Value="actualQuantity" /></div>
+            <div class="form-field form-field-wide"><label for="actual-reason">Correction reason</label><InputTextArea id="actual-reason" @bind-Value="correctionReason" /></div>
+        }
+        else if (dialog == "reverse")
+        {
+            <div class="alert alert-warning">This reverses this allocation only. Unsafe reversal of an inspection containing downstream work will be rejected.</div>
+            <div class="form-field form-field-wide"><label for="reversal-reason">Reversal reason</label><InputTextArea id="reversal-reason" @bind-Value="reversalReason" /></div>
+        }
+        <div class="form-actions"><button class="button button-primary" @onclick="SubmitDialogAsync" disabled="@(busy || (dialog == "bump" && selectedCandidateId == 0) || (dialog == "bump" && candidates.Count == 0))">Confirm</button>
+            <button class="button button-secondary" @onclick="CloseDialog" disabled="@busy">Cancel</button></div>
+    </section></div>
+}
+
+@code {
+    private List<ReceivedContainerItem> containers = [];
+    private IReadOnlyList<ReceiptInspectionCandidate> candidates = [];
+    private string? search, message, dialog, correctionReason, reversalReason;
+    private bool includeFullyAssigned, busy, isError;
+    private ReceivedPartLineItem? activeLine;
+    private ReceivedPartAllocationItem? activeAllocation;
+    private BeginReceiptInspectionModel beginModel = new();
+    private BumpUpReceiptModel bumpModel = new();
+    private int? beginQuantity, bumpQuantity, actualQuantity;
+    private long selectedCandidateId;
+    private ReceiptInspectionCandidate? SelectedCandidate => candidates.FirstOrDefault(x => x.InspectionId == selectedCandidateId);
+    private string DialogTitle => dialog switch { "begin" => "Begin Inspection", "bump" => "Bump Up", "correct" => "Correct actual received quantity", "reverse" => "Reverse allocation", _ => "Received Parts" };
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        busy = true;
+        try { containers = (await ReceivedParts.GetReceivedPartsAsync(search, includeFullyAssigned)).ToList(); }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load received parts"); message = "Received parts could not be loaded."; isError = true; }
+        finally { busy = false; }
+    }
+    private async Task OpenBegin(ReceivedPartLineItem line)
+    {
+        activeLine = line; dialog = "begin"; beginQuantity = line.RemainingQuantity;
+        beginModel = new() { ContainerGroupPartId = line.Id, ContainerVersion = line.ContainerVersion, Quantity = line.RemainingQuantity };
+        beginModel.Inspector = await Users.GetUserDisplayNameAsync(await CurrentUser.GetUserIdAsync());
+    }
+    private async Task OpenBumpAsync(ReceivedPartLineItem line)
+    {
+        activeLine = line; dialog = "bump"; bumpQuantity = line.RemainingQuantity; selectedCandidateId = 0;
+        bumpModel = new() { ContainerGroupPartId = line.Id, ContainerVersion = line.ContainerVersion, Quantity = line.RemainingQuantity };
+        busy = true; try { candidates = await ReceivedParts.GetCandidatesAsync(line.Id); } finally { busy = false; }
+    }
+    private void CandidateChanged()
+    {
+        if (SelectedCandidate is { ManufacturerLotNumber: { } lot }) bumpModel.ManufacturerLotNumber = lot;
+        if (SelectedCandidate is { } selected) { bumpModel.InspectionId = selected.InspectionId; bumpModel.InspectionVersion = selected.Version; }
+    }
+    private void OpenCorrection(ReceivedPartLineItem line) { activeLine = line; dialog = "correct"; actualQuantity = line.ActualReceivedQuantity; correctionReason = null; }
+    private void OpenReversal(ReceivedPartAllocationItem allocation) { activeLine ??= containers.SelectMany(x => x.Lines).First(x => x.Allocations.Contains(allocation)); activeAllocation = allocation; dialog = "reverse"; reversalReason = null; }
+    private void CloseDialog() { dialog = null; activeLine = null; activeAllocation = null; candidates = []; }
+    private async Task SubmitDialogAsync()
+    {
+        if (activeLine is null || busy) return; busy = true; ReceiptOperationResult result;
+        try
+        {
+            if (dialog == "begin") { beginModel.Quantity = beginQuantity ?? 0; result = await ReceivedParts.BeginInspectionAsync(beginModel); }
+            else if (dialog == "bump") { bumpModel.Quantity = bumpQuantity ?? 0; result = await ReceivedParts.BumpUpAsync(bumpModel); }
+            else if (dialog == "correct") result = await ReceivedParts.CorrectActualReceivedQuantityAsync(activeLine.Id, activeLine.ContainerVersion, actualQuantity ?? -1, correctionReason ?? "");
+            else result = await ReceivedParts.ReverseAllocationAsync(activeAllocation!.Id, reversalReason ?? "");
+            if (!result.Succeeded) { message = result.Message; isError = true; return; }
+            var inspectionId = result.InspectionId; var wasBegin = dialog == "begin"; CloseDialog(); message = "Received-parts operation saved."; isError = false; await LoadAsync();
+            if (inspectionId is long id && wasBegin) Navigation.NavigateTo($"/inspections/{id}");
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Received-parts operation failed"); message = "The operation could not be saved."; isError = true; }
+        finally { busy = false; }
+    }
+    private static string AllocationStatusText(ReceiptAllocationStatus status) => status switch { ReceiptAllocationStatus.Unassigned => "Unassigned", ReceiptAllocationStatus.PartiallyAssigned => "Partially assigned", _ => "Fully assigned" };
+    private static string AllocationStatusClass(ReceiptAllocationStatus status) => status switch { ReceiptAllocationStatus.Unassigned => "status-warning", ReceiptAllocationStatus.PartiallyAssigned => "status-info", _ => "status-success" };
+}

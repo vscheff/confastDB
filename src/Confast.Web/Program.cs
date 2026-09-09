@@ -113,6 +113,7 @@ builder.Services.AddScoped<CustomerService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TrackingAccess>();
 builder.Services.AddScoped<ContainerTrackingService>();
+builder.Services.AddScoped<ReceivedPartsService>();
 builder.Services.AddScoped<SupplierService>();
 builder.Services.AddScoped<GageService>();
 builder.Services.AddScoped<InspectionCriteriaService>();

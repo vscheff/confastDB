@@ -116,7 +116,8 @@ public sealed class ContainerTrackingService(
             new ContainerEditModel
             {
                 Id = c.Id, ShipmentId = c.ShipmentId, Version = c.Version, ContainerNumber = c.ContainerNumber, CbpNumber = c.CbpNumber,
-                ReceivedDate = c.ReceivedDate, QuotedRate = c.QuotedRate, DrayageCharge = c.DrayageCharge,
+                ReceivedDate = c.ReceivedDate, ReceiptAuditRecorded = c.ReceivedAtUtc != null,
+                QuotedRate = c.QuotedRate, DrayageCharge = c.DrayageCharge,
                 EstimatedDepartureDate = c.EstimatedDepartureDate, EstimatedArrivalDate = c.EstimatedArrivalDate,
                 AddedToProductionSchedule = c.AddedToProductionSchedule
             }, new ContainerContentsEditModel
@@ -167,7 +168,8 @@ public sealed class ContainerTrackingService(
             container.EstimatedArrivalDate = model.EstimatedArrivalDate;
             container.QuotedRate = model.QuotedRate;
             container.DrayageCharge = model.DrayageCharge;
-            container.ReceivedDate = model.ReceivedDate;
+            // Receipt is an audited operation; ordinary metadata saves must not create,
+            // correct, or clear it as a side effect of a stale edit model.
             container.AddedToProductionSchedule = model.AddedToProductionSchedule;
             // The root token protects metadata and all content rows as one aggregate.
             if (model.Id != 0) db.Entry(container).Property(x => x.ContainerNumber).IsModified = true;
@@ -186,6 +188,10 @@ public sealed class ContainerTrackingService(
             if (container.Version != version) return TrackingSaveResult.Conflict();
             if (!ContainerEditPolicy.CanEditMetadata(container.EstimatedDepartureDate, Today, permissions.IsAdministrator))
                 return TrackingSaveResult.Invalid("Departed / Locked. Only an administrator can delete a departed container.");
+            if (await db.ContainerReceiptAllocations.AnyAsync(
+                    x => x.ContainerGroupPart.ContainerGroup.ContainerId == id,
+                    cancellationToken))
+                return TrackingSaveResult.Invalid("This container has receipt-allocation history and cannot be deleted.");
 
             // Database cascades remove the container's owned groups and part lines. B/Ls are shared records and remain.
             db.Containers.Remove(container);
@@ -219,6 +225,18 @@ public sealed class ContainerTrackingService(
             if (container.Version != model.Version) return TrackingSaveResult.Conflict();
             if (!ContainerEditPolicy.CanEditContents(container.EstimatedDepartureDate, Today))
                 return TrackingSaveResult.Invalid("Departed / Locked. Container groups and part lines cannot be changed.");
+            if (container.ReceivedDate is not null)
+            {
+                var persistedLines = container.Groups.SelectMany(x => x.Parts).ToDictionary(x => x.Id);
+                var submittedLines = model.Groups.SelectMany(x => x.Parts).ToList();
+                if (submittedLines.Any(x => x.Id == 0)
+                    || submittedLines.Count != persistedLines.Count
+                    || submittedLines.Any(x => !persistedLines.TryGetValue(x.Id, out var existing)
+                        || existing.PartId != x.PartId
+                        || !string.Equals(existing.PurchaseOrderNumber, x.PurchaseOrderNumber, StringComparison.Ordinal)
+                        || existing.Quantity != x.Quantity))
+                    return TrackingSaveResult.Invalid("Received container part lines preserve their original Part, PO, and expected quantity. Correct actual received quantities in Received Parts.");
+            }
             foreach (var input in model.Groups)
             {
                 var existing = container.Groups.SingleOrDefault(x => x.Id == input.Id);

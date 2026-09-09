@@ -368,6 +368,18 @@ public sealed class InspectionService
     public async Task<InspectionOperationResult> CreateInspectionAsync(
         CreateInspectionModel model,
         CancellationToken cancellationToken = default)
+        => await CreateInspectionCoreAsync(model, null, cancellationToken);
+
+    internal async Task<InspectionOperationResult> CreateInspectionWithCallbackAsync(
+        CreateInspectionModel model,
+        Func<AppDbContext, Inspection, CancellationToken, Task<InspectionOperationResult?>> beforeSave,
+        CancellationToken cancellationToken = default)
+        => await CreateInspectionCoreAsync(model, beforeSave, cancellationToken);
+
+    private async Task<InspectionOperationResult> CreateInspectionCoreAsync(
+        CreateInspectionModel model,
+        Func<AppDbContext, Inspection, CancellationToken, Task<InspectionOperationResult?>>? beforeSave,
+        CancellationToken cancellationToken)
     {
         var validationError = Validate(model);
         if (validationError is not null)
@@ -505,6 +517,12 @@ public sealed class InspectionService
         }
 
         db.Inspections.Add(inspection);
+
+        if (beforeSave is not null
+            && await beforeSave(db, inspection, cancellationToken) is { } callbackFailure)
+        {
+            return callbackFailure;
+        }
 
         try
         {
@@ -1723,6 +1741,14 @@ public sealed class InspectionService
         if (inspection.Version != version)
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict, inspectionId);
+        }
+
+        if (await db.ContainerReceiptAllocations.AnyAsync(x => x.InspectionId == inspectionId, cancellationToken))
+        {
+            return new InspectionOperationResult(
+                InspectionOperationStatus.ValidationFailed,
+                inspectionId,
+                "This inspection has receipt-allocation history. Reverse or reconcile that allocation before deleting the inspection.");
         }
 
         var certificationIds = db.InspectionCertifications

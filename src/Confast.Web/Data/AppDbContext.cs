@@ -22,6 +22,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<BillOfLading> BillsOfLading => Set<BillOfLading>();
     public DbSet<ContainerGroup> ContainerGroups => Set<ContainerGroup>();
     public DbSet<ContainerGroupPart> ContainerGroupParts => Set<ContainerGroupPart>();
+    public DbSet<ContainerReceiptHistory> ContainerReceiptHistory => Set<ContainerReceiptHistory>();
+    public DbSet<ContainerReceivedQuantityHistory> ContainerReceivedQuantityHistory => Set<ContainerReceivedQuantityHistory>();
+    public DbSet<ContainerReceiptAllocation> ContainerReceiptAllocations => Set<ContainerReceiptAllocation>();
     public DbSet<Customer> Customers => Set<Customer>();
 
     public DbSet<Plant> Plants => Set<Plant>();

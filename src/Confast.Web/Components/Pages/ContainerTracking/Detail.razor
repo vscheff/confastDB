@@ -3,6 +3,7 @@
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Confast.Web.Features.ContainerTracking
 @inject ContainerTrackingService Tracking
+@inject ReceivedPartsService ReceivedParts
 @inject TrackingAccess Access
 @inject NavigationManager Navigation
 @inject ILogger<Detail> Logger
@@ -22,6 +23,12 @@ else
         <div><span class="tracking-eyebrow">Shipment</span><p>@string.Join(" · ", shipmentBills)</p>
             <h1>@(Id == 0 ? "Create container" : $"Container {metadata.ContainerNumber}")</h1></div>
         <div class="heading-actions">
+            @if (Id != 0 && permissions.CanEdit)
+            {
+                <button type="button" class="button button-primary" @onclick="OpenReceiveDialog" disabled="@busy">
+                    @(metadata.ReceivedDate is null ? "Receive container" : !metadata.ReceiptAuditRecorded ? "Reconcile received container" : "Correct received date")
+                </button>
+            }
             <button class="button button-secondary" @onclick="ReloadAsync" disabled="@busy">Reload / discard edits</button>
             @if (CanDelete)
             {
@@ -37,6 +44,30 @@ else
             }
         </div>
     </div>
+    @if (metadata.ReceivedDate is { } receivedDate)
+    {
+        <div class="receipt-banner" role="status"><strong>Received @receivedDate.ToString("MMMM d, yyyy")</strong>
+            <a href="/received-parts">Open Received Parts</a>
+        </div>
+    }
+    @if (showReceiveDialog)
+    {
+        <div class="modal-backdrop" role="presentation">
+            <section class="modal receive-container-modal" role="dialog" aria-modal="true" aria-labelledby="receive-container-title">
+                <h2 id="receive-container-title">@(metadata.ReceivedDate is null ? "Receive container" : !metadata.ReceiptAuditRecorded ? "Reconcile received container" : "Correct received date")</h2>
+                <p><strong>@metadata.ContainerNumber</strong></p>
+                <div class="form-field"><label for="receive-date">Received date</label><InputDate id="receive-date" @bind-Value="receiveDate" max="@ReceivedToday" /></div>
+                @if (metadata.ReceivedDate is not null)
+                {
+                    <div class="form-field form-field-wide"><label for="receive-reason">@(!metadata.ReceiptAuditRecorded ? "Reconciliation reason" : "Correction reason")</label><InputTextArea id="receive-reason" @bind-Value="receiveReason" /></div>
+                }
+                <div class="form-actions">
+                    <button type="button" class="button button-primary" @onclick="ReceiveAsync" disabled="@busy">Confirm</button>
+                    <button type="button" class="button button-secondary" @onclick="() => showReceiveDialog = false" disabled="@busy">Cancel</button>
+                </div>
+            </section>
+        </div>
+    }
     @if (confirmDelete)
     {
         <div class="alert alert-warning" role="alert">Deleting this container also removes its groups and part lines. B/L records are retained.</div>
@@ -63,7 +94,7 @@ else
             @if (Id != 0)
             {
                 <fieldset class="tracking-fields" disabled="@(!permissions.CanEdit || busy)">
-                    <div class="form-field container-received-field"><label for="container-received">Received date</label><InputDate id="container-received" @bind-Value="metadata.ReceivedDate" /></div>
+                    <div class="form-field container-received-field"><label>Received date</label><output>@(metadata.ReceivedDate?.ToString("MMM d, yyyy") ?? "Not received")</output></div>
                     <div class="checkbox-field container-schedule-field"><InputCheckbox id="container-schedule" @bind-Value="metadata.AddedToProductionSchedule" /><label for="container-schedule">Added to production schedule</label></div>
                 </fieldset>
             }
@@ -212,7 +243,10 @@ else
     private List<BillOfLadingChoice> bills = [];
     private List<TrackingChoice> parts = [];
     private DateOnly? persistedEtd;
-    private bool busy, loaded, isError, editingBill, confirmDelete, groupsExpanded;
+    private bool busy, loaded, isError, editingBill, confirmDelete, groupsExpanded, showReceiveDialog;
+    private DateOnly receiveDate;
+    private string? receiveReason;
+    private string ReceivedToday => ReceivedParts.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     private long editingBillId;
     private Guid billEditorKey;
     private ContainerGroupEditModel? billTarget;
@@ -229,6 +263,28 @@ else
     {
         groupsExpanded = !groupsExpanded;
         if (!groupsExpanded) CloseBillEditor();
+    }
+    private void OpenReceiveDialog()
+    {
+        receiveDate = metadata.ReceivedDate ?? ReceivedParts.Today;
+        receiveReason = null;
+        showReceiveDialog = true;
+    }
+    private async Task ReceiveAsync()
+    {
+        if (busy) return;
+        busy = true;
+        try
+        {
+            var result = await ReceivedParts.ReceiveContainerAsync(Id, metadata.Version, receiveDate, receiveReason);
+            if (!result.Succeeded) { message = result.Message; isError = true; return; }
+            showReceiveDialog = false;
+            await ReloadAsync();
+            message = metadata.ReceivedDate == receiveDate ? "Container receipt saved." : message;
+            isError = false;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to receive container {ContainerId}", Id); message = "Container receipt could not be saved."; isError = true; }
+        finally { busy = false; }
     }
     private string PartLabel(long partId) => parts.FirstOrDefault(x => x.Id == partId)?.Label ?? "—";
     public override Task SetParametersAsync(ParameterView parameters)
