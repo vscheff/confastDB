@@ -1,9 +1,11 @@
 @page "/inspections/{InspectionId:long}"
 @using Confast.Web.Features.Inspections
+@using Confast.Web.Features.ContainerTracking
 @using Confast.Web.Features.Customers
 @using Confast.Web.Features.Identity
 @using System.Globalization
 @inject InspectionService InspectionService
+@inject ReceivedPartsService ReceivedParts
 @inject InspectionSearchNavigationContext SearchNavigation
 @inject UserAdministrationService UserAdministrationService
 @inject ICertificationPackageService CertificationPackageService
@@ -27,6 +29,25 @@
             <div class="form-actions">
                 <button class="button button-danger" type="button" @onclick="ConfirmUndoAsync" disabled="@isUndoing">@(isUndoing ? "Undoing…" : "Delete inspection and undo")</button>
                 <button class="button button-secondary" type="button" @onclick="CancelUndo" disabled="@isUndoing">Cancel</button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (pendingBumpUndo is not null)
+{
+    <div class="modal-backdrop" role="presentation">
+        <section class="modal" role="dialog" aria-modal="true" aria-labelledby="undo-bump-title">
+            <h2 id="undo-bump-title">Undo receipt bump?</h2>
+            <p>This returns @pendingBumpUndo.QuantityMoved?.ToString("N0", CultureInfo.InvariantCulture) pieces to the unallocated Received Parts quantity.</p>
+            @if (bumpUndoMessage is not null) { <div class="alert alert-error" role="alert">@bumpUndoMessage</div> }
+            <div class="form-field form-field-wide">
+                <label for="undo-bump-reason">Reason</label>
+                <InputTextArea id="undo-bump-reason" @bind-Value="bumpUndoReason" />
+            </div>
+            <div class="form-actions">
+                <button class="button button-danger" type="button" @onclick="UndoBumpAsync" disabled="@isUndoingBump">@(isUndoingBump ? "Undoing…" : "Undo bump")</button>
+                <button class="button button-secondary" type="button" @onclick="CancelBumpUndo" disabled="@isUndoingBump">Cancel</button>
             </div>
         </section>
     </div>
@@ -767,10 +788,10 @@ else
     else if (activeTab == InspectionTab.History)
     {
         <section class="inspection-history-panel">
-            <h2>Duplication and flip history</h2>
-            @if (inspection.LineageHistory.Count == 0)
+            <h2>Inspection history</h2>
+            @if (inspection.History.Count == 0)
             {
-                <p>No duplications or flips have been recorded for this inspection.</p>
+                <p>No inspection history has been recorded.</p>
             }
             else
             {
@@ -780,25 +801,45 @@ else
                             <tr>
                                 <th>Operation</th>
                                 <th>Date</th>
-                                <th>From lot</th>
+                                <th>From lot / container</th>
                                 <th>To lot</th>
-                                <th>Quantity moved</th>
+                                <th>Quantity</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var entry in inspection.LineageHistory)
+                            @foreach (var entry in inspection.History)
                             {
                                 <tr>
                                     <td>@entry.Operation</td>
                                     <td>@entry.PerformedAtUtc.ToLocalTime().ToString("MM/dd/yyyy", CultureInfo.InvariantCulture)</td>
-                                    <td><a href="@($"/inspections/{entry.SourceInspectionId}")">@(entry.SourceLotNumber ?? "—")</a></td>
+                                    <td>
+                                        @if (entry.SourceContainerId is long containerId)
+                                        {
+                                            <a href="@($"/container-tracking/containers/{containerId}")">@entry.SourceContainerNumber</a>
+                                        }
+                                        else if (entry.SourceInspectionId is long sourceInspectionId)
+                                        {
+                                            <a href="@($"/inspections/{sourceInspectionId}")">@(entry.SourceLotNumber ?? "—")</a>
+                                        }
+                                        else
+                                        {
+                                            <span>—</span>
+                                        }
+                                    </td>
                                     <td><a href="@($"/inspections/{entry.DestinationInspectionId}")">@(entry.DestinationLotNumber ?? "—")</a></td>
                                     <td>@(entry.QuantityMoved?.ToString("N0", CultureInfo.InvariantCulture) ?? "—")</td>
                                     <td>
-                                        <button class="button button-secondary button-compact" type="button" @onclick="() => BeginQuantityMove(entry)" disabled="@isMovingQuantity">Move</button>
-                                        @if (entry.IsMostRecent && entry.QuantityMoved is not null)
-                                        { <button class="button button-secondary button-compact" type="button" @onclick="() => BeginUndoAsync(entry)" disabled="@isUndoing">Undo</button> }
+                                        @if (entry.LineageEntry is { } lineage)
+                                        {
+                                            <button class="button button-secondary button-compact" type="button" @onclick="() => BeginQuantityMove(lineage)" disabled="@isMovingQuantity">Move</button>
+                                            @if (entry.IsMostRecent && lineage.QuantityMoved is not null)
+                                            { <button class="button button-secondary button-compact" type="button" @onclick="() => BeginUndoAsync(lineage)" disabled="@isUndoing">Undo</button> }
+                                        }
+                                        else if (entry.ReceiptAllocationId is not null && entry.IsMostRecent)
+                                        {
+                                            <button class="button button-secondary button-compact" type="button" @onclick="() => BeginBumpUndo(entry)" disabled="@isUndoingBump">Undo</button>
+                                        }
                                     </td>
                                 </tr>
                             }
@@ -806,6 +847,7 @@ else
                     </table>
                 </div>
             }
+
         </section>
     }
     else if (activeTab == InspectionTab.Certifications)
@@ -923,6 +965,10 @@ else
     private bool isFlipping;
     private bool isUndoing;
     private InspectionLineageHistoryItem? pendingUndo;
+    private bool isUndoingBump;
+    private InspectionHistoryItem? pendingBumpUndo;
+    private string? bumpUndoReason;
+    private string? bumpUndoMessage;
     private bool isMovingQuantity;
     private InspectionLineageHistoryItem? pendingQuantityMove;
     private string quantityMoveDirection = "source-to-destination";
@@ -1257,6 +1303,60 @@ else
     }
 
     private void CancelUndo() => pendingUndo = null;
+
+    private void BeginBumpUndo(InspectionHistoryItem entry)
+    {
+        if (entry.ReceiptAllocationId is null || !entry.IsMostRecent)
+        {
+            return;
+        }
+
+        pendingBumpUndo = entry;
+        bumpUndoReason = null;
+        bumpUndoMessage = null;
+    }
+
+    private void CancelBumpUndo()
+    {
+        pendingBumpUndo = null;
+        bumpUndoReason = null;
+        bumpUndoMessage = null;
+    }
+
+    private async Task UndoBumpAsync()
+    {
+        if (pendingBumpUndo?.ReceiptAllocationId is not long allocationId)
+        {
+            return;
+        }
+
+        isUndoingBump = true;
+        bumpUndoMessage = null;
+        try
+        {
+            var result = await ReceivedParts.ReverseAllocationAsync(allocationId, bumpUndoReason ?? "");
+            if (!result.Succeeded)
+            {
+                bumpUndoMessage = result.Message ?? "The receipt bump could not be undone.";
+                return;
+            }
+
+            CancelBumpUndo();
+            await LoadAsync();
+            activeTab = InspectionTab.History;
+            saveSucceeded = true;
+            saveMessage = "Receipt bump undone. Quantity returned to Received Parts.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to undo receipt bump allocation {AllocationId}", allocationId);
+            bumpUndoMessage = "The receipt bump could not be undone. Please try again.";
+        }
+        finally
+        {
+            isUndoingBump = false;
+        }
+    }
 
     private void BeginQuantityMove(InspectionLineageHistoryItem entry)
     {

@@ -98,6 +98,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        Confast.Web.Features.ProductionScheduling.ProductionMapping.Configure(modelBuilder);
+        modelBuilder.Entity<Part>().Property(x => x.BoxQuantity).HasColumnName("box_quantity").HasPrecision(18, 3);
         ConfigureIdentity(modelBuilder);
         ContainerTrackingConfiguration.Configure(modelBuilder);
 

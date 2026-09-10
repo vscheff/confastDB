@@ -157,6 +157,10 @@ h1:focus { outline: none; }
 .inspection-list-actions > .button, .inspection-list-actions > .inspection-print-options { flex: 0 0 5.5rem; width: 5.5rem; }
 .inspection-list-actions > .button, .inspection-list-actions > .inspection-print-options > summary { min-height: 34px; padding-block: .42rem; font-size: .86rem; }
 .inspection-list-actions > .inspection-print-options > summary { width: 100%; }
+.inspection-history-panel .data-table th, .inspection-history-panel .data-table td { padding: .55rem .75rem; vertical-align: middle; }
+.inspection-history-panel .data-table tbody tr { height: 3.1rem; }
+.inspection-history-panel .data-table td:last-child { white-space: nowrap; }
+.inspection-history-panel .data-table td:last-child .button { min-height: 32px; padding: .35rem .6rem; font-size: .82rem; }
 
 .revision-details-bar { display: grid; grid-template-columns: minmax(9rem, .7fr) minmax(20rem, 2fr) minmax(18rem, 1.6fr) auto; align-items: end; gap: .45rem .65rem; margin: .5rem 0 .65rem; padding: .55rem .65rem; background: #fff; border: 1px solid #d5dce1; border-radius: .45rem; box-shadow: 0 1px 4px rgb(25 45 60 / 5%); }
 .compact-form-field { display: flex; flex-direction: column; gap: .18rem; min-width: 0; }
@@ -762,7 +766,12 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .tracking-group, .tracking-bill-editor { border: 1px solid #cbd6dd; background: #fff; border-radius: .5rem; padding: 1rem; margin-bottom: 1rem; }
 .tracking-group h3 { margin: 0 0 .3rem; }
 .tracking-bl-choice { grid-column: span 2; }
-.tracking-table { overflow-x: auto; margin: .8rem 0; }
+.tracking-table { overflow: hidden; margin: .8rem 0; }
+.tracking-table > .data-table th:nth-child(3), .tracking-table > .data-table td:nth-child(3),
+.tracking-table > .data-table th:nth-child(4), .tracking-table > .data-table td:nth-child(4) { white-space: nowrap; }
+.tracking-table > .data-table th:last-child, .tracking-table > .data-table td:last-child { text-align: right; }
+.tracking-receipt-cell { display: flex; align-items: center; justify-content: flex-end; gap: .55rem; white-space: nowrap; }
+.tracking-receipt-cell .button { min-height: 32px; padding: .35rem .6rem; font-size: .82rem; }
 .tracking-parts { min-width: 680px; }
 .tracking-parts input, .tracking-parts select { width: 100%; min-height: 38px; padding: .45rem .55rem; border: 1px solid #9eabb5; border-radius: .3rem; }
 .tracking-parts th:first-child { width: 44%; }
@@ -795,14 +804,35 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .received-parts-table-shell { overflow-x: auto; }
 .received-parts-table-shell > .data-table { min-width: 1120px; }
 .received-allocation-row > td { padding: .55rem 1rem 1rem; background: #f4f8fa; }
-.allocation-history { margin-top: .5rem; font-size: .9rem; }
-.allocation-history .reversed-allocation { color: #687782; text-decoration: line-through; }
+.allocation-history { min-width: 1320px; margin-top: .5rem; font-size: .9rem; table-layout: fixed; }
+.allocation-history th:nth-child(1) { width: 12%; }
+.allocation-history th:nth-child(2) { width: 10%; }
+.allocation-history th:nth-child(3) { width: 8%; }
+.allocation-history th:nth-child(4) { width: 9rem; }
+.allocation-history th:nth-child(5) { width: 11rem; }
+.allocation-history th:nth-child(6) { width: 12%; }
+.allocation-history th:nth-child(7) { width: 14%; }
+.allocation-history th:nth-child(8) { width: 11rem; }
+.allocation-history th:nth-child(9) { width: 6.5rem; }
+.allocation-history th:nth-child(4), .allocation-history td:nth-child(4),
+.allocation-history th:nth-child(5), .allocation-history td:nth-child(5),
+.allocation-history th:nth-child(8), .allocation-history td:nth-child(8) { white-space: nowrap; }
+.allocation-history .reversed-allocation { color: #687782; }
+.allocation-history .reversed-allocation td:nth-child(2),
+.allocation-history .reversed-allocation td:nth-child(3),
+.allocation-history .reversed-allocation td:nth-child(4) { text-decoration: line-through; }
 .receipt-allocation-modal { width: min(100%, 680px); }
 .tracking-contents .button, .tracking-form .button, .tracking-shipment .button { white-space: nowrap; }
 @media (max-width: 1200px) {
     .app-header { flex-wrap: wrap; gap: .35rem 1.25rem; padding: .5rem 1rem; }
     .app-header nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; gap: .35rem 1rem; }
     .app-header nav a, .app-header .user-menu { white-space: nowrap; }
+}
+@media (min-width: 761px) {
+    .tracking-shipment { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1500px); margin-left: max(calc(.5rem - 50vw), -750px); }
+    .received-container { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1500px); margin-left: max(calc(.5rem - 50vw), -750px); }
+    .received-parts-table-shell { overflow: visible; }
+    .received-parts-table-shell > .data-table { min-width: 1320px; }
 }
 @media (max-width: 760px) {
     .tracking-grid, .tracking-metadata-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

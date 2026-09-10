@@ -228,6 +228,8 @@ public sealed class InspectionEditModel : IValidatableObject
 
     public List<InspectionLineageHistoryItem> LineageHistory { get; set; } = [];
 
+    public List<InspectionHistoryItem> History { get; set; } = [];
+
     public bool IsMissingRequiredCertifications => Certifications.Any(x => x.IsMissingRequired);
 
     // Used only by the protected, short-lived package print route. It is never
@@ -287,6 +289,20 @@ public sealed record InspectionLineageHistoryItem(
     long DestinationInspectionId,
     string? DestinationLotNumber,
     int? QuantityMoved,
+    bool IsMostRecent = false);
+
+public sealed record InspectionHistoryItem(
+    string Operation,
+    DateTimeOffset PerformedAtUtc,
+    long? SourceInspectionId,
+    string? SourceLotNumber,
+    long? SourceContainerId,
+    string? SourceContainerNumber,
+    long DestinationInspectionId,
+    string? DestinationLotNumber,
+    int? QuantityMoved,
+    InspectionLineageHistoryItem? LineageEntry,
+    long? ReceiptAllocationId,
     bool IsMostRecent = false);
 
 public sealed class InspectionCertificationListItem

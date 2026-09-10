@@ -1,5 +1,6 @@
 using System.Data;
 using Confast.Web.Data;
+using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
@@ -920,6 +921,18 @@ public sealed class InspectionService
             return new(InspectionOperationStatus.ValidationFailed, Message: "Only the most recently performed operation can be undone.");
         }
 
+        var laterReceiptBump = await db.ContainerReceiptAllocations
+            .Where(x => x.Action == ReceiptAllocationAction.BumpUp
+                && (x.InspectionId == lineage.SourceInspectionId || x.InspectionId == lineage.DestinationInspectionId)
+                && x.ReversedAtUtc == null
+                && x.PerformedAtUtc > lineage.PerformedAtUtc)
+            .AnyAsync(cancellationToken);
+        if (laterReceiptBump)
+        {
+            return new(InspectionOperationStatus.ValidationFailed,
+                Message: "A later receipt bump prevents this operation from being undone.");
+        }
+
         if (lineage.SourceInspection.QuantityReceived is not int sourceQuantity)
         {
             return new(InspectionOperationStatus.ValidationFailed, Message: "The from lot no longer has a valid received quantity.");
@@ -1249,6 +1262,52 @@ public sealed class InspectionService
         model.LineageHistory = flips.Concat(duplications).Concat(transfers)
             .OrderByDescending(x => x.PerformedAtUtc)
             .ThenByDescending(x => x.Id)
+            .Select((entry, index) => entry with { IsMostRecent = index == 0 })
+            .ToList();
+
+        var receiptBumps = await db.ContainerReceiptAllocations.AsNoTracking()
+            .Where(x => x.InspectionId == inspectionId
+                && x.Action == ReceiptAllocationAction.BumpUp
+                && x.ReversedAtUtc == null)
+            .OrderByDescending(x => x.PerformedAtUtc)
+            .ThenByDescending(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                x.PerformedAtUtc,
+                ContainerId = x.ContainerGroupPart.ContainerGroup.ContainerId,
+                ContainerNumber = x.ContainerGroupPart.ContainerGroup.Container.ContainerNumber,
+                x.Quantity,
+                DestinationLotNumber = x.Inspection!.LotNumber
+            })
+            .ToListAsync(cancellationToken);
+
+        model.History = model.LineageHistory
+            .Select(x => new InspectionHistoryItem(
+                x.Operation.ToString(),
+                x.PerformedAtUtc,
+                x.SourceInspectionId,
+                x.SourceLotNumber,
+                null,
+                null,
+                x.DestinationInspectionId,
+                x.DestinationLotNumber,
+                x.QuantityMoved,
+                x,
+                null))
+            .Concat(receiptBumps.Select(x => new InspectionHistoryItem(
+                "Bump Up",
+                x.PerformedAtUtc,
+                null,
+                null,
+                x.ContainerId,
+                x.ContainerNumber,
+                inspectionId,
+                x.DestinationLotNumber,
+                x.Quantity,
+                null,
+                x.Id)))
+            .OrderByDescending(x => x.PerformedAtUtc)
             .Select((entry, index) => entry with { IsMostRecent = index == 0 })
             .ToList();
 

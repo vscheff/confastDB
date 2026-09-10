@@ -82,6 +82,26 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
     }
 
     [Fact]
+    public async Task BeginInspectionExplainsWhenPartHasNoCurrentPublishedRevision()
+    {
+        await ReceiveAsync();
+        await using (var db = database.CreateDbContext())
+        {
+            var revision = await db.InspectionCriteriaRevisions.SingleAsync();
+            revision.SupersededAtUtc = clock.GetUtcNow();
+            await db.SaveChangesAsync();
+        }
+
+        var result = await BeginAsync(await CurrentLineAsync(), "MFG-A", "LOT-A", 25);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("That Part has no current published inspection-criteria revision.", result.Message);
+        await using var verificationDb = database.CreateDbContext();
+        Assert.Empty(await verificationDb.Inspections.ToListAsync());
+        Assert.Empty(await verificationDb.ContainerReceiptAllocations.ToListAsync());
+    }
+
+    [Fact]
     public async Task CandidateMatchingRequiresExactPartAndPoAndBumpRejectsManufacturerLotMismatchAtomically()
     {
         await ReceiveAsync();
@@ -202,11 +222,23 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
             ManufacturerLotNumber = "MFG-A", Quantity = 20
         });
         Assert.True(bumped.Succeeded, bumped.Message);
+        var bumpedInspection = await inspections.GetInspectionAsync(candidate.InspectionId);
+        var bumpHistory = Assert.Single(bumpedInspection!.History);
+        Assert.Equal("Bump Up", bumpHistory.Operation);
+        Assert.Equal("CONTAINER-1", bumpHistory.SourceContainerNumber);
+        Assert.Equal(20, bumpHistory.QuantityMoved);
+        Assert.Null(bumpHistory.LineageEntry);
+        Assert.NotNull(bumpHistory.ReceiptAllocationId);
+        Assert.True(bumpHistory.IsMostRecent);
         line = await CurrentLineAsync();
         var bumpAllocation = line.Allocations.Single(x => x.Action == ReceiptAllocationAction.BumpUp);
         Assert.True((await receivedParts.ReverseAllocationAsync(bumpAllocation.Id, "Wrong count")).Succeeded);
+        line = await CurrentLineAsync();
+        Assert.Equal("Wrong count", line.Allocations.Single(x => x.Id == bumpAllocation.Id).ReversalReason);
         await using (var db = database.CreateDbContext())
             Assert.Equal(40, (await db.Inspections.SingleAsync()).QuantityReceived);
+        var reversedInspection = await inspections.GetInspectionAsync(candidate.InspectionId);
+        Assert.Empty(reversedInspection!.History);
 
         var inspection = (await inspections.GetInspectionAsync(created.InspectionId!.Value))!;
         inspection.Results[0].ActualMin = "1.5";
@@ -217,6 +249,72 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
         var unsafeReversal = await receivedParts.ReverseAllocationAsync(createAllocation.Id, "Undo receipt");
         Assert.False(unsafeReversal.Succeeded);
         Assert.Contains("inspection work", unsafeReversal.Message);
+    }
+
+    [Fact]
+    public async Task BumpUpPreventsUndoingAnEarlierLineageOperation()
+    {
+        await ReceiveAsync();
+        var line = await CurrentLineAsync();
+        var created = await BeginAsync(line, "MFG-A", "LOT-A", 40);
+        Assert.True(created.Succeeded, created.Message);
+        var duplicate = await inspections.DuplicateInspectionAsync(created.InspectionId!.Value, 10, "LOT-B");
+        Assert.Equal(InspectionOperationStatus.Succeeded, duplicate.Status);
+
+        line = await CurrentLineAsync();
+        var candidate = Assert.Single(
+            await receivedParts.GetCandidatesAsync(lineId),
+            x => x.InspectionId == created.InspectionId);
+        var bumped = await receivedParts.BumpUpAsync(new BumpUpReceiptModel
+        {
+            ContainerGroupPartId = lineId,
+            ContainerVersion = line.ContainerVersion,
+            InspectionId = candidate.InspectionId,
+            InspectionVersion = candidate.Version,
+            ManufacturerLotNumber = "MFG-A",
+            Quantity = 20
+        });
+        Assert.True(bumped.Succeeded, bumped.Message);
+        await using (var db = database.CreateDbContext())
+        {
+            var allocation = await db.ContainerReceiptAllocations
+                .SingleAsync(x => x.InspectionId == created.InspectionId
+                    && x.Action == ReceiptAllocationAction.BumpUp);
+            allocation.PerformedAtUtc = DateTimeOffset.UtcNow.AddMinutes(1);
+            await db.SaveChangesAsync();
+        }
+
+        var inspection = (await inspections.GetInspectionAsync(created.InspectionId.Value))!;
+        Assert.Equal("Bump Up", inspection.History[0].Operation);
+        var lineage = Assert.Single(inspection.LineageHistory);
+        Assert.False(Assert.Single(inspection.History, x => x.LineageEntry == lineage).IsMostRecent);
+
+        var undo = await inspections.UndoLineageOperationAsync(
+            created.InspectionId.Value,
+            lineage.Operation,
+            lineage.Id,
+            confirmDestinationDeletion: true);
+        Assert.Equal(InspectionOperationStatus.ValidationFailed, undo.Status);
+        Assert.Equal("A later receipt bump prevents this operation from being undone.", undo.Message);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var allocationId = await db.ContainerReceiptAllocations
+                .Where(x => x.InspectionId == created.InspectionId
+                    && x.Action == ReceiptAllocationAction.BumpUp)
+                .Select(x => x.Id)
+                .SingleAsync();
+            Assert.True((await receivedParts.ReverseAllocationAsync(allocationId, "Undo bump")).Succeeded);
+        }
+
+        var afterBumpUndo = (await inspections.GetInspectionAsync(created.InspectionId.Value))!;
+        Assert.Collection(afterBumpUndo.History, entry => Assert.Equal("Duplicate", entry.Operation));
+        var lineageUndo = await inspections.UndoLineageOperationAsync(
+            created.InspectionId.Value,
+            lineage.Operation,
+            lineage.Id,
+            confirmDestinationDeletion: true);
+        Assert.Equal(InspectionOperationStatus.Succeeded, lineageUndo.Status);
     }
 
     private async Task ReceiveAsync()

@@ -2,6 +2,8 @@
 @page "/container-tracking/shipments/{ShipmentId:long}/containers/create"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Confast.Web.Features.ContainerTracking
+@using Microsoft.AspNetCore.Components.Forms
+@using System.ComponentModel.DataAnnotations
 @inject ContainerTrackingService Tracking
 @inject ReceivedPartsService ReceivedParts
 @inject TrackingAccess Access
@@ -104,8 +106,7 @@ else
     </EditForm>
     @if (Id != 0)
     {
-        <EditForm Model="contents" OnValidSubmit="SaveContentsAsync" FormName="container-contents" class="tracking-contents">
-            <DataAnnotationsValidator /><ValidationSummary />
+        <EditForm EditContext="contentsEditContext" OnSubmit="SaveContentsAsync" FormName="container-contents" class="tracking-contents">
             <div class="section-heading"><h2>Groups</h2>
                 <div class="heading-actions">
                     <span>@contents.Groups.Count groups · @contents.Groups.Sum(x => x.PalletCount ?? 0).ToString("N0") pallets · @contents.Groups.Sum(x => x.TotalWeight ?? 0).ToString("N2") kg</span>
@@ -184,7 +185,7 @@ else
                                     <InputSelect @bind-Value="group.BillOfLadingId" @bind-Value:after="() => ClearPartsForOtherSupplier(group)">
                                         <option value="0">Select B/L</option>
                                         @foreach (var option in bills) { <option value="@option.Id">@option.Number — @option.SupplierName</option> }
-                                    </InputSelect></label>
+                                    </InputSelect></label><ValidationMessage For="@(() => group.BillOfLadingId)" />
                                     @if (CanEditContents)
                                     {
                                         <div class="heading-actions">
@@ -193,8 +194,8 @@ else
                                         </div>
                                     }
                                 </div>
-                                <div class="form-field"><label>Total Weight (kg)<ThousandsSeparatedDecimalInput @bind-Value="group.TotalWeight" min="0" step="0.001" /></label></div>
-                                <div class="form-field"><label>Pallet count<InputNumber @bind-Value="group.PalletCount" min="0" /></label></div>
+                                <div class="form-field"><label>Total Weight (kg)<ThousandsSeparatedDecimalInput @bind-Value="group.TotalWeight" min="0" step="0.001" /></label><ValidationMessage For="@(() => group.TotalWeight)" /></div>
+                                <div class="form-field"><label>Pallet count<InputNumber @bind-Value="group.PalletCount" min="0" /></label><ValidationMessage For="@(() => group.PalletCount)" /></div>
                                 <div class="form-field"><label>Invoice number<InputText @bind-Value="group.InvoiceNumber" maxlength="100" /></label></div>
                                 <div class="checkbox-field"><label><InputCheckbox @bind-Value="group.CertificationsReceived" /> Certifications received</label></div>
                             </div>
@@ -205,9 +206,9 @@ else
                                         <tr @key="part">
                                             <td><InputSelect @bind-Value="part.PartId" aria-label="Part"><option value="0">Select Part</option>
                                                 @foreach (var option in GetPartsForGroup(group)) { <option value="@option.Id">@option.Label</option> }
-                                            </InputSelect></td>
-                                            <td><InputText @bind-Value="part.PurchaseOrderNumber" aria-label="PO number" maxlength="100" /></td>
-                                            <td><ThousandsSeparatedIntegerInput @bind-Value="part.Quantity" aria-label="Quantity" /></td>
+                                            </InputSelect><ValidationMessage For="@(() => part.PartId)" /></td>
+                                            <td><InputText @bind-Value="part.PurchaseOrderNumber" aria-label="PO number" maxlength="100" /><ValidationMessage For="@(() => part.PurchaseOrderNumber)" /></td>
+                                            <td><ThousandsSeparatedIntegerInput @bind-Value="part.Quantity" aria-label="Quantity" /><ValidationMessage For="@(() => part.Quantity)" /></td>
                                             <td>@if (CanEditContents) { <button type="button" class="button button-danger-outline" @onclick="() => group.Parts.Remove(part)">Remove</button> }</td>
                                         </tr>
                                     }
@@ -222,6 +223,19 @@ else
             @if (groupsExpanded && CanEditContents)
             {
                 <fieldset class="tracking-fields" disabled="@(busy || editingBill)">
+                    @if (contentsMessage is not null)
+                    {
+                        <div class="alert @(contentsIsError ? "alert-error" : "alert-success")" role="status">@contentsMessage</div>
+                    }
+                    @if (ContentsValidationErrors.Any())
+                    {
+                        <div class="alert alert-error" role="alert">
+                            @foreach (var error in ContentsValidationErrors)
+                            {
+                                <div>@error</div>
+                            }
+                        </div>
+                    }
                     <div class="form-actions">
                         <button type="button" class="button button-secondary" @onclick="() => contents.Groups.Add(new())">Add group</button>
                         <button class="button button-primary">Save groups and part lines</button>
@@ -238,6 +252,8 @@ else
     [Parameter] public long ShipmentId { get; set; }
     private ContainerEditModel metadata = new();
     private ContainerContentsEditModel contents = new();
+    private EditContext contentsEditContext = default!;
+    private ValidationMessageStore? contentsValidationMessages;
     private TrackingPermissions permissions = new(false, false);
     private List<string> shipmentBills = [];
     private List<BillOfLadingChoice> bills = [];
@@ -250,7 +266,9 @@ else
     private long editingBillId;
     private Guid billEditorKey;
     private ContainerGroupEditModel? billTarget;
-    private string? message;
+    private string? message, contentsMessage;
+    private bool contentsIsError;
+    private IEnumerable<string> ContentsValidationErrors => contentsEditContext.GetValidationMessages().Distinct();
     private ElementReference estimatedDepartureDateField;
     private ElementReference estimatedArrivalDateField;
     private IJSObjectReference? dateInputNavigationModule;
@@ -337,7 +355,7 @@ else
             {
                 var detail = await Tracking.GetContainerAsync(Id);
                 if (detail is null) { message = "Container no longer exists."; isError = true; return; }
-                metadata = detail.Metadata; contents = detail.Contents; shipmentBills = detail.ShipmentBills;
+                metadata = detail.Metadata; contents = detail.Contents; ResetContentsValidation(); shipmentBills = detail.ShipmentBills;
                 bills = await Tracking.GetBillsAsync(); parts = await Tracking.GetPartsAsync();
             }
             persistedEtd = metadata.EstimatedDepartureDate;
@@ -391,24 +409,66 @@ else
     private async Task SaveContentsAsync()
     {
         if (busy) return;
+        if (!ValidateContents())
+        {
+            contentsMessage = null;
+            return;
+        }
         busy = true;
         try
         {
             var result = await Tracking.SaveContentsAsync(contents);
-            message = result.Message ?? "Groups and part lines saved."; isError = !result.Succeeded;
+            contentsMessage = result.Message ?? "Groups and part lines saved.";
+            contentsIsError = !result.Succeeded;
             if (result.Succeeded)
             {
                 var saved = await Tracking.GetContainerAsync(Id);
                 if (saved is not null)
                 {
                     contents = saved.Contents;
+                    ResetContentsValidation();
                     // Keep unsaved metadata fields while advancing their shared concurrency token.
                     metadata.Version = result.Version!.Value;
                 }
             }
         }
-        catch (Exception ex) { Logger.LogError(ex, "Failed to save container contents {ContainerId}", Id); message = "Groups and part lines could not be saved."; isError = true; }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to save container contents {ContainerId}", Id); contentsMessage = "Groups and part lines could not be saved."; contentsIsError = true; }
         finally { busy = false; }
+    }
+    private void ResetContentsValidation()
+    {
+        contentsEditContext = new EditContext(contents);
+        contentsValidationMessages = new ValidationMessageStore(contentsEditContext);
+        contentsMessage = null;
+        contentsIsError = false;
+    }
+    private bool ValidateContents()
+    {
+        var valid = true;
+        contentsValidationMessages!.Clear();
+        foreach (var group in contents.Groups)
+        {
+            valid &= ValidateModel(group);
+            if (group.TotalWeight is { } weight && decimal.Round(weight, 3) != weight)
+            {
+                contentsValidationMessages.Add(new FieldIdentifier(group, nameof(group.TotalWeight)), "Weight supports at most three decimal places.");
+                valid = false;
+            }
+            foreach (var part in group.Parts) valid &= ValidateModel(part);
+        }
+        contentsEditContext.NotifyValidationStateChanged();
+        return valid;
+    }
+    private bool ValidateModel(object model)
+    {
+        var results = new List<ValidationResult>();
+        if (Validator.TryValidateObject(model, new ValidationContext(model), results, validateAllProperties: true)) return true;
+        foreach (var result in results)
+        {
+            var fields = result.MemberNames.Any() ? result.MemberNames : [string.Empty];
+            foreach (var field in fields) contentsValidationMessages!.Add(new FieldIdentifier(model, field), result.ErrorMessage!);
+        }
+        return false;
     }
     private void OpenBillEditor(ContainerGroupEditModel group, long id)
     { billTarget = group; editingBillId = id; billEditorKey = Guid.NewGuid(); editingBill = true; }

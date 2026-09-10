@@ -2,6 +2,7 @@
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Confast.Web.Features.ContainerTracking
 @inject ContainerTrackingService Tracking
+@inject ReceivedPartsService ReceivedParts
 @inject TrackingAccess Access
 @inject ILogger<Index> Logger
 
@@ -74,18 +75,24 @@
             <div class="alert alert-warning" role="alert">Deleting this shipment also removes its bill-number rows.</div>
         }
         <div class="table-shell tracking-table">
-            <table class="data-table"><thead><tr><th>Container</th><th>CBP number</th><th>ETD</th><th>ETA</th><th>Receipt</th><th>Groups</th><th>Pallets</th><th>Weight (lb)</th><th>On schedule</th></tr></thead><tbody>
+            <table class="data-table"><thead><tr><th>Container</th><th>CBP number</th><th>ETD</th><th>ETA</th><th>Receipt</th><th>Groups</th><th>Pallets</th><th>Weight (lb)</th><th>On schedule</th><th>Actions</th></tr></thead><tbody>
             @foreach (var container in shipment.Containers)
             {
                 <tr><td><a class="record-link" href="@($"/container-tracking/containers/{container.Id}")">@container.Number</a>
                     @if (ContainerEditPolicy.HasDeparted(container.Etd, Tracking.Today)) { <small class="tracking-lock">Departed / Locked</small> }</td>
                     <td>@(container.CbpNumber ?? "—")</td>
                     <td>@Date(container.Etd)</td><td>@Date(container.Eta)</td><td>@(container.ReceivedDate is null ? "Not received" : Date(container.ReceivedDate))</td>
-                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.AddedToProductionSchedule ? "Yes" : "No")</td></tr>
+                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.AddedToProductionSchedule ? "Yes" : "No")</td>
+                    <td class="table-action"><div class="tracking-receipt-cell">
+                        @if (permissions.CanEdit)
+                        {
+                            <button type="button" class="button button-primary" @onclick="() => OpenReceiveDialog(container)" disabled="@busy">@ReceiptButtonLabel(container)</button>
+                        }
+                    </div></td></tr>
                 @if (containersExpanded)
                 {
                     <tr class="tracking-container-groups-row">
-                        <td colspan="9">
+                        <td colspan="10">
                             @if (container.Groups.Count == 0)
                             {
                                 <p class="status-message">No groups on this container.</p>
@@ -132,17 +139,67 @@
 }
 @if (!busy && shipments.Count == 0) { <div class="empty-state"><h2>No shipments found</h2><p>Create a shipment or change your search.</p></div> }
 
+@if (receiving is not null)
+{
+    <div class="modal-backdrop" role="presentation">
+        <section class="modal receive-container-modal" role="dialog" aria-modal="true" aria-labelledby="receive-container-title">
+            <h2 id="receive-container-title">@ReceiptButtonLabel(receiving)</h2>
+            <p><strong>@receiving.Number</strong></p>
+            <div class="form-field"><label for="receive-date">Received date</label><InputDate id="receive-date" @bind-Value="receiveDate" max="@ReceivedToday" /></div>
+            @if (receiving.ReceivedDate is not null)
+            {
+                <div class="form-field form-field-wide"><label for="receive-reason">@(!receiving.ReceiptAuditRecorded ? "Reconciliation reason" : "Correction reason")</label><InputTextArea id="receive-reason" @bind-Value="receiveReason" /></div>
+            }
+            <div class="form-actions">
+                <button type="button" class="button button-primary" @onclick="ReceiveAsync" disabled="@busy">Confirm</button>
+                <button type="button" class="button button-secondary" @onclick="CloseReceiveDialog" disabled="@busy">Cancel</button>
+            </div>
+        </section>
+    </div>
+}
+
 @code {
     private TrackingPermissions permissions = new(false, false);
     private List<ShipmentSummary> shipments = [];
     private ShipmentEditModel? editing;
+    private ContainerSummary? receiving;
     private string? search, message;
     private bool busy, isError, containersExpanded;
+    private DateOnly receiveDate;
+    private string? receiveReason;
     private long? confirmShipmentDeleteId;
+    private string ReceivedToday => ReceivedParts.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     protected override Task OnInitializedAsync() => LoadAsync();
     private static string Date(DateOnly? value) => value?.ToString("MMM d, yyyy") ?? "—";
+    private static string ReceiptButtonLabel(ContainerSummary container) => container.ReceivedDate is null
+        ? "Receive Container"
+        : !container.ReceiptAuditRecorded ? "Reconcile Receipt" : "Correct Received Date";
     private void ToggleContainersExpanded() => containersExpanded = !containersExpanded;
     private void NewShipment() { editing = new() { BillNumbers = [new()] }; message = null; }
+    private void OpenReceiveDialog(ContainerSummary container)
+    {
+        receiving = container;
+        receiveDate = container.ReceivedDate ?? ReceivedParts.Today;
+        receiveReason = null;
+    }
+    private void CloseReceiveDialog() => receiving = null;
+    private async Task ReceiveAsync()
+    {
+        if (busy || receiving is null) return;
+        var target = receiving;
+        busy = true;
+        try
+        {
+            var result = await ReceivedParts.ReceiveContainerAsync(target.Id, target.Version, receiveDate, receiveReason);
+            if (!result.Succeeded) { message = result.Message; isError = true; return; }
+            receiving = null;
+            message = "Container receipt saved.";
+            isError = false;
+            shipments = await Tracking.SearchAsync(search);
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to receive container {ContainerId}", target.Id); message = "Container receipt could not be saved."; isError = true; }
+        finally { busy = false; }
+    }
     private async Task LoadAsync()
     {
         busy = true; confirmShipmentDeleteId = null;

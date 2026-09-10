@@ -27,6 +27,8 @@ public sealed class Part
 
     public bool IsActive { get; set; } = true;
 
+    public decimal? BoxQuantity { get; set; }
+
     public uint Version { get; set; }
 
     public ICollection<InspectionCriteriaRevision> InspectionCriteriaRevisions { get; } = [];

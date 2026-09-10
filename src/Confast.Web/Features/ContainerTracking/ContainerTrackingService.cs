@@ -27,8 +27,8 @@ public sealed class ContainerTrackingService(
         }
         return await query.OrderByDescending(x => x.Id).Select(s => new ShipmentSummary(s.Id, s.Version, s.FreightCost,
             s.BillNumbers.OrderBy(b => b.Id).Select(b => b.Number).ToList(),
-            s.Containers.OrderBy(c => c.Id).Select(c => new ContainerSummary(c.Id, c.ContainerNumber, c.CbpNumber,
-                c.EstimatedDepartureDate, c.EstimatedArrivalDate, c.ReceivedDate, c.AddedToProductionSchedule,
+            s.Containers.OrderBy(c => c.Id).Select(c => new ContainerSummary(c.Id, c.Version, c.ContainerNumber, c.CbpNumber,
+                c.EstimatedDepartureDate, c.EstimatedArrivalDate, c.ReceivedDate, c.ReceivedAtUtc != null, c.AddedToProductionSchedule,
                 c.Groups.Count, c.Groups.Sum(g => g.PalletCount ?? 0), c.Groups.Sum(g => g.TotalWeight ?? 0),
                 c.Groups.OrderBy(g => g.Id).Select(g => new ContainerGroupSummary(g.BillOfLading.Supplier.Name,
                     g.BillOfLading.Number, g.BillOfLading.Duty, g.TotalWeight, g.PalletCount, g.InvoiceNumber,

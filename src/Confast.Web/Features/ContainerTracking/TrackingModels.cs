@@ -83,7 +83,7 @@ public sealed class ContainerPartEditModel
     public long Id { get; set; }
     [Range(1, long.MaxValue, ErrorMessage = "Select a Part.")]
     public long PartId { get; set; }
-    [Required, StringLength(100)]
+    [Required(ErrorMessage = "The PO Number field is required."), StringLength(100)]
     public string PurchaseOrderNumber { get; set; } = string.Empty;
     [Required, Range(0, int.MaxValue)]
     public int? Quantity { get; set; }
@@ -94,8 +94,8 @@ public sealed record TrackingChoice(long Id, long? SupplierId, string PartNumber
     public string Label => PartNumber + " — " + CustomerName + (IsActive ? "" : " (inactive)");
 }
 public sealed record BillOfLadingChoice(long Id, long SupplierId, string Number, string SupplierName, decimal? Duty);
-public sealed record ContainerSummary(long Id, string Number, string? CbpNumber, DateOnly? Etd, DateOnly? Eta, DateOnly? ReceivedDate,
-    bool AddedToProductionSchedule, int GroupCount, int Pallets, decimal Weight, List<ContainerGroupSummary> Groups);
+public sealed record ContainerSummary(long Id, uint Version, string Number, string? CbpNumber, DateOnly? Etd, DateOnly? Eta, DateOnly? ReceivedDate,
+    bool ReceiptAuditRecorded, bool AddedToProductionSchedule, int GroupCount, int Pallets, decimal Weight, List<ContainerGroupSummary> Groups);
 public sealed record ContainerGroupSummary(string SupplierName, string BillNumber, decimal? Duty, decimal? Weight,
     int? Pallets, string? InvoiceNumber, bool CertificationsReceived, List<ContainerPartSummary> Parts);
 public sealed record ContainerPartSummary(string PartNumber, string CustomerName, string PurchaseOrderNumber, int Quantity);

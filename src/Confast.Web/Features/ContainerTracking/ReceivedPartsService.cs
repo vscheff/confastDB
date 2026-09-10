@@ -260,9 +260,15 @@ public sealed class ReceivedPartsService(
             db.Entry(container).Property(x => x.ContainerNumber).IsModified = true;
             return null;
         }, cancellationToken);
-        return result.Status == InspectionOperationStatus.Succeeded
-            ? new(true, InspectionId: result.InspectionId)
-            : ReceiptOperationResult.Invalid(result.Message ?? "The inspection allocation could not be saved. Reload and try again.");
+        return result.Status switch
+        {
+            InspectionOperationStatus.Succeeded => new(true, InspectionId: result.InspectionId),
+            InspectionOperationStatus.NoCurrentRevision =>
+                ReceiptOperationResult.Invalid("That Part has no current published inspection-criteria revision."),
+            InspectionOperationStatus.Conflict => ReceiptOperationResult.Conflict(),
+            _ => ReceiptOperationResult.Invalid(
+                result.Message ?? "The inspection allocation could not be saved. Reload and try again.")
+        };
     }
 
     public async Task<ReceiptOperationResult> BumpUpAsync(BumpUpReceiptModel model, CancellationToken cancellationToken = default)
