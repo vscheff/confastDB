@@ -18,15 +18,16 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         await using var db = database.CreateDbContext();
         await db.Database.ExecuteSqlRawAsync("TRUNCATE production_progress, production_requirements, production_segments, production_jobs, part_machines, machine_working_days, machine_downtime, sorting_machines, production_holidays, downtime_reasons, production_audit RESTART IDENTITY CASCADE");
         var settings = await db.Set<ProductionSettings>().SingleAsync(); settings.EfficiencyPercent = 91;
+        foreach (var day in await db.Set<DefaultWorkingDay>().ToListAsync()) day.Hours = day.Day is DayOfWeek.Sunday or DayOfWeek.Saturday ? 0 : 8;
         db.Users.Add(new() { Id = "planner", UserName = "planner", DisplayName = "Planner" });
         db.UserRoles.Add(new() { UserId = "planner", RoleId = await db.Roles.Where(x => x.Name == AppRoles.Administrator).Select(x => x.Id).SingleAsync() });
         var customer = new Customer { Name = "Scheduling customer" };
-        var part = new Part { Customer = customer, PartNumber = "SORT-1" }; db.Add(part);
+        var part = new Part { Customer = customer, PartNumber = "SORT-1", BoxQuantity = 1000 }; db.Add(part);
         await db.SaveChangesAsync(); partId = part.Id;
         service = new(database, new TestUser(), clock);
-        await service.SaveMachineAsync(await Revision(), 0, "Sorter", true, [0, 8, 8, 8, 8, 8, 0]);
+        await service.SaveMachineAsync(await Revision(), 0, "Sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
         machineId = (await service.GetAsync()).Machines.Single().Id;
-        await service.SaveRateAsync(await Revision(), machineId, partId, 10000, 1000);
+        await service.SaveRateAsync(await Revision(), machineId, partId, 10000);
     }
     public Task DisposeAsync() => Task.CompletedTask;
     private async Task<long> Revision() => (await service.GetAsync()).Settings.Revision;
@@ -51,6 +52,42 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(16, ProductionScheduler.Forecast(data).Single().RemainingHours);
         await Assert.ThrowsAsync<SchedulingException>(() => service.ProgressAsync(data.Settings.Revision, s.Id, 100001, clock.Today, null, false));
         await Assert.ThrowsAsync<SchedulingException>(() => service.ProgressAsync(data.Settings.Revision, s.Id, 20000, clock.Today, null, true));
+    }
+
+    [Fact]
+    public async Task MachineRatesDoNotChangeThePartBoxQuantity()
+    {
+        await service.SaveRateAsync(await Revision(), machineId, partId, 9000);
+
+        await using var db = database.CreateDbContext();
+        Assert.Equal(1000, await db.Parts.Where(part => part.Id == partId).Select(part => part.BoxQuantity).SingleAsync());
+    }
+
+    [Fact]
+    public async Task DowntimeReasonNamesAreUniqueAndOnlyUnusedReasonsCanBeDeleted()
+    {
+        await service.SaveReasonAsync(await Revision(), 0, "Maintenance", true);
+        var reason = (await service.GetAsync()).Reasons.Single();
+
+        var duplicateRevision = await Revision();
+        var duplicate = await Assert.ThrowsAsync<SchedulingException>(() => service.SaveReasonAsync(duplicateRevision, 0, " maintenance ", true));
+        Assert.Equal("A downtime reason with that name already exists.", duplicate.Message);
+        await using (var db = database.CreateDbContext())
+        {
+            var databaseDuplicate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+                db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO downtime_reasons (name, is_active) VALUES ({"maintenance"}, {true})"));
+            Assert.Equal("UX_downtime_reasons_name", databaseDuplicate.ConstraintName);
+        }
+
+        await service.SaveDowntimeAsync(await Revision(), 0, machineId, reason.Id, clock.Today, clock.Today, null);
+        var inUseRevision = await Revision();
+        var inUse = await Assert.ThrowsAsync<SchedulingException>(() => service.DeleteReasonAsync(inUseRevision, reason.Id));
+        Assert.Contains("cannot be deleted", inUse.Message);
+
+        await service.SaveReasonAsync(await Revision(), 0, "Unused", true);
+        var unused = (await service.GetAsync()).Reasons.Single(x => x.Name == "Unused");
+        await service.DeleteReasonAsync(await Revision(), unused.Id);
+        Assert.DoesNotContain((await service.GetAsync()).Reasons, x => x.Id == unused.Id);
     }
 
     [Fact]
@@ -101,13 +138,35 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     private static async Task<bool> Attempt(Func<Task> action) { try { await action(); return true; } catch (SchedulingException) { return false; } }
 
     [Fact]
+    public async Task DefaultWorkingDaysSynchronizeOnlyMachinesThatFollowThem()
+    {
+        await service.SaveMachineAsync(await Revision(), 0, "Default sorter", true, true, [0, 1, 1, 1, 1, 1, 0]);
+        var data = await service.GetAsync();
+        var defaultSorter = data.Machines.Single(x => x.Name == "Default sorter");
+        Assert.True(defaultSorter.UsesDefaultWorkingDays);
+        Assert.Equal(8, defaultSorter.WorkingDays.Single(x => x.Day == DayOfWeek.Monday).Hours);
+
+        await service.SaveDefaultWorkingDaysAsync(data.Settings.Revision, [0, 6.5m, 6.5m, 6.5m, 6.5m, 6.5m, 0]);
+        data = await service.GetAsync();
+        defaultSorter = data.Machines.Single(x => x.Name == "Default sorter");
+        Assert.Equal(6.5m, data.Settings.DefaultWorkingDays.Single(x => x.Day == DayOfWeek.Monday).Hours);
+        Assert.Equal(6.5m, defaultSorter.WorkingDays.Single(x => x.Day == DayOfWeek.Monday).Hours);
+        Assert.Equal(8, data.Machines.Single(x => x.Id == machineId).WorkingDays.Single(x => x.Day == DayOfWeek.Monday).Hours);
+
+        await service.SaveMachineAsync(data.Settings.Revision, machineId, "Sorter", true, true, [0, 1, 1, 1, 1, 1, 0]);
+        data = await service.GetAsync();
+        Assert.True(data.Machines.Single(x => x.Id == machineId).UsesDefaultWorkingDays);
+        Assert.Equal(6.5m, data.Machines.Single(x => x.Id == machineId).WorkingDays.Single(x => x.Day == DayOfWeek.Monday).Hours);
+    }
+
+    [Fact]
     public async Task ReassignmentPreservesPerformedMachineAndRejectsIneligibleDestination()
     {
         var a = await AddJob();
-        await service.SaveMachineAsync(await Revision(), 0, "Manual", true, [0, 4, 0, 4, 0, 4, 0]);
+        await service.SaveMachineAsync(await Revision(), 0, "Manual", true, false, [0, 4, 0, 4, 0, 4, 0]);
         var destination = (await service.GetAsync()).Machines.Single(x => x.Name == "Manual").Id;
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.ReassignAsync(await Revision(), a.Id, destination));
-        await service.SaveRateAsync(await Revision(), destination, partId, 5000, 1000);
+        await service.SaveRateAsync(await Revision(), destination, partId, 5000);
         await service.StartAsync(await Revision(), a.Id);
         await service.ProgressAsync(await Revision(), a.Id, 22000, clock.Today, null, false);
         await service.ReassignAsync(await Revision(), a.Id, destination);
@@ -162,8 +221,10 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     public async Task ServerEnforcesAuthorizationAndConfigurationValidation()
     {
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveEfficiencyAsync(await Revision(), 0));
-        await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 0, 100));
-        await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 100, 0));
+        await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveEfficiencyAsync(await Revision(), 91.5m));
+        await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveMachineAsync(await Revision(), machineId, "Sorter", true, false, [0, 8.25m, 8, 8, 8, 8, 0]));
+        await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 0));
+        await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 100.5m));
         await using (var db = database.CreateDbContext()) { db.UserRoles.RemoveRange(await db.UserRoles.ToListAsync()); await db.SaveChangesAsync(); }
         var data = await service.GetAsync(); Assert.False(data.CanEdit);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SaveJobAsync(data.Settings.Revision, 0, partId, machineId, 100, null, null, null));

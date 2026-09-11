@@ -6,6 +6,7 @@ public sealed class ProductionSettings
 {
     public int Id { get; set; } = 1;
     public decimal EfficiencyPercent { get; set; } = 91m;
+    public List<DefaultWorkingDay> DefaultWorkingDays { get; set; } = [];
     public long Revision { get; set; }
     public uint Version { get; set; }
 }
@@ -15,8 +16,16 @@ public sealed class SortingMachine
     public long Id { get; set; }
     public string Name { get; set; } = "";
     public bool IsActive { get; set; } = true;
+    public bool UsesDefaultWorkingDays { get; set; }
     public List<MachineWorkingDay> WorkingDays { get; set; } = [];
     public List<PartMachine> Parts { get; set; } = [];
+}
+
+public sealed class DefaultWorkingDay
+{
+    public int SettingsId { get; set; } = 1;
+    public DayOfWeek Day { get; set; }
+    public decimal Hours { get; set; }
 }
 
 public sealed class MachineWorkingDay

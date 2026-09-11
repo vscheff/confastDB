@@ -5,119 +5,121 @@
 
 <PageTitle>Parts</PageTitle>
 
-<div class="page-heading">
-    <div>
-        <h1>Parts</h1>
-        <p>Parts are unique by customer and part number.</p>
+<div class="parts-list-page">
+    <div class="page-heading">
+        <div>
+            <h1>Parts</h1>
+            <p>Select a part to view or edit its details.</p>
+        </div>
+        <div class="heading-actions">
+            <button class="button button-secondary" type="button" @onclick="LoadPartsAsync" disabled="@isLoading">
+                Refresh
+            </button>
+            <a class="button button-primary" href="/parts/create">Add Part</a>
+        </div>
     </div>
-    <div class="heading-actions">
-        <button class="button button-secondary" type="button" @onclick="LoadPartsAsync" disabled="@isLoading">
-            Refresh
-        </button>
-        <a class="button button-primary" href="/parts/create">Create part</a>
-    </div>
-</div>
 
-@if (isLoading)
-{
-    <p class="status-message">Loading parts…</p>
-}
-else if (loadError is not null)
-{
-    <div class="alert alert-error" role="alert">@loadError</div>
-}
-else if (parts.Count == 0)
-{
-    <div class="empty-state">
-        <h2>No parts yet</h2>
-        <p>Create the first part and assign it to an existing customer.</p>
-    </div>
-}
-else
-{
-    <div class="table-shell parts-list-table-shell">
-        <table class="data-table parts-list-table">
-            <thead>
-                <tr>
-                    <th aria-sort="@(GetAriaSort(PartSortField.PartNumber))">
-                        <button class="inspection-sort-header @(partSortField == PartSortField.PartNumber ? "inspection-sort-header-active" : null)"
-                                type="button"
-                                aria-label="Sort by Part number @(GetSortDirectionLabel(PartSortField.PartNumber))"
-                                @onclick="() => TogglePartSort(PartSortField.PartNumber)">
-                            Part number <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.PartNumber)</span>
-                        </button>
-                    </th>
-                    <th aria-sort="@(GetAriaSort(PartSortField.Revision))">
-                        <button class="inspection-sort-header @(partSortField == PartSortField.Revision ? "inspection-sort-header-active" : null)"
-                                type="button"
-                                aria-label="Sort by Revision @(GetSortDirectionLabel(PartSortField.Revision))"
-                                @onclick="() => TogglePartSort(PartSortField.Revision)">
-                            Revision <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Revision)</span>
-                        </button>
-                    </th>
-                    <th class="parts-list-customer-column" aria-sort="@(GetAriaSort(PartSortField.Customer))">
-                        <button class="inspection-sort-header @(partSortField == PartSortField.Customer ? "inspection-sort-header-active" : null)"
-                                type="button"
-                                aria-label="Sort by Customer @(GetSortDirectionLabel(PartSortField.Customer))"
-                                @onclick="() => TogglePartSort(PartSortField.Customer)">
-                            Customer <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Customer)</span>
-                        </button>
-                    </th>
-                    <th class="parts-list-plants-column" aria-sort="@(GetAriaSort(PartSortField.DestinationPlants))">
-                        <button class="inspection-sort-header @(partSortField == PartSortField.DestinationPlants ? "inspection-sort-header-active" : null)"
-                                type="button"
-                                aria-label="Sort by Destination plants @(GetSortDirectionLabel(PartSortField.DestinationPlants))"
-                                @onclick="() => TogglePartSort(PartSortField.DestinationPlants)">
-                            Destination plants <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.DestinationPlants)</span>
-                        </button>
-                    </th>
-                    <th aria-sort="@(GetAriaSort(PartSortField.Supplier))">
-                        <button class="inspection-sort-header @(partSortField == PartSortField.Supplier ? "inspection-sort-header-active" : null)"
-                                type="button"
-                                aria-label="Sort by Supplier @(GetSortDirectionLabel(PartSortField.Supplier))"
-                                @onclick="() => TogglePartSort(PartSortField.Supplier)">
-                            Supplier <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Supplier)</span>
-                        </button>
-                    </th>
-                    <th aria-sort="@(GetAriaSort(PartSortField.Status))">
-                        <button class="inspection-sort-header @(partSortField == PartSortField.Status ? "inspection-sort-header-active" : null)"
-                                type="button"
-                                aria-label="Sort by Status @(GetSortDirectionLabel(PartSortField.Status))"
-                                @onclick="() => TogglePartSort(PartSortField.Status)">
-                            Status <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Status)</span>
-                        </button>
-                    </th>
-                    <th><span class="visually-hidden">Actions</span></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var part in SortedParts)
-                {
+    @if (isLoading)
+    {
+        <p class="status-message">Loading parts…</p>
+    }
+    else if (loadError is not null)
+    {
+        <div class="alert alert-error" role="alert">@loadError</div>
+    }
+    else if (parts.Count == 0)
+    {
+        <div class="empty-state">
+            <h2>No parts yet</h2>
+            <p>Create the first part and assign it to an existing customer.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-shell parts-list-table-shell">
+            <table class="data-table parts-list-table">
+                <thead>
                     <tr>
-                        <td data-label="Part number">
-                            <a class="record-link" href="@($"/parts/{part.Id}/edit")">@part.PartNumber</a>
-                        </td>
-                        <td data-label="Revision">@(part.Revision ?? "—")</td>
-                        <td data-label="Customer">
-                            <a href="@($"/customers/{part.CustomerId}/edit")">@part.CustomerName</a>
-                        </td>
-                        <td data-label="Destination plants"><PartPlantMenu Plants="part.Plants" /></td>
-                        <td data-label="Supplier">@(part.SupplierName ?? "—")</td>
-                        <td data-label="Status">
-                            <span class="status-pill @(part.IsActive ? "status-active" : "status-inactive")">@(part.IsActive ? "Active" : "Inactive")</span>
-                        </td>
-                        <td class="table-action">
-                            <div class="row-actions">
-                                <a class="button button-secondary" href="@($"/parts/{part.Id}/edit")">Edit</a>
-                                <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
-                            </div>
-                        </td>
+                        <th aria-sort="@(GetAriaSort(PartSortField.PartNumber))">
+                            <button class="inspection-sort-header @(partSortField == PartSortField.PartNumber ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Part number @(GetSortDirectionLabel(PartSortField.PartNumber))"
+                                    @onclick="() => TogglePartSort(PartSortField.PartNumber)">
+                                Part number <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.PartNumber)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(PartSortField.Revision))">
+                            <button class="inspection-sort-header @(partSortField == PartSortField.Revision ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Revision @(GetSortDirectionLabel(PartSortField.Revision))"
+                                    @onclick="() => TogglePartSort(PartSortField.Revision)">
+                                Revision <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Revision)</span>
+                            </button>
+                        </th>
+                        <th class="parts-list-customer-column" aria-sort="@(GetAriaSort(PartSortField.Customer))">
+                            <button class="inspection-sort-header @(partSortField == PartSortField.Customer ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Customer @(GetSortDirectionLabel(PartSortField.Customer))"
+                                    @onclick="() => TogglePartSort(PartSortField.Customer)">
+                                Customer <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Customer)</span>
+                            </button>
+                        </th>
+                        <th class="parts-list-plants-column" aria-sort="@(GetAriaSort(PartSortField.DestinationPlants))">
+                            <button class="inspection-sort-header @(partSortField == PartSortField.DestinationPlants ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Destination plants @(GetSortDirectionLabel(PartSortField.DestinationPlants))"
+                                    @onclick="() => TogglePartSort(PartSortField.DestinationPlants)">
+                                Destination plants <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.DestinationPlants)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(PartSortField.Supplier))">
+                            <button class="inspection-sort-header @(partSortField == PartSortField.Supplier ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Supplier @(GetSortDirectionLabel(PartSortField.Supplier))"
+                                    @onclick="() => TogglePartSort(PartSortField.Supplier)">
+                                Supplier <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Supplier)</span>
+                            </button>
+                        </th>
+                        <th aria-sort="@(GetAriaSort(PartSortField.Status))">
+                            <button class="inspection-sort-header @(partSortField == PartSortField.Status ? "inspection-sort-header-active" : null)"
+                                    type="button"
+                                    aria-label="Sort by Status @(GetSortDirectionLabel(PartSortField.Status))"
+                                    @onclick="() => TogglePartSort(PartSortField.Status)">
+                                Status <span class="inspection-sort-indicator" aria-hidden="true">@GetSortIndicator(PartSortField.Status)</span>
+                            </button>
+                        </th>
+                        <th><span class="visually-hidden">Actions</span></th>
                     </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-}
+                </thead>
+                <tbody>
+                    @foreach (var part in SortedParts)
+                    {
+                        <tr>
+                            <td data-label="Part number">
+                                <a class="record-link" href="@($"/parts/{part.Id}/edit")">@part.PartNumber</a>
+                            </td>
+                            <td data-label="Revision">@(part.Revision ?? "—")</td>
+                            <td data-label="Customer">
+                                <a href="@($"/customers/{part.CustomerId}/edit")">@part.CustomerName</a>
+                            </td>
+                            <td data-label="Destination plants"><PartPlantMenu Plants="part.Plants" /></td>
+                            <td data-label="Supplier">@(part.SupplierName ?? "—")</td>
+                            <td data-label="Status">
+                                <span class="status-pill @(part.IsActive ? "status-active" : "status-inactive")">@(part.IsActive ? "Active" : "Inactive")</span>
+                            </td>
+                            <td class="table-action">
+                                <div class="row-actions">
+                                    <a class="button button-secondary" href="@($"/parts/{part.Id}/edit")">Edit</a>
+                                    <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
 
 @code {
     private IReadOnlyList<PartListItem> parts = [];

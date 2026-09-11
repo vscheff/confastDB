@@ -72,6 +72,11 @@
         <ValidationMessage For="() => Model.SupplierId" />
     </div>
 
+    <div class="form-field part-box-quantity-field">
+        <label for="part-box-quantity">Box Quantity</label>
+        <ThousandsSeparatedDecimalInput id="part-box-quantity" @bind-Value="Model.BoxQuantity" DecimalPlaces="0" />
+    </div>
+
     <div class="form-field form-field-wide checkbox-field part-active-field">
         <InputCheckbox id="part-is-active" @bind-Value="Model.IsActive" />
         <label for="part-is-active">Active part</label>

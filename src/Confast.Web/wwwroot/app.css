@@ -69,7 +69,13 @@ h1:focus { outline: none; }
 .data-table tbody tr:hover { background: #f8fbfd; }
 .record-link { color: #173f5c; font-weight: 700; }
 .table-action { width: 1%; white-space: nowrap; }
-.parts-list-table-shell { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1400px); margin-left: max(calc(.5rem - 50vw), -700px); }
+.parts-list-page {
+    position: relative;
+    left: 50%;
+    width: min(calc(100vw - 2rem), 1400px);
+    margin-left: max(calc(.5rem - 50vw), -700px);
+}
+.parts-list-table-shell { width: 100%; }
 .parts-list-table .parts-list-customer-column { width: 23%; }
 .parts-list-table .parts-list-plants-column { width: 29%; }
 .parts-list-table th, .parts-list-table td { padding: .65rem .75rem; text-align: center; vertical-align: middle; }
@@ -221,6 +227,35 @@ h1:focus { outline: none; }
 .master-print-viewer { display: block; width: 100%; height: calc(100vh - 16rem); min-height: 520px; background: #eef1f3; border: 1px solid #bdc7ce; border-radius: .35rem; }
 
 .customer-form, .record-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.15rem 1.5rem; padding: 1.5rem; }
+.customer-edit-form {
+    grid-template-columns: minmax(18rem, 28rem) auto minmax(0, 1fr);
+    align-items: end;
+    gap: .65rem 1rem;
+    padding: .75rem 1rem;
+}
+.customer-edit-form .customer-name-field { min-width: 0; }
+.customer-edit-form .form-field input[type="text"] {
+    min-height: 34px;
+    padding: .35rem .5rem;
+}
+.customer-edit-form .customer-active-field {
+    align-self: end;
+    min-height: 34px;
+    white-space: nowrap;
+}
+.customer-edit-form .customer-actions {
+    align-self: end;
+    justify-self: end;
+    flex-wrap: nowrap;
+    gap: .4rem;
+    padding-top: 0;
+    white-space: nowrap;
+}
+.customer-edit-form .button {
+    min-height: 34px;
+    padding: .4rem .65rem;
+    font-size: .84rem;
+}
 .form-field { display: flex; flex-direction: column; gap: .35rem; }
 .form-field-wide { grid-column: 1 / -1; }
 .form-field label { color: #344757; font-weight: 650; }
@@ -476,10 +511,19 @@ h1:focus { outline: none; }
 .certification-filename-panel .form-field { gap: .15rem; }
 .certification-filename-panel input { min-height: 36px; padding: .4rem .5rem; }
 .filename-template-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
-.filename-template-group { min-width: 0; }
+.filename-template-group { 
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
 .filename-token-list { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .4rem; }
 .token-button { min-height: 28px; padding: .2rem .4rem; color: #175d8d; background: #edf5f9; border: 1px solid #b8d0de; border-radius: .3rem; cursor: pointer; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .7rem; }
-.filename-preview { margin: .45rem 0 .2rem; overflow-wrap: anywhere; font-size: .8rem; }
+.filename-preview { 
+    margin: auto 0 .2rem;
+    padding-top: .45rem;
+    overflow-wrap: anywhere;
+    font-size: .8rem;
+}
 .certification-email-templates-page { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1400px); margin-left: max(calc(.5rem - 50vw), -700px); }
 .email-template-settings { margin-bottom: 1.25rem; }
 .email-template-settings .form-field { max-width: 22rem; }
@@ -587,7 +631,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .part-detail-page .linked-records > .section-heading { align-items: center; margin-bottom: .65rem; }
 .part-detail-page .linked-records > .section-heading h2 { margin-bottom: .2rem; font-size: 1.15rem; }
 .part-detail-page .linked-records > .section-heading p { font-size: .85rem; }
-.part-edit-form { grid-template-columns: minmax(11rem, .85fr) minmax(10rem, .8fr) minmax(5.5rem, .35fr) minmax(18rem, 1.25fr) minmax(20rem, 1.25fr) minmax(7rem, .45fr) minmax(13rem, .85fr); grid-template-areas: "customer part-number revision description description description description" "specification-used specification-used destination-plants destination-plants supplier active actions"; align-items: end; gap: .45rem .65rem; margin-bottom: .75rem; padding: .55rem .65rem; }
+.part-edit-form { grid-template-columns: minmax(11rem, .85fr) minmax(10rem, .8fr) minmax(5.5rem, .35fr) minmax(16rem, 1.1fr) minmax(13rem, .85fr) minmax(8.5rem, .6fr) minmax(7rem, .45fr) minmax(13rem, .85fr); grid-template-areas: "customer part-number revision description description description description description" "specification-used specification-used destination-plants destination-plants supplier box-quantity active actions"; align-items: end; gap: .45rem .65rem; margin-bottom: .75rem; padding: .55rem .65rem; }
 .part-edit-form .form-field-wide { grid-column: auto; }
 .part-edit-form .part-customer-field { grid-area: customer; }
 .part-edit-form .part-number-field { grid-area: part-number; }
@@ -596,11 +640,12 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .part-edit-form .part-specification-used-field { grid-area: specification-used; min-width: 20rem; }
 .part-edit-form .destination-plants-field { grid-area: destination-plants; }
 .part-edit-form .part-supplier-field { grid-area: supplier; max-width: 20rem; }
+.part-edit-form .part-box-quantity-field { grid-area: box-quantity; }
 .part-edit-form .part-active-field { grid-area: active; }
 .part-edit-form .form-actions { grid-area: actions; }
 .part-edit-form .form-field { gap: .18rem; min-width: 0; }
 .part-edit-form .form-field label { color: #526373; font-size: .75rem; font-weight: 700; }
-.part-edit-form .form-field input[type="text"], .part-edit-form .form-field select, .part-edit-form .form-field textarea { min-width: 0; min-height: 34px; padding: .35rem .5rem; }
+.part-edit-form .form-field input:not([type]), .part-edit-form .form-field input[type="text"], .part-edit-form .form-field input[type="number"], .part-edit-form .form-field select, .part-edit-form .form-field textarea { min-width: 0; min-height: 34px; padding: .35rem .5rem; }
 .part-edit-form .form-field textarea { height: 34px; resize: vertical; }
 .part-edit-form .part-revision-field { max-width: 8rem; }
 .part-edit-form .part-description-field { min-width: 16rem; }
@@ -656,7 +701,12 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
     .app-header nav { order: 3; width: 100%; gap: .65rem; overflow-x: auto; }
     .user-menu { margin-left: auto; }
     .app-main { width: min(100% - 1rem, 1100px); padding-top: 1.25rem; }
-    .parts-list-table-shell { position: static; width: 100%; margin-left: 0; }
+    .parts-list-page {
+        position: static;
+        left: auto;
+        width: 100%;
+        margin-left: 0; 
+    }
     .page-heading, .section-heading { align-items: stretch; flex-direction: column; }
     .list-toolbar { align-items: stretch; flex-direction: column; }
     .sort-controls { display: grid; grid-template-columns: 1fr 1fr; }
@@ -702,10 +752,16 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
     .inspection-value-input { width: min(12rem, 100%); }
     .inspection-gage-select { width: min(12rem, 100%); }
     .customer-form, .record-form { grid-template-columns: 1fr; padding: 1rem; }
+    .customer-edit-form {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+    .customer-edit-form .customer-active-field,
+    .customer-edit-form .customer-actions { align-self: auto; }
     .user-admin-grid { grid-template-columns: 1fr; }
     .form-field-wide { grid-column: auto; }
     .part-edit-form { grid-template-areas: none; }
-.part-edit-form .part-customer-field, .part-edit-form .part-number-field, .part-edit-form .part-revision-field, .part-edit-form .part-description-field, .part-edit-form .part-specification-used-field, .part-edit-form .destination-plants-field, .part-edit-form .part-supplier-field, .part-edit-form .part-active-field, .part-edit-form .form-actions { grid-area: auto; }
+.part-edit-form .part-customer-field, .part-edit-form .part-number-field, .part-edit-form .part-revision-field, .part-edit-form .part-description-field, .part-edit-form .part-specification-used-field, .part-edit-form .destination-plants-field, .part-edit-form .part-supplier-field, .part-edit-form .part-box-quantity-field, .part-edit-form .part-active-field, .part-edit-form .form-actions { grid-area: auto; }
     .certification-recipient-row { grid-template-columns: 1fr; }
     .certification-type-checklist { grid-template-columns: 1fr; }
     .certification-package-controls { grid-template-columns: 1fr 1fr; }

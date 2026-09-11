@@ -47,6 +47,37 @@ public sealed class PlantTests(PostgresTestDatabase database) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task BoxQuantityIsSavedWithItsPart()
+    {
+        var customerId = await CreateCustomerAsync("Acme");
+        var result = await partService.CreatePartAsync(new PartEditModel
+        {
+            CustomerId = customerId,
+            PartNumber = "BOX-1",
+            BoxQuantity = 250
+        });
+
+        Assert.Equal(SavePartStatus.Saved, result.Status);
+        Assert.Equal(250, (await partService.GetPartAsync(result.Id!.Value))!.BoxQuantity);
+
+        var invalid = await partService.CreatePartAsync(new PartEditModel
+        {
+            CustomerId = customerId,
+            PartNumber = "BOX-INVALID",
+            BoxQuantity = 0
+        });
+        Assert.Equal(SavePartStatus.ValidationFailed, invalid.Status);
+
+        var fractional = await partService.CreatePartAsync(new PartEditModel
+        {
+            CustomerId = customerId,
+            PartNumber = "BOX-FRACTIONAL",
+            BoxQuantity = 250.5m
+        });
+        Assert.Equal(SavePartStatus.ValidationFailed, fractional.Status);
+    }
+
+    [Fact]
     public async Task PartSupplierMustBeActiveWhenAssignedButCanBeRetainedAfterDeactivation()
     {
         var customerId = await CreateCustomerAsync("Acme");

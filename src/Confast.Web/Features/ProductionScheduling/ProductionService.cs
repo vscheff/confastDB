@@ -2,6 +2,7 @@ using System.Data;
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Confast.Web.Features.ProductionScheduling;
 
@@ -30,7 +31,7 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
     }
 
     private async Task<ProductionSnapshot> Load(AppDbContext db, bool edit, bool admin) => new(
-        await db.Set<ProductionSettings>().SingleAsync(),
+        await db.Set<ProductionSettings>().Include(x => x.DefaultWorkingDays).SingleAsync(),
         await db.Set<SortingMachine>().Include(x => x.WorkingDays).Include(x => x.Parts).OrderBy(x => x.Name).AsSplitQuery().ToListAsync(),
         await db.Set<ProductionHoliday>().OrderBy(x => x.Date).ToListAsync(),
         await db.Set<DowntimeReason>().OrderBy(x => x.Name).ToListAsync(),
@@ -63,6 +64,10 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         catch (DbUpdateConcurrencyException)
         {
             throw new SchedulingException("The record changed elsewhere. Reload before saving.");
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { ConstraintName: "UX_downtime_reasons_name" })
+        {
+            throw new SchedulingException("A downtime reason with that name already exists.");
         }
     }
 
@@ -99,6 +104,13 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
     {
         if (value <= 0 || value > 1_000_000_000_000m || decimal.Round(value, 3) != value)
             throw new SchedulingException($"{name} must be positive, at most one trillion, and have no more than three decimal places.");
+    }
+
+    private static void WholeNumber(decimal value, string name)
+    {
+        Quantity(value, name);
+        if (value != decimal.Truncate(value))
+            throw new SchedulingException($"{name} must be a whole number.");
     }
 
     private static decimal Rate(ProductionSnapshot data, long machineId, long partId)
@@ -306,34 +318,61 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         return Task.CompletedTask;
     });
 
-    public Task SaveMachineAsync(long revision, long id, string name, bool active, decimal[] hours) =>
-        Write(revision, true, $"Machine {id}: {name}, active {active}, hours {string.Join(',', hours)}", (db, data, user) =>
+    public Task SaveMachineAsync(long revision, long id, string name, bool active, bool usesDefaultWorkingDays, decimal[] hours) =>
+        Write(revision, true, $"Machine {id}: {name}, active {active}, uses default calendar {usesDefaultWorkingDays}, hours {string.Join(',', hours)}", (db, data, user) =>
         {
             name = Clean(name, 150) ?? throw new SchedulingException("Enter a machine name.");
             if (data.Machines.Any(x => x.Id != id && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new SchedulingException("Machine names must be unique.");
-            if (hours.Length != 7 || hours.Any(x => x < 0 || x > 24 || decimal.Round(x, 3) != x)) throw new SchedulingException("Enter seven weekday capacities between 0 and 24 hours, with at most three decimals.");
+            ValidateWorkingDayHours(hours);
             var machine = data.Machines.SingleOrDefault(x => x.Id == id);
             if (machine == null) { machine = new(); data.Machines.Add(machine); db.Add(machine); }
-            machine.Name = name; machine.IsActive = active;
-            for (var i = 0; i < 7; i++)
-            {
-                var day = machine.WorkingDays.SingleOrDefault(x => (int)x.Day == i);
-                if (day == null) { day = new() { Day = (DayOfWeek)i }; machine.WorkingDays.Add(day); }
-                day.Hours = hours[i];
-            }
+            machine.Name = name; machine.IsActive = active; machine.UsesDefaultWorkingDays = usesDefaultWorkingDays;
+            SetWorkingDayHours(machine, usesDefaultWorkingDays ? DefaultWorkingDayHours(data.Settings) : hours);
             return Task.CompletedTask;
         });
 
-    public Task SaveRateAsync(long revision, long machineId, long partId, decimal pph, decimal? boxQuantity) =>
-        Write(revision, true, $"Part {partId}, machine {machineId}: target PPH {pph}, box quantity {boxQuantity}", (db, data, user) =>
+    public Task SaveDefaultWorkingDaysAsync(long revision, decimal[] hours) =>
+        Write(revision, true, $"Default working days: {string.Join(',', hours)}", (db, data, user) =>
         {
-            Quantity(pph, "Target PPH");
-            if (boxQuantity.HasValue) Quantity(boxQuantity.Value, "Box quantity");
+            ValidateWorkingDayHours(hours);
+            for (var i = 0; i < 7; i++)
+            {
+                var day = data.Settings.DefaultWorkingDays.SingleOrDefault(x => (int)x.Day == i);
+                if (day == null) { day = new() { Day = (DayOfWeek)i }; data.Settings.DefaultWorkingDays.Add(day); }
+                day.Hours = hours[i];
+            }
+            foreach (var machine in data.Machines.Where(x => x.UsesDefaultWorkingDays)) SetWorkingDayHours(machine, hours);
+            return Task.CompletedTask;
+        });
+
+    private static decimal[] DefaultWorkingDayHours(ProductionSettings settings) => Enumerable.Range(0, 7)
+        .Select(i => settings.DefaultWorkingDays.SingleOrDefault(x => (int)x.Day == i)?.Hours ?? 0).ToArray();
+
+    private static void ValidateWorkingDayHours(decimal[] hours)
+    {
+        if (hours.Length != 7 || hours.Any(x => x < 0 || x > 24 || decimal.Round(x, 1) != x))
+            throw new SchedulingException("Enter seven weekday capacities between 0 and 24 hours, with at most one decimal place.");
+    }
+
+    private static void SetWorkingDayHours(SortingMachine machine, decimal[] hours)
+    {
+        for (var i = 0; i < 7; i++)
+        {
+            var day = machine.WorkingDays.SingleOrDefault(x => (int)x.Day == i);
+            if (day == null) { day = new() { Day = (DayOfWeek)i }; machine.WorkingDays.Add(day); }
+            day.Hours = hours[i];
+        }
+    }
+
+    public Task SaveRateAsync(long revision, long machineId, long partId, decimal pph) =>
+        Write(revision, true, $"Part {partId}, machine {machineId}: target PPH {pph}", (db, data, user) =>
+        {
+            WholeNumber(pph, "Target PPH");
             var machine = data.Machines.SingleOrDefault(x => x.Id == machineId) ?? throw new SchedulingException("Select a machine.");
-            var part = data.Parts.SingleOrDefault(x => x.Id == partId) ?? throw new SchedulingException("Select a part.");
+            _ = data.Parts.SingleOrDefault(x => x.Id == partId) ?? throw new SchedulingException("Select a part.");
             var rate = machine.Parts.SingleOrDefault(x => x.PartId == partId);
             if (rate == null) { rate = new() { PartId = partId }; machine.Parts.Add(rate); }
-            rate.TargetPph = pph; part.BoxQuantity = boxQuantity;
+            rate.TargetPph = pph;
             return Task.CompletedTask;
         });
 
@@ -350,7 +389,7 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
     public Task SaveEfficiencyAsync(long revision, decimal efficiency) => Write(revision, true, $"Efficiency {efficiency}%", (db, data, user) =>
     {
         _ = ProductionScheduler.EffectivePph(1, efficiency);
-        if (decimal.Round(efficiency, 6) != efficiency) throw new SchedulingException("Use at most six decimal places for efficiency.");
+        if (efficiency != decimal.Truncate(efficiency)) throw new SchedulingException("Production efficiency must be a whole number.");
         data.Settings.EfficiencyPercent = efficiency;
         return Task.CompletedTask;
     });
@@ -371,7 +410,19 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
     {
         var reason = data.Reasons.SingleOrDefault(x => x.Id == id);
         if (reason == null) { reason = new(); db.Add(reason); }
-        reason.Name = Clean(name, 150) ?? throw new SchedulingException("Enter a reason name."); reason.IsActive = active;
+        var cleanName = Clean(name, 150) ?? throw new SchedulingException("Enter a reason name.");
+        if (data.Reasons.Any(x => x.Id != reason.Id && string.Equals(x.Name, cleanName, StringComparison.OrdinalIgnoreCase)))
+            throw new SchedulingException("A downtime reason with that name already exists.");
+        reason.Name = cleanName; reason.IsActive = active;
+        return Task.CompletedTask;
+    });
+
+    public Task DeleteReasonAsync(long revision, long id) => Write(revision, true, $"Delete downtime reason {id}", (db, data, user) =>
+    {
+        var reason = data.Reasons.SingleOrDefault(x => x.Id == id) ?? throw new SchedulingException("The downtime reason no longer exists.");
+        if (data.Downtime.Any(x => x.ReasonId == id))
+            throw new SchedulingException("This downtime reason is used by downtime history and cannot be deleted. Set it inactive instead.");
+        db.Remove(reason);
         return Task.CompletedTask;
     });
 

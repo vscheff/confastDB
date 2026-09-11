@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260911160756_DefaultProductionWorkingDays")]
+    partial class DefaultProductionWorkingDays
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2025,10 +2028,7 @@ namespace Confast.Web.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_parts_customer_id_part_number");
 
-                    b.ToTable("parts", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_part_box_quantity", "box_quantity IS NULL OR (box_quantity = trunc(box_quantity) AND box_quantity > 0)");
-                        });
+                    b.ToTable("parts", (string)null);
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Parts.PartFlipCriterionMapping", b =>
@@ -2209,10 +2209,6 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasDatabaseName("UX_downtime_reasons_name");
-
                     b.ToTable("downtime_reasons", (string)null);
                 });
 
@@ -2301,7 +2297,7 @@ namespace Confast.Web.Data.Migrations
 
                     b.ToTable("part_machines", null, t =>
                         {
-                            t.HasCheckConstraint("ck_machine_pph", "target_pph = trunc(target_pph) AND target_pph > 0");
+                            t.HasCheckConstraint("ck_machine_pph", "target_pph > 0");
                         });
                 });
 

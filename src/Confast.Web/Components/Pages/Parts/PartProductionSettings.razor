@@ -1,0 +1,179 @@
+@using Confast.Web.Features.ProductionScheduling
+@inject ProductionService ProductionService
+@inject ILogger<PartProductionSettings> Logger
+
+<section class="linked-records part-production-settings" aria-labelledby="part-production-settings-heading">
+    <div class="part-production-list">
+    <div class="section-heading part-production-list-heading">
+        <div>
+            <h2 id="part-production-settings-heading">Production Scheduling</h2>
+            <p>This part’s eligible machines and target rates.</p>
+        </div>
+        @if (data?.IsAdministrator == true)
+        {
+            <div class="heading-actions">
+                <button class="button button-primary" type="button" disabled="@(isSaving || showNewMachine)" @onclick="StartAddingMachine">Add Eligible Machine</button>
+            </div>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <p class="status-message">Loading production settings…</p>
+    }
+    else if (message is not null)
+    {
+        <div class="alert alert-error" role="alert">@message</div>
+    }
+    else if (data is not null)
+    {
+        @if (EligibleMachines.Count == 0 && !showNewMachine)
+        {
+            <div class="empty-state compact-empty-state">This part is not eligible on any machine.</div>
+        }
+        else
+        {
+            <div class="table-shell">
+                <table class="data-table part-production-rates-table">
+                    <thead><tr><th>Machine</th><th>Target PPH</th><th>Effective PPH</th>@if (data.IsAdministrator) { <th class="part-production-rate-actions-header">Actions</th> }</tr></thead>
+                    <tbody>
+                        @if (showNewMachine)
+                        {
+                            <tr class="part-production-new-rate"><td><select aria-label="Eligible machine" @bind="newMachineId"><option value="">Select a machine</option>@foreach (var machine in AvailableMachines) { <option value="@machine.Id">@machine.Name@(!machine.IsActive ? " (inactive)" : null)</option> }</select></td><td><ThousandsSeparatedLongInput @bind-Value="newTargetPph" class="part-production-rate-input" aria-label="Target PPH" @onkeydown="HandleNewTargetPphKeyDown" /></td><td>@EffectivePph(newTargetPph)</td><td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="SaveNewMachineAsync">Save</button><button class="button button-secondary" type="button" disabled="@isSaving" @onclick="CancelAddingMachine">Cancel</button></td></tr>
+                        }
+                        @foreach (var machine in EligibleMachines)
+                        {
+                            var rate = rateEditors.Single(editor => editor.MachineId == machine.Id);
+                            <tr><td>@machine.Name@(!machine.IsActive ? " (inactive)" : null)</td><td>@if (data.IsAdministrator) { <ThousandsSeparatedLongInput @bind-Value="rate.TargetPph" class="part-production-rate-input" aria-label="@($"Target PPH for {machine.Name}")" @onkeydown="args => HandleTargetPphKeyDown(args, rate)" /> } else { @rate.TargetPph?.ToString("N0") }</td><td>@EffectivePph(rate.TargetPph)</td>@if (data.IsAdministrator) { <td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="() => SaveRateAsync(rate)">Save</button><button class="button button-danger-outline" type="button" disabled="@isSaving" @onclick="() => RemoveAsync(machine.Id)">Remove Eligibility</button></td> }</tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public long PartId { get; set; }
+
+    private ProductionSnapshot? data;
+    private List<RateEditor> rateEditors = [];
+    private long? newMachineId;
+    private long? newTargetPph;
+    private bool showNewMachine;
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? message;
+
+    private List<SortingMachine> EligibleMachines => data?.Machines
+        .Where(machine => machine.Parts.Any(rate => rate.PartId == PartId))
+        .OrderBy(machine => machine.Name)
+        .ToList() ?? [];
+
+    private List<SortingMachine> AvailableMachines => data?.Machines
+        .Where(machine => EligibleMachines.All(eligible => eligible.Id != machine.Id))
+        .OrderBy(machine => machine.Name)
+        .ToList() ?? [];
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        isLoading = true;
+        message = null;
+        try
+        {
+            data = await ProductionService.GetAsync();
+            rateEditors = EligibleMachines.Select(machine => new RateEditor(machine.Id,
+                decimal.ToInt64(machine.Parts.Single(rate => rate.PartId == PartId).TargetPph))).ToList();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            data = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load production settings for part {PartId}", PartId);
+            message = "Production settings could not be loaded. Please try again.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartAddingMachine()
+    {
+        newMachineId = null;
+        newTargetPph = null;
+        showNewMachine = true;
+    }
+
+    private void CancelAddingMachine()
+    {
+        newMachineId = null;
+        newTargetPph = null;
+        showNewMachine = false;
+    }
+
+    private async Task SaveNewMachineAsync()
+    {
+        if (data is null || isSaving) return;
+        await RunAsync(() => ProductionService.SaveRateAsync(data.Settings.Revision, newMachineId ?? 0, PartId, newTargetPph ?? 0));
+        if (message is null) CancelAddingMachine();
+    }
+
+    private async Task SaveRateAsync(RateEditor rate)
+    {
+        if (data is null || isSaving) return;
+        await RunAsync(() => ProductionService.SaveRateAsync(data.Settings.Revision, rate.MachineId, PartId, rate.TargetPph ?? 0));
+    }
+
+    private async Task RemoveAsync(long machineId)
+    {
+        if (data is null || isSaving) return;
+        await RunAsync(() => ProductionService.RemoveRateAsync(data.Settings.Revision, machineId, PartId));
+    }
+
+    private Task HandleNewTargetPphKeyDown(KeyboardEventArgs args) =>
+        args.Key == "Enter" ? SaveNewMachineAsync() : Task.CompletedTask;
+
+    private Task HandleTargetPphKeyDown(KeyboardEventArgs args, RateEditor rate) =>
+        args.Key == "Enter" ? SaveRateAsync(rate) : Task.CompletedTask;
+
+    private string EffectivePph(long? targetPph) => targetPph is > 0
+        ? ProductionScheduler.EffectivePph(targetPph.Value, data!.Settings.EfficiencyPercent).ToString("N0")
+        : "—";
+
+    private sealed class RateEditor(long machineId, long targetPph)
+    {
+        public long MachineId { get; } = machineId;
+        public long? TargetPph { get; set; } = targetPph;
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        isSaving = true;
+        message = null;
+        try
+        {
+            await action();
+            await ReloadAsync();
+        }
+        catch (SchedulingException exception)
+        {
+            message = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to save production settings for part {PartId}", PartId);
+            message = "Production settings could not be saved. Reload and try again.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

@@ -9,11 +9,14 @@
        @onchange="HandleChange" />
 
 @code {
+    [Parameter]
+    public int DecimalPlaces { get; set; } = 2;
+
     private void HandleChange(ChangeEventArgs args) =>
         CurrentValueAsString = args.Value?.ToString();
 
     protected override string? FormatValueAsString(decimal? value) =>
-        value?.ToString("N2", CultureInfo.InvariantCulture);
+        value?.ToString($"N{DecimalPlaces}", CultureInfo.InvariantCulture);
 
     protected override bool TryParseValueFromString(
         string? value,
@@ -28,7 +31,7 @@
         }
 
         if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedValue)
-            && decimal.Round(parsedValue, 2) == parsedValue)
+            && decimal.Round(parsedValue, DecimalPlaces) == parsedValue)
         {
             result = parsedValue;
             validationErrorMessage = null!;
@@ -36,7 +39,9 @@
         }
 
         result = null;
-        validationErrorMessage = "Enter a number with no more than two decimal places.";
+        validationErrorMessage = DecimalPlaces == 0
+            ? "Enter a whole number."
+            : $"Enter a number with no more than {DecimalPlaces} decimal places.";
         return false;
     }
 }

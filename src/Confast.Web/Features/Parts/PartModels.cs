@@ -49,6 +49,9 @@ public sealed class PartEditModel
 
     public string? Revision { get; set; }
 
+    [Display(Name = "Box Quantity")]
+    public decimal? BoxQuantity { get; set; }
+
     [Display(Name = "Active part")]
     public bool IsActive { get; set; } = true;
 

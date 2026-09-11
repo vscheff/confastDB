@@ -278,7 +278,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
         var part = modelBuilder.Entity<Part>();
 
-        part.ToTable("parts");
+        part.ToTable("parts", table => table.HasCheckConstraint("ck_part_box_quantity", "box_quantity IS NULL OR (box_quantity = trunc(box_quantity) AND box_quantity > 0)"));
         part.HasKey(x => x.Id).HasName("PK_parts");
         part.Property(x => x.Id)
             .HasColumnName("id")

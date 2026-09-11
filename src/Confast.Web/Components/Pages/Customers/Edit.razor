@@ -42,24 +42,24 @@ else
         <div class="alert @saveMessageClass" role="status">@saveMessage</div>
     }
 
-    <EditForm Model="customer" OnValidSubmit="SaveAsync" FormName="edit-customer" class="customer-form">
+    <EditForm Model="customer" OnValidSubmit="SaveAsync" FormName="edit-customer" class="customer-form customer-edit-form">
         <DataAnnotationsValidator />
         <ValidationSummary />
 
-        <div class="form-field form-field-wide">
+        <div class="form-field customer-name-field">
             <label for="customer-name">Name</label>
             <InputText id="customer-name" @bind-Value="customer.Name" autocomplete="organization" />
             <ValidationMessage For="() => customer.Name" />
         </div>
 
-        <div class="form-field form-field-wide checkbox-field">
+        <div class="form-field customer-active-field checkbox-field">
             <InputCheckbox id="is-active" @bind-Value="customer.IsActive" />
-            <label for="is-active">Active customer</label>
+            <label for="is-active">Active Customer</label>
         </div>
 
-        <div class="form-actions form-field-wide">
+        <div class="form-actions customer-actions">
             <button class="button button-primary" type="submit" disabled="@isSaving">
-                @(isSaving ? "Saving…" : "Save changes")
+                @(isSaving ? "Saving…" : "Save Changes")
             </button>
             <a class="button button-secondary" href="/customers">Cancel</a>
         </div>
@@ -73,7 +73,7 @@ else
     @if (activeTab == CustomerTab.Plants)
     {
         <section class="linked-records" role="tabpanel" aria-labelledby="customer-plants-heading">
-            <div class="section-heading"><div><h2 id="customer-plants-heading">Plants</h2><p>Destination, address, and certification delivery settings.</p></div></div>
+            <div class="section-heading"><div><h2 id="customer-plants-heading">Plants</h2></div></div>
             <div class="subtabs plant-tabs" role="tablist" aria-label="Plants">
                 @foreach (var plant in plants)
                 {
@@ -88,12 +88,12 @@ else
                 <EditForm Model="newPlant" OnValidSubmit="() => SavePlantAsync(newPlant)" FormName="new-plant" class="certification-recipient-row certification-recipient-new">
                     <DataAnnotationsValidator />
                     <div class="form-field"><label>Name</label><InputText @bind-Value="newPlant.Name" /><ValidationMessage For="() => newPlant.Name" /></div>
-                    <div class="form-field"><label>Plant code</label><InputText @bind-Value="newPlant.PlantCode" /></div>
-                    <div class="form-field form-field-wide"><label>Address line 1</label><InputText @bind-Value="newPlant.AddressLine1" autocomplete="address-line1" /></div>
-                    <div class="form-field form-field-wide"><label>Address line 2</label><InputText @bind-Value="newPlant.AddressLine2" autocomplete="address-line2" /></div>
+                    <div class="form-field"><label>Plant Code</label><InputText @bind-Value="newPlant.PlantCode" /></div>
+                    <div class="form-field form-field-wide"><label>Address Line 1</label><InputText @bind-Value="newPlant.AddressLine1" autocomplete="address-line1" /></div>
+                    <div class="form-field form-field-wide"><label>Address Line 2</label><InputText @bind-Value="newPlant.AddressLine2" autocomplete="address-line2" /></div>
                     <div class="form-field"><label>City</label><InputText @bind-Value="newPlant.City" autocomplete="address-level2" /></div>
                     <div class="form-field"><label>State</label><InputText @bind-Value="newPlant.State" autocomplete="address-level1" /></div>
-                    <div class="form-field"><label>Postal code</label><InputText @bind-Value="newPlant.PostalCode" autocomplete="postal-code" /></div>
+                    <div class="form-field"><label>Postal Code</label><InputText @bind-Value="newPlant.PostalCode" autocomplete="postal-code" /></div>
                     <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Create plant</button></div>
                 </EditForm>
             }
@@ -108,7 +108,7 @@ else
                     <div class="form-field"><label>City</label><InputText @bind-Value="SelectedPlant.City" autocomplete="address-level2" /></div>
                     <div class="form-field"><label>State</label><InputText @bind-Value="SelectedPlant.State" autocomplete="address-level1" /></div>
                     <div class="form-field"><label>Postal code</label><InputText @bind-Value="SelectedPlant.PostalCode" autocomplete="postal-code" /></div>
-                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Save plant</button><button class="button button-danger button-compact" type="button" disabled="@isSavingPlant" @onclick="() => DeletePlantAsync(SelectedPlant)">Remove</button></div>
+                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Save Plant</button><button class="button button-danger button-compact" type="button" disabled="@isSavingPlant" @onclick="() => DeletePlantAsync(SelectedPlant)">Remove</button></div>
                 </EditForm>
             }
         </section>
@@ -178,13 +178,13 @@ else
                             </InputSelect>
                         </div>
                         <div class="row-actions certification-recipient-actions">
-                            <button class="button button-secondary button-compact" type="submit" disabled="@isSavingCertification">Add recipient</button>
+                            <button class="button button-secondary button-compact" type="submit" disabled="@isSavingCertification">Add Recipient</button>
                         </div>
                     </EditForm>
                 </div>
 
                 <div class="certification-delivery-panel">
-                    <h3>Required certifications</h3>
+                    <h3>Required Certifications</h3>
                     <div class="certification-type-checklist">
                         @foreach (var certificationType in certificationDelivery.CertificationTypes)
                         {
@@ -201,7 +201,7 @@ else
                     <div class="filename-template-grid">
                         <div class="filename-template-group">
                             <div class="form-field">
-                                <label for="certification-filename-template">Single-Lot filename template</label>
+                                <label for="certification-filename-template">Single-Lot Filename Template</label>
                                 <InputText id="certification-filename-template" @bind-Value="certificationDelivery.FilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SystemDefaultTemplate" />
                             </div>
                             <div class="filename-token-list" aria-label="Supported single-lot filename tokens">
@@ -211,12 +211,12 @@ else
                                 }
                             </div>
                             <p class="filename-preview"><strong>Preview:</strong> @CertificationFilenamePreview</p>
-                            <p class="field-hint">Leave blank to use the system default: <code>@CertificationPackageFilenameFormatter.SystemDefaultTemplate</code></p>
+                            <p class="field-hint">Used when sending a package for one lot.<br/>Leave blank to use: <code>@CertificationPackageFilenameFormatter.SystemDefaultTemplate</code></p>
                         </div>
 
                         <div class="filename-template-group">
                             <div class="form-field">
-                                <label for="certification-single-part-multi-lot-filename-template">Single-Part, Multi-Lot filename template</label>
+                                <label for="certification-single-part-multi-lot-filename-template">Single-Part, Multi-Lot Filename Template</label>
                                 <InputText id="certification-single-part-multi-lot-filename-template" @bind-Value="certificationDelivery.SinglePartMultiLotFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate" />
                             </div>
                             <div class="filename-token-list" aria-label="Supported single-part multi-lot filename tokens">
@@ -226,12 +226,12 @@ else
                                 }
                             </div>
                             <p class="filename-preview"><strong>Preview:</strong> @SinglePartMultiLotCertificationFilenamePreview</p>
-                            <p class="field-hint">Used when one package contains multiple lots for the same part. Leave blank to use: <code>@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate</code></p>
+                            <p class="field-hint">Used when one package contains multiple lots for the same part.<br/>Leave blank to use: <code>@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate</code></p>
                         </div>
 
                         <div class="filename-template-group">
                             <div class="form-field">
-                                <label for="certification-multi-part-filename-template">Multi-Part filename template</label>
+                                <label for="certification-multi-part-filename-template">Multi-Part Filename Template</label>
                                 <InputText id="certification-multi-part-filename-template" @bind-Value="certificationDelivery.MultiPartFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate" />
                             </div>
                             <div class="filename-token-list" aria-label="Supported multi-part filename tokens">
@@ -241,7 +241,7 @@ else
                                 }
                             </div>
                             <p class="filename-preview"><strong>Preview:</strong> @MultiPartCertificationFilenamePreview</p>
-                            <p class="field-hint">Used when one package contains more than one part. Leave blank to use: <code>@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate</code></p>
+                            <p class="field-hint">Used when one package contains more than one part.<br/>Leave blank to use: <code>@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate</code></p>
                         </div>
                     </div>
                 </div>
@@ -249,7 +249,7 @@ else
 
             <div class="form-actions certification-delivery-actions">
                 <button class="button button-primary" type="button" disabled="@isSavingCertification" @onclick="SaveCertificationConfigurationAsync">
-                    @(isSavingCertification ? "Saving…" : "Save certification settings")
+                    @(isSavingCertification ? "Saving…" : "Save Certification Settings")
                 </button>
             </div>
         </section>

@@ -86,6 +86,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
                 Description = x.Description,
                 SpecificationUsed = x.SpecificationUsed,
                 Revision = x.Revision,
+                BoxQuantity = x.BoxQuantity,
                 IsActive = x.IsActive,
                 Version = x.Version,
                 PlantIds = x.PartPlants.Select(pp => pp.PlantId).ToList()
@@ -140,6 +141,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
             Description = NormalizeOptionalText(model.Description),
             SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed),
             Revision = NormalizeOptionalText(model.Revision),
+            BoxQuantity = model.BoxQuantity,
             IsActive = model.IsActive
         };
 
@@ -230,6 +232,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         part.Description = NormalizeOptionalText(model.Description);
         part.SpecificationUsed = NormalizeOptionalText(model.SpecificationUsed);
         part.Revision = NormalizeOptionalText(model.Revision);
+        part.BoxQuantity = model.BoxQuantity;
         part.IsActive = model.IsActive;
         db.PartPlants.AddRange(selectedPlantIds.Except(existingAssignments.Select(x => x.PlantId))
             .Select(plantId => new PartPlant { PartId = part.Id, PlantId = plantId }));
@@ -320,7 +323,9 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
 
         return string.IsNullOrWhiteSpace(model.PartNumber)
             ? "Part number is required."
-            : null;
+            : model.BoxQuantity is <= 0 or > 1_000_000_000_000m || model.BoxQuantity is { } boxQuantity && boxQuantity != decimal.Truncate(boxQuantity)
+                ? "Box quantity must be a positive whole number at most one trillion."
+                : null;
     }
 
     private static string? NormalizeOptionalText(string? value)

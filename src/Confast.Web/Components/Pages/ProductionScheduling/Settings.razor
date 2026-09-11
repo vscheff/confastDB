@@ -3,53 +3,149 @@
 @using Confast.Web.Features.ProductionScheduling
 @inject ProductionService Service
 @inject ILogger<Settings> Logger
-<PageTitle>Scheduling settings</PageTitle>
-<div class="page-heading"><h1>Scheduling settings</h1><a class="button button-secondary" href="/production-scheduling">Back to schedule</a></div>
+<PageTitle>Scheduling Settings</PageTitle>
+<div class="page-heading scheduling-page-heading"><h1>Scheduling Settings</h1><a class="button button-secondary" href="/production-scheduling">Back to Schedule</a></div>
 @if (message != null) { <div class="alert alert-error" role="alert">@message</div> }
 @if (data != null)
 {
+<div class="subtabs scheduling-tabs" role="tablist" aria-label="Scheduling settings sections">
+<button id="scheduling-machines-tab" class="subtab @(activeTab == SettingsTab.Machines ? "subtab-active" : null)" type="button" role="tab" aria-controls="scheduling-machines-panel" aria-selected="@(activeTab == SettingsTab.Machines)" @onclick="() => activeTab = SettingsTab.Machines">Machines</button>
+<button id="scheduling-holidays-tab" class="subtab @(activeTab == SettingsTab.Holidays ? "subtab-active" : null)" type="button" role="tab" aria-controls="scheduling-holidays-panel" aria-selected="@(activeTab == SettingsTab.Holidays)" @onclick="() => activeTab = SettingsTab.Holidays">Holidays</button>
+<button id="scheduling-settings-tab" class="subtab @(activeTab == SettingsTab.Settings ? "subtab-active" : null)" type="button" role="tab" aria-controls="scheduling-settings-panel" aria-selected="@(activeTab == SettingsTab.Settings)" @onclick="() => activeTab = SettingsTab.Settings">Settings</button>
+</div>
 <fieldset disabled="@(!ready || busy)">
-<section class="production-panel"><h2>Production efficiency</h2><div class="production-fields"><label>Efficiency % <InputNumber @bind-Value="efficiency" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveEfficiencyAsync(data.Settings.Revision, efficiency))">Save efficiency</button></div><p>Effective PPH = target PPH × efficiency ÷ 100. Calendar hours are not reduced again. Original estimates and actual checkpoints remain unchanged.</p></section>
-<section class="production-panel"><h2>Machines and working calendars</h2>
-<div class="production-fields"><label>Edit machine <select aria-label="Edit machine" @bind="machineId" @bind:after="SelectMachine"><option value="0">New machine</option>@foreach (var m in data.Machines) { <option value="@m.Id">@m.Name</option> }</select></label><label>Name <input @bind="machineName" /></label><label><input type="checkbox" @bind="active" /> Active</label>
-@for (var i = 0; i < 7; i++) { var day = i; <label>@((DayOfWeek)day) hours <InputNumber @bind-Value="hours[day]" /></label> }
-<button class="button button-primary" @onclick="SaveMachine">Save machine</button></div><p>Use zero for non-working days. Configure manual sorting as its own machine with the operator’s actual weekly hours. A zero-capacity calendar is allowed in settings and flagged as unschedulable.</p></section>
-<section class="production-panel"><h2>Eligible parts and rates</h2><div class="production-fields">
-<label>Machine <select aria-label="Machine" @bind="rateMachineId" @bind:after="SelectRate"><option value="0">Select machine</option>@foreach (var m in data.Machines) { <option value="@m.Id">@m.Name</option> }</select></label>
-<label>Part <select aria-label="Part" @bind="partId" @bind:after="SelectRate"><option value="0">Select part</option>@foreach (var p in data.Parts) { <option value="@p.Id">@p.PartNumber</option> }</select></label>
-<label>Target pieces per hour <InputNumber @bind-Value="pph" /></label><label>Part box quantity (optional) <InputNumber @bind-Value="boxQuantity" /></label><button class="button button-primary" @onclick="SaveRate">Save assignment</button><button class="button button-danger-outline" @onclick="() => Run(() => Service.RemoveRateAsync(data.Settings.Revision, rateMachineId, partId))">Remove eligibility</button></div>
-<p>Box quantity belongs to the Part and applies across all machines. Leave blank when unknown; the schedule will show that boxes cannot be calculated.</p>
-<table class="data-table"><thead><tr><th>Machine</th><th>Part</th><th>Target PPH</th><th>Effective PPH</th><th>Box quantity</th></tr></thead><tbody>@foreach (var m in data.Machines) { @foreach (var r in m.Parts) { <tr><td>@m.Name</td><td>@data.Parts.Single(p => p.Id == r.PartId).PartNumber</td><td>@r.TargetPph.ToString("N2")</td><td>@((r.TargetPph * data.Settings.EfficiencyPercent / 100m).ToString("N2"))</td><td>@data.Parts.Single(p => p.Id == r.PartId).BoxQuantity</td></tr> } }</tbody></table></section>
-<section class="production-panel"><h2>Global holidays</h2><div class="production-fields"><label>Date <InputDate @bind-Value="holidayDate" /></label><label>Name <input @bind="holidayName" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveHolidayAsync(data.Settings.Revision, holidayDate, holidayName, false))">Save holiday</button></div>
+@if (activeTab == SettingsTab.Settings)
+{
+<div id="scheduling-settings-panel" role="tabpanel" aria-labelledby="scheduling-settings-tab">
+<section class="production-panel"><h2>Production Efficiency</h2><div class="production-fields"><label>Efficiency % <InputNumber @bind-Value="efficiency" step="1" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveEfficiencyAsync(data.Settings.Revision, efficiency))">Save Efficiency</button></div><p>Effective PPH = target PPH × efficiency ÷ 100. Configure each part’s eligible machines and target rates from that Part’s settings.</p></section>
+<section class="production-panel"><div class="downtime-reasons-heading"><h2>Downtime Reasons</h2><button class="button button-primary" type="button" @onclick="ShowNewReasonEditor">Add Reason</button></div>
+@if (showReasonEditor)
+{
+<div class="downtime-reason-editor"><h3>@(reasonId == 0 ? "Add Reason" : "Edit Reason")</h3><form @onsubmit="SaveReasonAsync" @onsubmit:preventDefault="true"><div class="production-fields"><label>Name <input @bind="reasonName" /></label><label><input type="checkbox" @bind="reasonActive" /> Active</label><button class="button button-primary" type="submit">Save Reason</button><button class="button button-secondary" type="button" @onclick="CancelReasonEditor">Cancel</button></div></form></div>
+}
+@if (data.Reasons.Count == 0)
+{
+<p>No downtime reasons have been added.</p>
+}
+else
+{
+<ul class="downtime-reason-list">@foreach (var reason in data.Reasons) { <li @key="reason.Id"><span>@reason.Name</span><span class="downtime-reason-status">@(reason.IsActive ? "Active" : "Inactive")</span><div class="downtime-reason-actions">@if (deleteReasonId == reason.Id) { <button class="button button-danger-outline" type="button" @onclick="DeleteReasonAsync">Confirm Delete</button><button class="button button-secondary" type="button" @onclick="CancelDeleteReason">Cancel</button> } else { <button class="button button-secondary" type="button" @onclick="() => EditReason(reason)">Edit</button><button class="button button-danger-outline" type="button" @onclick="() => ConfirmDeleteReason(reason.Id)">Delete</button> }</div></li> }</ul>
+}
+</section>
+</div>
+}
+else if (activeTab == SettingsTab.Holidays)
+{
+<div id="scheduling-holidays-panel" role="tabpanel" aria-labelledby="scheduling-holidays-tab">
+<section class="production-panel"><h2>Holidays</h2><div class="production-fields"><label>Date <InputDate @bind-Value="holidayDate" /></label><label>Name <input @bind="holidayName" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveHolidayAsync(data.Settings.Revision, holidayDate, holidayName, false))">Save Holiday</button></div>
 <table class="data-table"><thead><tr><th>Date</th><th>Name</th><th></th></tr></thead><tbody>@foreach (var h in data.Holidays) { <tr><td>@h.Date</td><td>@h.Name</td><td><button class="button button-danger-outline" @onclick="() => Run(() => Service.SaveHolidayAsync(data.Settings.Revision, h.Date, h.Name, true))">Remove</button></td></tr> }</tbody></table></section>
-<section class="production-panel"><h2>Downtime reasons</h2><div class="production-fields"><label>Edit reason <select aria-label="Edit reason" @bind="reasonId" @bind:after="SelectReason"><option value="0">New reason</option>@foreach (var r in data.Reasons) { <option value="@r.Id">@r.Name @(!r.IsActive ? "(inactive)" : "")</option> }</select></label><label>Name <input @bind="reasonName" /></label><label><input type="checkbox" @bind="reasonActive" /> Active</label><button class="button button-primary" @onclick="() => Run(() => Service.SaveReasonAsync(data.Settings.Revision, reasonId, reasonName, reasonActive))">Save reason</button></div></section>
+</div>
+}
+else
+{
+<section class="production-panel" id="scheduling-machines-panel" role="tabpanel" aria-labelledby="scheduling-machines-tab"><div class="machine-tab-heading"><h2>Machines</h2><button class="button button-primary" type="button" @onclick="ShowNewMachineEditor">Add Machine</button></div>
+<section class="default-working-days"><div class="default-working-days-heading"><h3>Default Work Day</h3><button class="button button-primary" @onclick="SaveDefaultWorkingDays">Save</button></div><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="defaultWorkingDayHours[day]" @bind-Value:after="SyncDefaultWorkingDayHours" step="0.1" /></label> }</div><p>Machines marked “Follows Default” update to these hours when the default is saved.</p></section>
+@if (showNewMachineEditor)
+{
+<section class="machine-calendar machine-calendar-new"><div class="machine-editor-heading"><h3>Add Machine</h3><div class="machine-editor-actions"><button class="button button-primary" @onclick="SaveNewMachineAsync">Add Machine</button><button class="button button-secondary" type="button" @onclick="CancelNewMachine">Cancel</button></div></div><div class="machine-calendar-fields"><label>Name <input @bind="newMachine.Name" /></label><label><input type="checkbox" @bind="newMachine.Active" /> Active</label><label><input type="checkbox" @bind="newMachine.UsesDefaultWorkingDays" @bind:after="() => SyncMachineToDefault(newMachine)" /> Follows Default</label></div>
+<div class="machine-calendar-hours"><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="newMachine.Hours[day]" disabled="@newMachine.UsesDefaultWorkingDays" step="0.1" /></label> }</div></div><p>Enter zero for non-working days.</p></section>
+}
+<div class="machine-calendar-list">
+@foreach (var machine in machineEditors)
+{
+    <section class="machine-calendar" @key="machine.Id"><div class="machine-calendar-fields"><label>Name <input @bind="machine.Name" /></label><label><input type="checkbox" @bind="machine.Active" /> Active</label><label><input type="checkbox" @bind="machine.UsesDefaultWorkingDays" @bind:after="() => SyncMachineToDefault(machine)" /> Follows Default</label><button class="button button-primary" @onclick="() => SaveMachine(machine)">Save</button></div>
+    <div class="machine-calendar-hours"><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="machine.Hours[day]" disabled="@machine.UsesDefaultWorkingDays" step="0.1" /></label> }</div></div></section>
+}
+</div>
+</section>
+}
 </fieldset>
 }
 @code {
     private ProductionSnapshot? data;
     private string? message;
-    private string machineName = "", holidayName = "", reasonName = "";
-    private bool busy, ready, active = true, reasonActive = true;
-    private long machineId, rateMachineId, partId, reasonId;
-    private decimal efficiency = 91, pph;
-    private decimal? boxQuantity;
-    private decimal[] hours = new decimal[7];
+    private string holidayName = "", reasonName = "";
+    private bool busy, ready, reasonActive = true, showNewMachineEditor, showReasonEditor;
+    private SettingsTab activeTab = SettingsTab.Machines;
+    private long reasonId;
+    private long? deleteReasonId;
+    private int efficiency = 91;
+    private decimal[] defaultWorkingDayHours = new decimal[7];
+    private List<MachineEditor> machineEditors = [];
+    private MachineEditor newMachine = new();
+    private static readonly int[] WeekdayIndexes = [1, 2, 3, 4, 5, 6, 0];
     private DateOnly holidayDate = DateOnly.FromDateTime(DateTime.Today);
     protected override Task OnInitializedAsync() => Run(() => Task.CompletedTask);
     protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
     private async Task Run(Func<Task> action)
     {
         if (busy) return; busy = true; message = null;
-        try { await action(); data = await Service.GetAsync(); efficiency = data.Settings.EfficiencyPercent; }
+        try
+        {
+            await action();
+            data = await Service.GetAsync();
+            efficiency = decimal.ToInt32(data.Settings.EfficiencyPercent);
+            defaultWorkingDayHours = Enumerable.Range(0, 7).Select(i => decimal.Round(data.Settings.DefaultWorkingDays.SingleOrDefault(x => (int)x.Day == i)?.Hours ?? 0, 1)).ToArray();
+            machineEditors = data.Machines.Select(MachineEditor.From).ToList();
+        }
         catch (Exception ex) when (ex is SchedulingException or UnauthorizedAccessException) { message = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Scheduling configuration failed"); message = "Could not save scheduling settings. Reload and retry."; }
         finally { busy = false; }
     }
-    private void SelectMachine() { var m = data!.Machines.SingleOrDefault(x => x.Id == machineId); machineName = m?.Name ?? ""; active = m?.IsActive ?? true; hours = Enumerable.Range(0, 7).Select(i => m?.WorkingDays.SingleOrDefault(x => (int)x.Day == i)?.Hours ?? 0).ToArray(); }
-    private Task SaveMachine() => Run(() => Service.SaveMachineAsync(data!.Settings.Revision, machineId, machineName, active, hours));
-    private void SelectRate() { pph = data!.Machines.SingleOrDefault(x => x.Id == rateMachineId)?.Parts.SingleOrDefault(x => x.PartId == partId)?.TargetPph ?? 0; boxQuantity = data.Parts.SingleOrDefault(x => x.Id == partId)?.BoxQuantity; }
-    private Task SaveRate() => Run(() => Service.SaveRateAsync(data!.Settings.Revision, rateMachineId, partId, pph, boxQuantity));
-    private void SelectReason() { var r = data!.Reasons.SingleOrDefault(x => x.Id == reasonId); reasonName = r?.Name ?? ""; reasonActive = r?.IsActive ?? true; }
+    private Task SaveMachine(MachineEditor machine) => Run(() => Service.SaveMachineAsync(data!.Settings.Revision, machine.Id, machine.Name, machine.Active, machine.UsesDefaultWorkingDays, machine.Hours));
+    private Task SaveDefaultWorkingDays() => Run(() => Service.SaveDefaultWorkingDaysAsync(data!.Settings.Revision, defaultWorkingDayHours));
+    private void ShowNewMachineEditor() { newMachine = new(); SyncMachineToDefault(newMachine); showNewMachineEditor = true; }
+    private void CancelNewMachine() { newMachine = new(); showNewMachineEditor = false; }
+    private async Task SaveNewMachineAsync()
+    {
+        await Run(() => Service.SaveMachineAsync(data!.Settings.Revision, newMachine.Id, newMachine.Name, newMachine.Active, newMachine.UsesDefaultWorkingDays, newMachine.Hours));
+        if (message == null) showNewMachineEditor = false;
+    }
+    private void SyncDefaultWorkingDayHours()
+    {
+        foreach (var machine in machineEditors.Where(x => x.UsesDefaultWorkingDays)) SyncMachineToDefault(machine);
+        if (showNewMachineEditor && newMachine.UsesDefaultWorkingDays) SyncMachineToDefault(newMachine);
+    }
+    private void SyncMachineToDefault(MachineEditor machine)
+    {
+        if (machine.UsesDefaultWorkingDays) machine.Hours = defaultWorkingDayHours.ToArray();
+    }
+    private void ShowNewReasonEditor() { reasonId = 0; reasonName = ""; reasonActive = true; showReasonEditor = true; }
+    private void EditReason(DowntimeReason reason) { reasonId = reason.Id; reasonName = reason.Name; reasonActive = reason.IsActive; showReasonEditor = true; }
+    private void CancelReasonEditor() { reasonId = 0; reasonName = ""; reasonActive = true; showReasonEditor = false; }
+    private void ConfirmDeleteReason(long id) { deleteReasonId = id; }
+    private void CancelDeleteReason() { deleteReasonId = null; }
+    private async Task SaveReasonAsync()
+    {
+        await Run(() => Service.SaveReasonAsync(data!.Settings.Revision, reasonId, reasonName, reasonActive));
+        if (message == null) CancelReasonEditor();
+    }
+    private async Task DeleteReasonAsync()
+    {
+        if (deleteReasonId == null) return;
+        await Run(() => Service.DeleteReasonAsync(data!.Settings.Revision, deleteReasonId.Value));
+        if (message == null) CancelDeleteReason();
+    }
+
+    private sealed class MachineEditor
+    {
+        public long Id { get; init; }
+        public string Name { get; set; } = "";
+        public bool Active { get; set; } = true;
+        public bool UsesDefaultWorkingDays { get; set; }
+        public decimal[] Hours { get; set; } = new decimal[7];
+
+        public static MachineEditor From(SortingMachine machine) => new()
+        {
+            Id = machine.Id,
+            Name = machine.Name,
+            Active = machine.IsActive,
+            UsesDefaultWorkingDays = machine.UsesDefaultWorkingDays,
+            Hours = Enumerable.Range(0, 7).Select(i => decimal.Round(machine.WorkingDays.SingleOrDefault(x => (int)x.Day == i)?.Hours ?? 0, 1)).ToArray()
+        };
+    }
+
+    private enum SettingsTab { Settings, Machines, Holidays }
 }
 
 

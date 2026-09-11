@@ -94,7 +94,7 @@ else
         <tr @key="s.Id"><td><strong>@j.Part.PartNumber</strong><br />PO: @(j.PoNumber ?? "—")<br />MO: @(j.MoNumber ?? "—")<br /><small>Job #@j.Id · Segment #@s.Id</small></td>
             <td>@if (next == null) { <span>No further requirement known</span> } else { <strong>@D(next.Date)</strong><br /><span>@N(next.CumulativeTarget - j.Segments.Sum(x => x.CompletedQuantity)) additional pieces</span><br /><small>@N(next.CumulativeTarget) cumulative target</small><br /><span class="@(risk!.Met ? "" : "production-risk")">@risk.Message · @D(risk.ExpectedDate)</span> }</td>
             <td>@D(f.Start) → @D(f.Finish)<br />@if (s.NotBefore != null) { <small>No earlier than @D(s.NotBefore)</small><br /> }<small>Actual start: @D(s.ActualStart)<br />Completed: @D(s.ActualCompletion)</small>@if (f.Error != null) { <p class="production-risk">@f.Error</p> }</td>
-            <td>@N(f.RequiredHours) h total<br />@N(f.RemainingHours) h remaining<br />@(f.DayHours > 0 ? N(f.RemainingHours / f.DayHours) : "—") equivalent days remaining<br /><small>Original: @N(s.OriginalHours) h<br />Target @N(f.TargetPph) PPH<br />Effective @N(f.EffectivePph) PPH</small></td>
+            <td>@N(f.RequiredHours) h total<br />@N(f.RemainingHours) h remaining<br />@(f.DayHours > 0 ? N(f.RemainingHours / f.DayHours) : "—") equivalent days remaining<br /><small>Original: @N(s.OriginalHours) h<br />Target @W(f.TargetPph) PPH<br />Effective @W(f.EffectivePph) PPH</small></td>
             <td>@N(s.Quantity > 0 ? s.CompletedQuantity / s.Quantity * 100 : 100)% segment<br />@N(j.Segments.Sum(x => x.CompletedQuantity) / j.Quantity * 100)% job<br />@N(f.ElapsedDays) elapsed working days<br /><small>Checkpoint: @D(s.ProgressAsOf)</small>@if (f.StaleProgress) { <p class="production-risk">Progress is stale; no unreported output assumed.</p> }</td>
             <td>Job: @N(j.Quantity)<br />Segment: @N(s.Quantity)<br />Segment completed: @N(s.CompletedQuantity)<br />Job completed: @N(j.Segments.Sum(x => x.CompletedQuantity))<br /><small>Job boxes: @(ProductionScheduler.Boxes(j.Quantity, j.Part.BoxQuantity)?.ToString("N0") ?? "Set Part box quantity")</small></td>
             <td>@j.Notes<br /><strong>@s.State</strong>@if (s.IsPinned) { <span> · Pinned</span> }@if (s.PredecessorId != null) { <br /><small>After segment #@s.PredecessorId</small> }</td>
@@ -136,6 +136,7 @@ else
     private IEnumerable<ProductionSegment> Queue => data!.Segments.Where(x => x.MachineId == machineId && (showCompleted || x.State != ProductionState.Completed)).OrderBy(x => x.State == ProductionState.Completed ? 2 : x.State == ProductionState.Running ? 0 : 1).ThenBy(x => x.Sequence);
     private string EditorTitle => editor switch { "job" => "Job", "progress" => "Progress checkpoint", "requirement" => "Next shortage requirement", "constraint" => "Start constraint and optimizer pin", "cutin" => "Quantity cut-in", "reassign" => "Machine reassignment", _ => "Downtime" };
     private static string N(decimal n) => n.ToString("#,0.###");
+    private static string W(decimal n) => n.ToString("#,0");
     private static string D(DateOnly? d) => d?.ToString("MMM d, yyyy") ?? "—";
     private ProductionJob Job(ProductionSegment s) => data!.Jobs.Single(x => x.Id == s.JobId);
     private SegmentForecast Forecast(ProductionSegment s) => forecasts.Single(x => x.SegmentId == s.Id);

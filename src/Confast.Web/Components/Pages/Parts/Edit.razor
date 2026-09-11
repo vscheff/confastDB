@@ -30,7 +30,6 @@ else
     <div class="page-heading">
         <div>
             <h1>@part.PartNumber</h1>
-            <p>Part ID @part.Id</p>
         </div>
         <div class="heading-actions">
             @if (currentRevision is not null)
@@ -57,6 +56,30 @@ else
               IsSaving="isSaving"
               Compact="true" />
 
+    <div class="subtabs part-detail-tabs" role="tablist" aria-label="Part detail sections">
+        <button id="part-inspection-tab"
+                class="subtab @(activeDetailTab == PartDetailTab.InspectionCriteria ? "subtab-active" : null)"
+                type="button"
+                role="tab"
+                aria-controls="part-inspection-panel"
+                aria-selected="@(activeDetailTab == PartDetailTab.InspectionCriteria)"
+                @onclick="() => activeDetailTab = PartDetailTab.InspectionCriteria">
+            Inspection Criteria
+        </button>
+        <button id="part-production-tab"
+                class="subtab @(activeDetailTab == PartDetailTab.ProductionScheduling ? "subtab-active" : null)"
+                type="button"
+                role="tab"
+                aria-controls="part-production-panel"
+                aria-selected="@(activeDetailTab == PartDetailTab.ProductionScheduling)"
+                @onclick="() => activeDetailTab = PartDetailTab.ProductionScheduling">
+            Production Scheduling
+        </button>
+    </div>
+
+    @if (activeDetailTab == PartDetailTab.InspectionCriteria)
+    {
+    <div id="part-inspection-panel" role="tabpanel" aria-labelledby="part-inspection-tab">
     <section class="linked-records" aria-labelledby="inspection-criteria-heading">
         <div class="section-heading">
             <div>
@@ -278,6 +301,14 @@ else
             }
         }
     </section>
+    </div>
+    }
+    else
+    {
+        <div id="part-production-panel" role="tabpanel" aria-labelledby="part-production-tab">
+            <PartProductionSettings PartId="part.Id" />
+        </div>
+    }
 }
 </div>
 
@@ -297,6 +328,7 @@ else
     private string? loadError;
     private string? saveMessage;
     private string saveMessageClass = "alert-success";
+    private PartDetailTab activeDetailTab;
     private PartCriteriaTab activeCriteriaTab;
 
     private string CurrentMasterPrintViewerUrl => currentRevision is null
@@ -311,6 +343,7 @@ else
         loadError = null;
         saveMessage = null;
         currentRevision = null;
+        activeDetailTab = PartDetailTab.InspectionCriteria;
         activeCriteriaTab = PartCriteriaTab.Criteria;
 
         try
@@ -419,6 +452,12 @@ else
         {
             isSaving = false;
         }
+    }
+
+    private enum PartDetailTab
+    {
+        InspectionCriteria,
+        ProductionScheduling
     }
 
     private enum PartCriteriaTab
