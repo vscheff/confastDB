@@ -159,6 +159,24 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             return Task.CompletedTask;
         });
 
+    public Task DeleteJobAsync(long revision, long jobId) =>
+        Write(revision, false, $"Delete job {jobId}", (db, data, user) =>
+        {
+            var job = data.Jobs.SingleOrDefault(x => x.Id == jobId)
+                ?? throw new SchedulingException("Job no longer exists.");
+            if (!CanDelete(job, data))
+                throw new SchedulingException("Only untouched jobs without cut-in dependencies can be deleted.");
+
+            db.RemoveRange(job.Requirements);
+            db.RemoveRange(job.Segments);
+            db.Remove(job);
+            return Task.CompletedTask;
+        });
+
+    private static bool CanDelete(ProductionJob job, ProductionSnapshot data) =>
+        job.Segments.All(x => x.State == ProductionState.Pending && x.CompletedQuantity == 0 && x.Progress.Count == 0)
+        && !data.Segments.Any(x => x.JobId != job.Id && job.Segments.Any(segment => segment.Id == x.PredecessorId));
+
     private static string? Clean(string? value, int maximum)
     {
         value = value?.Trim();
@@ -403,6 +421,25 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             if (holiday == null) { holiday = new() { Date = date }; db.Add(holiday); }
             holiday.Name = Clean(name, 150) ?? throw new SchedulingException("Enter a holiday name.");
         }
+        return Task.CompletedTask;
+    });
+
+    public Task UpdateHolidayAsync(long revision, DateOnly originalDate, DateOnly date, string name) => Write(revision, true, $"Holiday {originalDate} changed to {date}: {name}", (db, data, user) =>
+    {
+        var holiday = data.Holidays.SingleOrDefault(x => x.Date == originalDate)
+            ?? throw new SchedulingException("This holiday no longer exists. Reload and try again.");
+        var cleanName = Clean(name, 150) ?? throw new SchedulingException("Enter a holiday name.");
+
+        if (date == originalDate)
+        {
+            holiday.Name = cleanName;
+            return Task.CompletedTask;
+        }
+
+        if (data.Holidays.Any(x => x.Date == date)) throw new SchedulingException("A holiday already exists on that date.");
+
+        db.Remove(holiday);
+        db.Add(new ProductionHoliday { Date = date, Name = cleanName });
         return Task.CompletedTask;
     });
 

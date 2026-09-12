@@ -64,6 +64,21 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
+    public async Task UntouchedJobsCanBeDeletedButStartedJobsCannot()
+    {
+        var untouched = await AddJob();
+        await service.SaveRequirementAsync(await Revision(), untouched.JobId, 0, clock.Today.AddDays(1), 5000);
+        await service.DeleteJobAsync(await Revision(), untouched.JobId);
+        Assert.Empty((await service.GetAsync()).Jobs);
+
+        var started = await AddJob();
+        await service.StartAsync(await Revision(), started.Id);
+        var revision = await Revision();
+        var exception = await Assert.ThrowsAsync<SchedulingException>(() => service.DeleteJobAsync(revision, started.JobId));
+        Assert.Contains("Only untouched jobs", exception.Message);
+    }
+
+    [Fact]
     public async Task DowntimeReasonNamesAreUniqueAndOnlyUnusedReasonsCanBeDeleted()
     {
         await service.SaveReasonAsync(await Revision(), 0, "Maintenance", true);

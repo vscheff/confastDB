@@ -3,6 +3,8 @@
 @using Confast.Web.Features.ProductionScheduling
 @inject ProductionService Service
 @inject ILogger<Settings> Logger
+@inject IJSRuntime Js
+@implements IAsyncDisposable
 <PageTitle>Scheduling Settings</PageTitle>
 <div class="page-heading scheduling-page-heading"><h1>Scheduling Settings</h1><a class="button button-secondary" href="/production-scheduling">Back to Schedule</a></div>
 @if (message != null) { <div class="alert alert-error" role="alert">@message</div> }
@@ -10,15 +12,16 @@
 {
 <div class="subtabs scheduling-tabs" role="tablist" aria-label="Scheduling settings sections">
 <button id="scheduling-machines-tab" class="subtab @(activeTab == SettingsTab.Machines ? "subtab-active" : null)" type="button" role="tab" aria-controls="scheduling-machines-panel" aria-selected="@(activeTab == SettingsTab.Machines)" @onclick="() => activeTab = SettingsTab.Machines">Machines</button>
-<button id="scheduling-holidays-tab" class="subtab @(activeTab == SettingsTab.Holidays ? "subtab-active" : null)" type="button" role="tab" aria-controls="scheduling-holidays-panel" aria-selected="@(activeTab == SettingsTab.Holidays)" @onclick="() => activeTab = SettingsTab.Holidays">Holidays</button>
 <button id="scheduling-settings-tab" class="subtab @(activeTab == SettingsTab.Settings ? "subtab-active" : null)" type="button" role="tab" aria-controls="scheduling-settings-panel" aria-selected="@(activeTab == SettingsTab.Settings)" @onclick="() => activeTab = SettingsTab.Settings">Settings</button>
 </div>
 <fieldset disabled="@(!ready || busy)">
 @if (activeTab == SettingsTab.Settings)
 {
 <div id="scheduling-settings-panel" role="tabpanel" aria-labelledby="scheduling-settings-tab">
-<section class="production-panel"><h2>Production Efficiency</h2><div class="production-fields"><label>Efficiency % <InputNumber @bind-Value="efficiency" step="1" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveEfficiencyAsync(data.Settings.Revision, efficiency))">Save Efficiency</button></div><p>Effective PPH = target PPH × efficiency ÷ 100. Configure each part’s eligible machines and target rates from that Part’s settings.</p></section>
-<section class="production-panel"><div class="downtime-reasons-heading"><h2>Downtime Reasons</h2><button class="button button-primary" type="button" @onclick="ShowNewReasonEditor">Add Reason</button></div>
+<div class="scheduling-settings-layout">
+<div class="scheduling-settings-left-column">
+<section class="production-panel production-efficiency-panel"><h2>Production Efficiency</h2><div class="production-fields"><label>Efficiency % <InputNumber @bind-Value="efficiency" step="1" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveEfficiencyAsync(data.Settings.Revision, efficiency))">Save Efficiency</button></div><p>Effective PPH = target PPH × efficiency ÷ 100.</p></section>
+<section class="production-panel downtime-reasons-panel"><div class="downtime-reasons-heading"><h2>Downtime Reasons</h2><button class="button button-primary" type="button" @onclick="ShowNewReasonEditor">Add Reason</button></div>
 @if (showReasonEditor)
 {
 <div class="downtime-reason-editor"><h3>@(reasonId == 0 ? "Add Reason" : "Edit Reason")</h3><form @onsubmit="SaveReasonAsync" @onsubmit:preventDefault="true"><div class="production-fields"><label>Name <input @bind="reasonName" /></label><label><input type="checkbox" @bind="reasonActive" /> Active</label><button class="button button-primary" type="submit">Save Reason</button><button class="button button-secondary" type="button" @onclick="CancelReasonEditor">Cancel</button></div></form></div>
@@ -33,12 +36,9 @@ else
 }
 </section>
 </div>
-}
-else if (activeTab == SettingsTab.Holidays)
-{
-<div id="scheduling-holidays-panel" role="tabpanel" aria-labelledby="scheduling-holidays-tab">
-<section class="production-panel"><h2>Holidays</h2><div class="production-fields"><label>Date <InputDate @bind-Value="holidayDate" /></label><label>Name <input @bind="holidayName" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveHolidayAsync(data.Settings.Revision, holidayDate, holidayName, false))">Save Holiday</button></div>
-<table class="data-table"><thead><tr><th>Date</th><th>Name</th><th></th></tr></thead><tbody>@foreach (var h in data.Holidays) { <tr><td>@h.Date</td><td>@h.Name</td><td><button class="button button-danger-outline" @onclick="() => Run(() => Service.SaveHolidayAsync(data.Settings.Revision, h.Date, h.Name, true))">Remove</button></td></tr> }</tbody></table></section>
+<section class="production-panel holiday-panel"><div class="holidays-heading"><h2>Holidays</h2><button class="button button-primary" type="button" @onclick="AddHoliday">Add Holiday</button></div>
+<table class="data-table holiday-table"><thead><tr><th>Date</th><th>Name</th><th></th></tr></thead><tbody>@foreach (var holiday in holidayEditors) { <tr @key="holiday.Id"><td><span @ref="holiday.DateField"><InputDate @bind-Value="holiday.Date" /></span></td><td><form id="@holiday.FormId" @onsubmit="() => SaveHolidayAsync(holiday)" @onsubmit:preventDefault="true"><input @bind="holiday.Name" aria-label="Holiday name" /></form></td><td><div class="holiday-actions"><button class="button button-primary" type="submit" form="@holiday.FormId">Save</button><button class="button button-danger-outline" type="button" @onclick="() => RemoveHolidayAsync(holiday)">@(holiday.OriginalDate is null ? "Cancel" : "Remove")</button></div></td></tr> }</tbody></table></section>
+</div>
 </div>
 }
 else
@@ -64,7 +64,7 @@ else
 @code {
     private ProductionSnapshot? data;
     private string? message;
-    private string holidayName = "", reasonName = "";
+    private string reasonName = "";
     private bool busy, ready, reasonActive = true, showNewMachineEditor, showReasonEditor;
     private SettingsTab activeTab = SettingsTab.Machines;
     private long reasonId;
@@ -72,11 +72,20 @@ else
     private int efficiency = 91;
     private decimal[] defaultWorkingDayHours = new decimal[7];
     private List<MachineEditor> machineEditors = [];
+    private List<HolidayEditor> holidayEditors = [];
     private MachineEditor newMachine = new();
+    private IJSObjectReference? dateInputNavigationModule;
     private static readonly int[] WeekdayIndexes = [1, 2, 3, 4, 5, 6, 0];
-    private DateOnly holidayDate = DateOnly.FromDateTime(DateTime.Today);
     protected override Task OnInitializedAsync() => Run(() => Task.CompletedTask);
-    protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { ready = true; StateHasChanged(); }
+        if (data == null || activeTab != SettingsTab.Settings) return;
+
+        dateInputNavigationModule ??= await Js.InvokeAsync<IJSObjectReference>("import", "./date-input-tab-navigation.js");
+        foreach (var holiday in holidayEditors)
+            await dateInputNavigationModule.InvokeVoidAsync("skipNativePickerOnTab", holiday.DateField);
+    }
     private async Task Run(Func<Task> action)
     {
         if (busy) return; busy = true; message = null;
@@ -87,12 +96,27 @@ else
             efficiency = decimal.ToInt32(data.Settings.EfficiencyPercent);
             defaultWorkingDayHours = Enumerable.Range(0, 7).Select(i => decimal.Round(data.Settings.DefaultWorkingDays.SingleOrDefault(x => (int)x.Day == i)?.Hours ?? 0, 1)).ToArray();
             machineEditors = data.Machines.Select(MachineEditor.From).ToList();
+            holidayEditors = data.Holidays.Select(HolidayEditor.From).ToList();
         }
         catch (Exception ex) when (ex is SchedulingException or UnauthorizedAccessException) { message = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Scheduling configuration failed"); message = "Could not save scheduling settings. Reload and retry."; }
         finally { busy = false; }
     }
     private Task SaveMachine(MachineEditor machine) => Run(() => Service.SaveMachineAsync(data!.Settings.Revision, machine.Id, machine.Name, machine.Active, machine.UsesDefaultWorkingDays, machine.Hours));
+    private Task SaveHolidayAsync(HolidayEditor holiday) => holiday.OriginalDate is null
+        ? Run(() => Service.SaveHolidayAsync(data!.Settings.Revision, holiday.Date, holiday.Name, false))
+        : Run(() => Service.UpdateHolidayAsync(data!.Settings.Revision, holiday.OriginalDate.Value, holiday.Date, holiday.Name));
+    private void AddHoliday() => holidayEditors.Add(new());
+    private Task RemoveHolidayAsync(HolidayEditor holiday)
+    {
+        if (holiday.OriginalDate is null)
+        {
+            holidayEditors.Remove(holiday);
+            return Task.CompletedTask;
+        }
+
+        return Run(() => Service.SaveHolidayAsync(data!.Settings.Revision, holiday.OriginalDate.Value, holiday.Name, true));
+    }
     private Task SaveDefaultWorkingDays() => Run(() => Service.SaveDefaultWorkingDaysAsync(data!.Settings.Revision, defaultWorkingDayHours));
     private void ShowNewMachineEditor() { newMachine = new(); SyncMachineToDefault(newMachine); showNewMachineEditor = true; }
     private void CancelNewMachine() { newMachine = new(); showNewMachineEditor = false; }
@@ -127,6 +151,26 @@ else
         if (message == null) CancelDeleteReason();
     }
 
+    public async ValueTask DisposeAsync()
+    {
+        if (dateInputNavigationModule is null) return;
+
+        try { await dateInputNavigationModule.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private sealed class HolidayEditor
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public string FormId => $"holiday-{Id}";
+        public DateOnly? OriginalDate { get; init; }
+        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public string Name { get; set; } = "";
+        public ElementReference DateField { get; set; }
+
+        public static HolidayEditor From(ProductionHoliday holiday) => new() { OriginalDate = holiday.Date, Date = holiday.Date, Name = holiday.Name };
+    }
+
     private sealed class MachineEditor
     {
         public long Id { get; init; }
@@ -145,7 +189,7 @@ else
         };
     }
 
-    private enum SettingsTab { Settings, Machines, Holidays }
+    private enum SettingsTab { Settings, Machines }
 }
 
 

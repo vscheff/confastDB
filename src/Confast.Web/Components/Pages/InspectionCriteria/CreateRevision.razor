@@ -10,8 +10,7 @@
 
 <div class="page-heading">
     <div>
-        <h1>Create inspection criteria revision</h1>
-        <p>The current revision will be copied into an editable draft.</p>
+        <h1>Create New Revision</h1>
     </div>
 </div>
 
@@ -24,12 +23,12 @@
     <DataAnnotationsValidator />
     <div class="record-form">
         <div class="form-field form-field-wide">
-            <label for="change-note">Change note (optional)</label>
+            <label for="change-note">Change Note (optional)</label>
             <InputTextArea id="change-note" @bind-Value="model.ChangeNote" />
         </div>
         <div class="form-actions form-field-wide">
             <button class="button button-primary" type="submit" disabled="@isSaving">
-                @(isSaving ? "Creating…" : "Create draft")
+                @(isSaving ? "Creating…" : "Create Draft")
             </button>
             <a class="button button-secondary" href="@($"/parts/{PartId}/edit")">Cancel</a>
         </div>

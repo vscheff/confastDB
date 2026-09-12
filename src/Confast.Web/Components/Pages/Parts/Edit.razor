@@ -5,7 +5,7 @@
 @inject PartService PartService
 @inject ILogger<Edit> Logger
 
-<PageTitle>@(part is null ? "Part" : $"Edit {part.PartNumber}")</PageTitle>
+<PageTitle>@(part is null ? "Part" : $"{part.PartNumber}")</PageTitle>
 
 <div class="criteria-revision-page part-detail-page">
 <p><a class="back-link" href="/parts">← Parts</a></p>
@@ -34,10 +34,10 @@ else
         <div class="heading-actions">
             @if (currentRevision is not null)
             {
-                <a class="button button-primary" href="@($"/inspections/create?partId={part.Id}")">New inspection</a>
+                <a class="button button-primary" href="@($"/inspections/create?partId={part.Id}")">New Inspection</a>
             }
             <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
-            <a class="button button-secondary" href="@($"/parts/{part.Id}/flips")">Flip configuration</a>
+            <a class="button button-secondary" href="@($"/parts/{part.Id}/flips")">Flip Configuration</a>
         </div>
     </div>
 
@@ -108,7 +108,7 @@ else
                 else
                 {
                     <a class="button button-primary" href="@($"/parts/{Id}/inspection-criteria/create")">
-                        @(criteriaSummary?.CurrentRevision is null ? "Create initial revision" : "Create new revision")
+                        @(criteriaSummary?.CurrentRevision is null ? "Create Initial Revision" : "Create New Revision")
                     </a>
                 }
                 <a class="button button-secondary" href="@($"/parts/{Id}/inspection-criteria")">History</a>
@@ -268,12 +268,6 @@ else
             else
             {
                 <section class="revision-certification-section">
-                    <div class="section-heading">
-                        <div>
-                            <h2>Certification Requirements</h2>
-                            <p>Requirements saved with published revision @currentRevision.RevisionNumber.</p>
-                        </div>
-                    </div>
                     <div class="table-shell">
                         <table class="data-table certification-requirements-table">
                             <thead>

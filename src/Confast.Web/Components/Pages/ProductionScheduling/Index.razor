@@ -45,13 +45,13 @@ else
         {
             <label>Eligible part <select aria-label="Eligible part" @bind="partId" disabled="@(selectedJob != null && (selectedJob.Segments.Count != 1 || selectedJob.Segments[0].State != ProductionState.Pending))"><option value="0">Select part</option>@foreach (var p in EligibleParts(machineId)) { <option value="@p.Id">@p.PartNumber</option> }</select></label>
             <label>PO number <input @bind="po" maxlength="150" /></label><label>MO number <input @bind="mo" maxlength="150" /></label>
-            <label>Total job quantity <InputNumber @bind-Value="quantity" /></label><label>Notes <textarea @bind="notes"></textarea></label>
+            <label>Total job quantity <input inputmode="decimal" @bind="quantityText" @bind:after="ParseQuantity" /></label><label>Notes <textarea @bind="notes"></textarea></label>
             <button class="button button-primary" @onclick="SaveJob">Save job</button>
         }
         else if (editor == "progress")
         {
             <p>Enter cumulative completed pieces for segment #@selected!.Id (allocation @N(selected.Quantity)). This is an end-of-day checkpoint; remaining work resumes after this date. Corrections replace the current value.</p>
-            <label>Cumulative segment completed <InputNumber @bind-Value="quantity" /></label><label>As of (through end of day) <InputDate @bind-Value="date" /></label><label>Correction / progress notes <textarea @bind="notes"></textarea></label>
+            <label>Cumulative segment completed <input inputmode="numeric" @bind="progressQuantityText" @bind:after="ParseProgressQuantity" /></label><label>As of (through end of day) <InputDate @bind-Value="date" /></label><label>Correction / progress notes <textarea @bind="notes"></textarea></label>
             <button class="button button-primary" @onclick="() => SaveProgress(false)">Record checkpoint</button><button class="button button-secondary" @onclick="() => SaveProgress(true)">Record and complete segment</button>
         }
         else if (editor == "constraint")
@@ -101,6 +101,7 @@ else
             <td><div class="table-actions production-actions">@if (data.CanEdit)
             {
                 <button class="button button-secondary" @onclick="() => EditJob(j)">Edit job</button><button class="button button-secondary" @onclick="() => EditRequirement(j)">Next requirement</button>
+                @if (CanDelete(j)) { <button class="button button-danger-outline" disabled="@busy" @onclick="() => Run(() => Service.DeleteJobAsync(data.Settings.Revision, j.Id))">Delete job</button> }
                 @if (s.State == ProductionState.Pending)
                 {
                     <button class="button button-primary" disabled="@busy" @onclick="() => Run(() => Service.StartAsync(data.Settings.Revision, s.Id))">Start</button>
@@ -126,7 +127,11 @@ else
     private OptimizationPreview? preview;
     private long machineId, partId, otherId, downtimeId, requirementId;
     private string? message, editor, po, mo, notes;
+    private string quantityText = "0";
+    private string progressQuantityText = "0";
     private bool busy, showCompleted, pinned, ready;
+    private bool invalidQuantity;
+    private bool invalidProgressQuantity;
     private decimal quantity;
     private decimal? optionalQuantity;
     private DateOnly date, endDate;
@@ -139,6 +144,9 @@ else
     private static string W(decimal n) => n.ToString("#,0");
     private static string D(DateOnly? d) => d?.ToString("MMM d, yyyy") ?? "—";
     private ProductionJob Job(ProductionSegment s) => data!.Jobs.Single(x => x.Id == s.JobId);
+    private bool CanDelete(ProductionJob job) =>
+        job.Segments.All(x => x.State == ProductionState.Pending && x.CompletedQuantity == 0 && x.Progress.Count == 0)
+        && !data!.Segments.Any(x => x.JobId != job.Id && job.Segments.Any(segment => segment.Id == x.PredecessorId));
     private SegmentForecast Forecast(ProductionSegment s) => forecasts.Single(x => x.SegmentId == s.Id);
     private ProductionRequirement? Next(ProductionJob j) => j.Requirements.OrderBy(x => x.Date).FirstOrDefault(x => x.CumulativeTarget > j.Segments.Sum(s => s.CompletedQuantity));
     private IEnumerable<Confast.Web.Features.Parts.Part> EligibleParts(long id) => data!.Parts.Where(p => data.Machines.Any(m => m.Id == id && m.Parts.Any(x => x.PartId == p.Id)));
@@ -154,11 +162,34 @@ else
         finally { busy = false; }
     }
     private void CloseEditor() { editor = null; selected = null; selectedJob = null; preview = null; }
-    private void NewJob() { CloseEditor(); editor = "job"; partId = 0; quantity = 0; po = mo = notes = null; }
-    private void EditJob(ProductionJob j) { CloseEditor(); selectedJob = j; editor = "job"; partId = j.PartId; quantity = j.Quantity; po = j.PoNumber; mo = j.MoNumber; notes = j.Notes; }
-    private Task SaveJob() => Run(() => Service.SaveJobAsync(data!.Settings.Revision, selectedJob?.Id ?? 0, partId, machineId, quantity, po, mo, notes));
-    private void OpenProgress(ProductionSegment s) { CloseEditor(); selected = s; editor = "progress"; quantity = s.CompletedQuantity; date = data!.Horizon; notes = null; }
-    private Task SaveProgress(bool complete) => Run(() => Service.ProgressAsync(data!.Settings.Revision, selected!.Id, quantity, date, notes, complete));
+    private void NewJob() { CloseEditor(); editor = "job"; partId = 0; quantity = 0; quantityText = FormatQuantity(quantity); invalidQuantity = false; po = mo = notes = null; }
+    private void EditJob(ProductionJob j) { CloseEditor(); selectedJob = j; editor = "job"; partId = j.PartId; quantity = j.Quantity; quantityText = FormatQuantity(quantity); invalidQuantity = false; po = j.PoNumber; mo = j.MoNumber; notes = j.Notes; }
+    private void ParseQuantity()
+    {
+        invalidQuantity = !decimal.TryParse(quantityText, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var parsed);
+        if (!invalidQuantity) { quantity = parsed; quantityText = FormatQuantity(quantity); }
+    }
+    private static string FormatQuantity(decimal value) => value.ToString("#,0.###", System.Globalization.CultureInfo.CurrentCulture);
+    private Task SaveJob()
+    {
+        if (invalidQuantity) { message = "Enter a valid job quantity."; return Task.CompletedTask; }
+        return Run(() => Service.SaveJobAsync(data!.Settings.Revision, selectedJob?.Id ?? 0, partId, machineId, quantity, po, mo, notes));
+    }
+    private void OpenProgress(ProductionSegment s) { CloseEditor(); selected = s; editor = "progress"; quantity = s.CompletedQuantity; progressQuantityText = FormatWholeQuantity(quantity); invalidProgressQuantity = false; date = data!.Horizon; notes = null; }
+    private void ParseProgressQuantity()
+    {
+        invalidProgressQuantity = !decimal.TryParse(progressQuantityText, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var parsed)
+            || parsed != decimal.Truncate(parsed);
+        if (!invalidProgressQuantity) { quantity = parsed; progressQuantityText = FormatWholeQuantity(quantity); }
+    }
+    private static string FormatWholeQuantity(decimal value) => value == decimal.Truncate(value)
+        ? value.ToString("#,0", System.Globalization.CultureInfo.CurrentCulture)
+        : FormatQuantity(value);
+    private Task SaveProgress(bool complete)
+    {
+        if (invalidProgressQuantity) { message = "Enter a whole-number completed quantity."; return Task.CompletedTask; }
+        return Run(() => Service.ProgressAsync(data!.Settings.Revision, selected!.Id, quantity, date, notes, complete));
+    }
     private void OpenConstraint(ProductionSegment s) { CloseEditor(); selected = s; editor = "constraint"; optionalDate = s.NotBefore; pinned = s.IsPinned; }
     private Task SaveConstraint() => Run(() => Service.SetConstraintAsync(data!.Settings.Revision, selected!.Id, optionalDate, pinned));
     private void EditRequirement(ProductionJob j) { CloseEditor(); selectedJob = j; editor = "requirement"; var r = Next(j); requirementId = r?.Id ?? 0; date = r?.Date ?? data!.Horizon; optionalQuantity = r == null ? null : r.CumulativeTarget - Math.Max(j.Segments.Sum(s => s.CompletedQuantity), j.Requirements.Where(x => x.Date < r.Date).Select(x => x.CumulativeTarget).DefaultIfEmpty(0).Max()); }

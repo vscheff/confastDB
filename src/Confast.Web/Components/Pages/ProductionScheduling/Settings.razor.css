@@ -5,6 +5,17 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .production-fields label:has(input[type=checkbox]) { flex-direction: row; align-items: center; min-width: auto; min-height: 2.5rem; }
 .production-fields ::deep input:not([type=checkbox]), .production-fields select, .production-fields textarea { min-height: 2.4rem; padding: .4rem; border: 1px solid #aebcc7; border-radius: .25rem; max-width: 100%; }
 .production-fields input[type=checkbox] { width: 1.2rem; height: 1.2rem; }
+.scheduling-settings-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 40rem)); gap: 1rem; align-items: start; margin-top: 1rem; }
+.scheduling-settings-left-column { display: grid; gap: 1rem; }
+.scheduling-settings-layout .production-panel { margin: 0; }
+.holidays-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.holidays-heading h2 { margin: 0; }
+.holiday-panel { width: min(100%, 40rem); }
+.holiday-table { width: 100%; }
+.holiday-table input { box-sizing: border-box; width: 100%; min-height: 2.15rem; padding: .25rem .4rem; border: 1px solid #aebcc7; border-radius: .25rem; }
+.holiday-actions { display: flex; justify-content: end; gap: .4rem; }
+.production-efficiency-panel { width: min(100%, 40rem); }
+.downtime-reasons-panel { width: min(100%, 40rem); }
 .downtime-reasons-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .downtime-reasons-heading h2, .downtime-reason-editor h3 { margin: 0; }
 .downtime-reason-editor { margin-bottom: 1rem; padding: .65rem; border: 1px solid #b9d4e4; border-radius: .3rem; background: #edf7fc; }
@@ -43,6 +54,6 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .production-grid td { vertical-align: top; }
 .production-actions { display: flex; flex-wrap: wrap; gap: .3rem; min-width: 12rem; }
 .production-risk { color: #a4261d; font-weight: 600; }
-@media (max-width: 900px) { .production-grid { position: static; width: 100%; margin-left: 0; } }
-@media (min-width: 1050px) { .scheduling-page-heading, .scheduling-tabs, #scheduling-machines-panel, #scheduling-holidays-panel, #scheduling-settings-panel { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1500px); margin-left: max(calc(1rem - 50vw), -750px); } .machine-calendar:not(.machine-calendar-new) { display: grid; grid-template-columns: minmax(30rem, 1fr) minmax(32rem, 2fr); gap: .75rem; align-items: end; } .machine-calendar:not(.machine-calendar-new) .machine-calendar-fields { margin-bottom: 0; } }
+@media (max-width: 900px) { .production-grid { position: static; width: 100%; margin-left: 0; } .scheduling-settings-layout { grid-template-columns: minmax(0, 40rem); } }
+@media (min-width: 1050px) { .scheduling-page-heading, .scheduling-tabs, #scheduling-machines-panel, #scheduling-settings-panel { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1500px); margin-left: max(calc(1rem - 50vw), -750px); } .machine-calendar:not(.machine-calendar-new) { display: grid; grid-template-columns: minmax(30rem, 1fr) minmax(32rem, 2fr); gap: .75rem; align-items: end; } .machine-calendar:not(.machine-calendar-new) .machine-calendar-fields { margin-bottom: 0; } }
 @media (max-width: 700px) { .machine-calendar-fields { grid-template-columns: 1fr; } .machine-calendar-fields button { justify-self: start; } .machine-calendar-day-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .downtime-reason-list li { grid-template-columns: 1fr auto; } .downtime-reason-actions { grid-column: 1 / -1; justify-content: start; } }
