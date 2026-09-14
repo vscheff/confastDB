@@ -76,19 +76,23 @@ public sealed class ProductionJob
     public string? MoNumber { get; set; }
     public decimal Quantity { get; set; }
     public string? Notes { get; set; }
-    public List<ProductionRequirement> Requirements { get; set; } = [];
     public List<ProductionSegment> Segments { get; set; } = [];
 }
 
 public sealed class ProductionRequirement
 {
     public long Id { get; set; }
-    public long JobId { get; set; }
+    public long PartId { get; set; }
+    public Part Part { get; set; } = null!;
     public DateOnly Date { get; set; }
     public decimal CumulativeTarget { get; set; }
 }
 
 public enum ProductionState { Pending, Running, Completed }
+
+// Completing an allocation with a different actual quantity requires an explicit
+// choice; it must never silently change the next allocation or purchase total.
+public enum CompletionQuantityAdjustment { Exact, RebalanceNextSegment, UpdateJobQuantity }
 
 public sealed class ProductionSegment
 {
@@ -112,7 +116,8 @@ public sealed class ProductionSegment
     public List<ProductionProgress> Progress { get; set; } = [];
 }
 
-// Append-only checkpoints: corrections replace the current cumulative value, never add it.
+// Append-only ledger entries retain both the prior and resulting cumulative totals.
+// Normal checkpoints add output; explicit corrections replace the current total.
 public sealed class ProductionProgress
 {
     public long Id { get; set; }
@@ -139,9 +144,34 @@ public sealed class SchedulingException(string message) : InvalidOperationExcept
 
 public sealed record ProductionSnapshot(ProductionSettings Settings, List<SortingMachine> Machines,
     List<ProductionHoliday> Holidays, List<DowntimeReason> Reasons, List<MachineDowntime> Downtime,
-    List<ProductionJob> Jobs, List<Part> Parts, DateOnly Horizon, bool CanEdit, bool IsAdministrator)
+    List<ProductionJob> Jobs, List<ProductionRequirement> Requirements, List<Part> Parts,
+    List<ProductionStartReadiness> StartReadiness, DateOnly Horizon, bool CanEdit, bool IsAdministrator)
 {
     public IEnumerable<ProductionSegment> Segments => Jobs.SelectMany(x => x.Segments);
+}
+
+public enum ProductionStartBlocker
+{
+    None,
+    MissingPoNumber,
+    NoMatchingInspection,
+    InspectionNotAccepted,
+    SecondaryProcessesIncomplete
+}
+
+public sealed record ProductionStartReadiness(long JobId, ProductionStartBlocker Blocker, string? AwaitingProcessName = null)
+{
+    public bool IsReady => Blocker == ProductionStartBlocker.None;
+
+    public string Message => Blocker switch
+    {
+        ProductionStartBlocker.None => "Inspection prerequisites met.",
+        ProductionStartBlocker.MissingPoNumber => "Blocked: add a PO number and complete its inspection prerequisites.",
+        ProductionStartBlocker.NoMatchingInspection => "Awaiting Inspection Creation",
+        ProductionStartBlocker.InspectionNotAccepted => "Awaiting Inspection Acceptance",
+        ProductionStartBlocker.SecondaryProcessesIncomplete => $"Awaiting {AwaitingProcessName ?? "secondary process completion"}",
+        _ => throw new ArgumentOutOfRangeException()
+    };
 }
 
 public sealed record CapacitySlice(DateOnly Date, decimal Hours, decimal Quantity);

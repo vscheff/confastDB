@@ -1,5 +1,8 @@
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.Gages;
 using Confast.Web.Features.Identity;
+using Confast.Web.Features.InspectionCriteria;
+using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Parts;
 using Confast.Web.Features.ProductionScheduling;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +27,65 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         var customer = new Customer { Name = "Scheduling customer" };
         var part = new Part { Customer = customer, PartNumber = "SORT-1", BoxQuantity = 1000 }; db.Add(part);
         await db.SaveChangesAsync(); partId = part.Id;
+        var revision = new InspectionCriteriaRevision { PartId = partId, RevisionNumber = 1, CreatedAtUtc = clock.GetUtcNow(), PublishedAtUtc = clock.GetUtcNow() };
+        var gageType = new GageType { Name = "Scheduling gage" };
+        db.AddRange(revision, gageType);
+        await db.SaveChangesAsync();
+        var gage = new Gage { GageTypeId = gageType.Id, GageNumber = "SCHED-1" };
+        var criterion = new InspectionCriterion { InspectionCriteriaRevisionId = revision.Id, Name = "Scheduling criterion", InspectionNumber = 1, GageTypeId = gageType.Id, DisplayOrder = 1 };
+        db.AddRange(gage, criterion);
+        await db.SaveChangesAsync();
+        var plateRequirement = new SecondaryProcessRequirement
+        {
+            InspectionCriteriaRevisionId = revision.Id,
+            SecondaryProcessTypeId = await db.Set<SecondaryProcessType>().Where(x => x.Name == "Plate").Select(x => x.Id).SingleAsync()
+        };
+        var sortRequirement = new SecondaryProcessRequirement
+        {
+            InspectionCriteriaRevisionId = revision.Id,
+            SecondaryProcessTypeId = await db.Set<SecondaryProcessType>().Where(x => x.Name == "Sort").Select(x => x.Id).SingleAsync()
+        };
+        db.AddRange(plateRequirement, sortRequirement);
+        await db.SaveChangesAsync();
+        var inspection = new Inspection
+        {
+            PartId = partId,
+            InspectionCriteriaRevisionId = revision.Id,
+            LotNumber = "SCHEDULE-PO-1",
+            ConformancePoNumber = "PO-1",
+            InspectionDate = clock.Today,
+            CreatedAtUtc = clock.GetUtcNow()
+        };
+        db.Add(inspection);
+        await db.SaveChangesAsync();
+        db.InspectionResults.Add(new InspectionResult
+        {
+            InspectionId = inspection.Id,
+            InspectionCriteriaRevisionId = revision.Id,
+            InspectionCriterionId = criterion.Id,
+            GageId = gage.Id,
+            GageNumber = gage.GageNumber,
+            ActualMin = "Pass",
+            ActualMax = "Pass"
+        });
+        db.InspectionSecondaryProcesses.AddRange(
+            new InspectionSecondaryProcess
+            {
+                InspectionId = inspection.Id,
+                InspectionCriteriaRevisionId = revision.Id,
+                SecondaryProcessRequirementId = plateRequirement.Id,
+                ProcessName = "Plate",
+                IsComplete = true
+            },
+            new InspectionSecondaryProcess
+            {
+                InspectionId = inspection.Id,
+                InspectionCriteriaRevisionId = revision.Id,
+                SecondaryProcessRequirementId = sortRequirement.Id,
+                ProcessName = "Sort",
+                IsComplete = false
+            });
+        await db.SaveChangesAsync();
         service = new(database, new TestUser(), clock);
         await service.SaveMachineAsync(await Revision(), 0, "Sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
         machineId = (await service.GetAsync()).Machines.Single().Id;
@@ -38,20 +100,77 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
-    public async Task ProgressCorrectionsAndEfficiencyChangesKeepOriginalHistory()
+    public async Task StartingRequiresAnAcceptedInspectionWithCompletedNonSortProcesses()
+    {
+        var unmatched = await AddJob();
+        await using (var db = database.CreateDbContext())
+        {
+            var job = await db.Set<ProductionJob>().SingleAsync(x => x.Id == unmatched.JobId);
+            job.PoNumber = "PO-OTHER";
+            await db.SaveChangesAsync();
+        }
+        var unmatchedReadiness = Assert.Single((await service.GetAsync()).StartReadiness);
+        Assert.Equal(ProductionStartBlocker.NoMatchingInspection, unmatchedReadiness.Blocker);
+        Assert.Equal("Awaiting Inspection Creation", unmatchedReadiness.Message);
+        var unmatchedException = await Assert.ThrowsAsync<SchedulingException>(async () => await service.StartAsync(await Revision(), unmatched.Id));
+        Assert.Equal(unmatchedReadiness.Message, unmatchedException.Message);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var job = await db.Set<ProductionJob>().SingleAsync(x => x.Id == unmatched.JobId);
+            job.PoNumber = "PO-1";
+            var result = await db.InspectionResults.SingleAsync();
+            result.ActualMin = result.ActualMax = "Fail";
+            await db.SaveChangesAsync();
+        }
+        var unacceptedInspectionReadiness = Assert.Single((await service.GetAsync()).StartReadiness);
+        Assert.Equal(ProductionStartBlocker.InspectionNotAccepted, unacceptedInspectionReadiness.Blocker);
+        Assert.Equal("Awaiting Inspection Acceptance", unacceptedInspectionReadiness.Message);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var result = await db.InspectionResults.SingleAsync();
+            result.ActualMin = result.ActualMax = "Pass";
+            await db.SaveChangesAsync();
+        }
+        await using (var db = database.CreateDbContext())
+        {
+            (await db.InspectionSecondaryProcesses.SingleAsync(x => x.ProcessName == "Plate")).IsComplete = false;
+            await db.SaveChangesAsync();
+        }
+        var incompleteProcessReadiness = Assert.Single((await service.GetAsync()).StartReadiness);
+        Assert.Equal(ProductionStartBlocker.SecondaryProcessesIncomplete, incompleteProcessReadiness.Blocker);
+        Assert.Equal("Awaiting Plate", incompleteProcessReadiness.Message);
+
+        await using (var db = database.CreateDbContext())
+        {
+            (await db.InspectionSecondaryProcesses.SingleAsync(x => x.ProcessName == "Plate")).IsComplete = true;
+            await db.SaveChangesAsync();
+        }
+        var readiness = Assert.Single((await service.GetAsync()).StartReadiness);
+        Assert.True(readiness.IsReady);
+        await service.StartAsync(await Revision(), unmatched.Id);
+    }
+
+    [Fact]
+    public async Task ProgressAddsOutputAndCorrectionsKeepOriginalHistory()
     {
         var s = await AddJob();
         await service.StartAsync(await Revision(), s.Id);
         await service.ProgressAsync(await Revision(), s.Id, 22000, clock.Today, "first", false);
-        await service.ProgressAsync(await Revision(), s.Id, 20000, clock.Today, "correction", false);
+        await service.ProgressAsync(await Revision(), s.Id, 3000, clock.Today, "additional", false);
+        await service.CorrectProgressAsync(await Revision(), s.Id, 20000, clock.Today, "correction");
         var data = await service.GetAsync(); var before = data.Segments.Single();
-        Assert.Equal(20000, before.CompletedQuantity); Assert.Equal(2, before.Progress.Count);
+        Assert.Equal(20000, before.CompletedQuantity); Assert.Equal(3, before.Progress.Count);
+        Assert.Equal(new[] { 0m, 22000m, 25000m }, before.Progress.Select(x => x.PreviousQuantity));
+        Assert.Equal(new[] { 22000m, 25000m, 20000m }, before.Progress.Select(x => x.CompletedQuantity));
         await service.SaveEfficiencyAsync(data.Settings.Revision, 50);
         data = await service.GetAsync(); var after = data.Segments.Single();
         Assert.Equal(before.OriginalHours, after.OriginalHours); Assert.Equal(before.Progress.Select(x => x.CompletedQuantity), after.Progress.Select(x => x.CompletedQuantity));
         Assert.Equal(16, ProductionScheduler.Forecast(data).Single().RemainingHours);
         await Assert.ThrowsAsync<SchedulingException>(() => service.ProgressAsync(data.Settings.Revision, s.Id, 100001, clock.Today, null, false));
         await Assert.ThrowsAsync<SchedulingException>(() => service.ProgressAsync(data.Settings.Revision, s.Id, 20000, clock.Today, null, true));
+        await Assert.ThrowsAsync<SchedulingException>(() => service.CorrectProgressAsync(data.Settings.Revision, s.Id, 100001, clock.Today, null));
     }
 
     [Fact]
@@ -64,7 +183,7 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
-    public async Task UntouchedJobsCanBeDeletedButStartedJobsCannot()
+    public async Task JobsCanBeDeletedRegardlessOfState()
     {
         var untouched = await AddJob();
         await service.SaveRequirementAsync(await Revision(), untouched.JobId, 0, clock.Today.AddDays(1), 5000);
@@ -73,9 +192,81 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
 
         var started = await AddJob();
         await service.StartAsync(await Revision(), started.Id);
-        var revision = await Revision();
-        var exception = await Assert.ThrowsAsync<SchedulingException>(() => service.DeleteJobAsync(revision, started.JobId));
-        Assert.Contains("Only untouched jobs", exception.Message);
+        await service.ProgressAsync(await Revision(), started.Id, 22000, clock.Today, null, false);
+        await service.DeleteJobAsync(await Revision(), started.JobId);
+        Assert.Empty((await service.GetAsync()).Jobs);
+
+        var completed = await AddJob();
+        await service.StartAsync(await Revision(), completed.Id);
+        await service.ProgressAsync(await Revision(), completed.Id, completed.Quantity, clock.Today, null, true);
+        await service.DeleteJobAsync(await Revision(), completed.JobId);
+        Assert.Empty((await service.GetAsync()).Jobs);
+    }
+
+    [Fact]
+    public async Task CompletingWithADifferentQuantityExplicitlyRebalancesTheNextSegmentOrJobTotal()
+    {
+        var current = await AddJob(); var cutIn = await AddJob(10000);
+        await service.StartAsync(await Revision(), current.Id);
+        await service.ProgressAsync(await Revision(), current.Id, 22000, clock.Today, null, false);
+        await service.CutInAsync(await Revision(), current.Id, cutIn.Id, 30000);
+        var next = (await service.GetAsync()).Jobs.Single(x => x.Id == current.JobId).Segments.Single(x => x.Id != current.Id);
+
+        await service.CompleteSegmentAsync(await Revision(), current.Id, 25000, clock.Today, "short", CompletionQuantityAdjustment.RebalanceNextSegment);
+        var data = await service.GetAsync();
+        Assert.Equal(25000, data.Segments.Single(x => x.Id == current.Id).Quantity);
+        Assert.Equal(25000, data.Segments.Single(x => x.Id == current.Id).CompletedQuantity);
+        Assert.Equal(75000, data.Segments.Single(x => x.Id == next.Id).Quantity);
+        Assert.Equal(100000, data.Jobs.Single(x => x.Id == current.JobId).Quantity);
+
+        await service.DeleteJobAsync(await Revision(), current.JobId);
+        await service.DeleteJobAsync(await Revision(), cutIn.JobId);
+
+        var overCurrent = await AddJob(); var overCutIn = await AddJob(10000);
+        await service.StartAsync(await Revision(), overCurrent.Id);
+        await service.CutInAsync(await Revision(), overCurrent.Id, overCutIn.Id, 30000);
+        var overNext = (await service.GetAsync()).Jobs.Single(x => x.Id == overCurrent.JobId).Segments.Single(x => x.Id != overCurrent.Id);
+        await service.CompleteSegmentAsync(await Revision(), overCurrent.Id, 35000, clock.Today, "over", CompletionQuantityAdjustment.RebalanceNextSegment);
+        Assert.Equal(65000, (await service.GetAsync()).Segments.Single(x => x.Id == overNext.Id).Quantity);
+
+        await service.DeleteJobAsync(await Revision(), overCurrent.JobId);
+        await service.DeleteJobAsync(await Revision(), overCutIn.JobId);
+
+        var consumedCurrent = await AddJob(); var consumedCutIn = await AddJob(10000);
+        await service.StartAsync(await Revision(), consumedCurrent.Id);
+        await service.CutInAsync(await Revision(), consumedCurrent.Id, consumedCutIn.Id, 30000);
+        await service.CompleteSegmentAsync(await Revision(), consumedCurrent.Id, 100000, clock.Today, "consumed", CompletionQuantityAdjustment.RebalanceNextSegment);
+        Assert.Single((await service.GetAsync()).Jobs.Single(x => x.Id == consumedCurrent.JobId).Segments);
+
+        await service.DeleteJobAsync(await Revision(), consumedCurrent.JobId);
+        await service.DeleteJobAsync(await Revision(), consumedCutIn.JobId);
+        var onlySegment = await AddJob();
+        await service.StartAsync(await Revision(), onlySegment.Id);
+        await service.CompleteSegmentAsync(await Revision(), onlySegment.Id, 95000, clock.Today, "over", CompletionQuantityAdjustment.UpdateJobQuantity);
+        data = await service.GetAsync();
+        var revisedJob = data.Jobs.Single(x => x.Id == onlySegment.JobId);
+        Assert.Equal(95000, revisedJob.Quantity);
+        Assert.Equal(95000, Assert.Single(revisedJob.Segments).Quantity);
+
+        var invalid = await AddJob(100);
+        await service.StartAsync(await Revision(), invalid.Id);
+        await Assert.ThrowsAsync<SchedulingException>(async () =>
+            await service.CompleteSegmentAsync(await Revision(), invalid.Id, 99, clock.Today, null, CompletionQuantityAdjustment.Exact));
+    }
+
+    [Fact]
+    public async Task DeletingACutInJobReleasesItsDependentSegment()
+    {
+        var source = await AddJob();
+        var cutIn = await AddJob(10000);
+        await service.StartAsync(await Revision(), source.Id);
+        await service.ProgressAsync(await Revision(), source.Id, 22000, clock.Today, null, false);
+        await service.CutInAsync(await Revision(), source.Id, cutIn.Id, 30000);
+
+        await service.DeleteJobAsync(await Revision(), cutIn.JobId);
+
+        var remainingJob = Assert.Single((await service.GetAsync()).Jobs);
+        Assert.DoesNotContain(remainingJob.Segments, segment => segment.PredecessorId == cutIn.Id);
     }
 
     [Fact]
@@ -111,6 +302,7 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         var a = await AddJob(); var b = await AddJob(10000);
         await service.StartAsync(await Revision(), a.Id);
         await service.ProgressAsync(await Revision(), a.Id, 22000, clock.Today, null, false);
+        await Assert.ThrowsAsync<SchedulingException>(async () => await service.CutInAsync(await Revision(), a.Id, b.Id, 30000.5m));
         await service.CutInAsync(await Revision(), a.Id, b.Id, 30000);
         var data = await service.GetAsync(); var job = data.Jobs.Single(x => x.Id == a.JobId);
         Assert.Equal(100000, job.Segments.Sum(x => x.Quantity)); Assert.Equal(22000, job.Segments.Sum(x => x.CompletedQuantity));
@@ -122,7 +314,7 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(new[] { a.Id, b.Id, resume.Id }, preview.Order);
         await service.ApplyOptimizationAsync(preview);
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.StartAsync(await Revision(), b.Id));
-        await service.ProgressAsync(await Revision(), a.Id, 30000, clock.Today, null, true);
+        await service.ProgressAsync(await Revision(), a.Id, 8000, clock.Today, null, true);
         Assert.Equal(30000, (await service.GetAsync()).Jobs.Single(x => x.Id == a.JobId).Segments.Sum(x => x.CompletedQuantity));
     }
 
@@ -132,12 +324,28 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         var a = await AddJob();
         await service.SaveRequirementAsync(await Revision(), a.JobId, 0, clock.Today, 15000);
         await service.SaveRequirementAsync(await Revision(), a.JobId, 0, clock.Today.AddDays(1), 25000);
-        var data = await service.GetAsync(); Assert.Equal(new[] { 15000m, 40000m }, data.Jobs.Single().Requirements.OrderBy(x => x.Date).Select(x => x.CumulativeTarget));
+        var data = await service.GetAsync(); Assert.Equal(new[] { 15000m, 40000m }, data.Requirements.OrderBy(x => x.Date).Select(x => x.CumulativeTarget));
         await service.StartAsync(data.Settings.Revision, a.Id);
         await service.ProgressAsync(await Revision(), a.Id, 22000, clock.Today, null, false);
         await service.SaveRequirementAsync(await Revision(), a.JobId, 0, clock.Today.AddDays(2), null);
-        await service.ProgressAsync(await Revision(), a.Id, 30000, clock.Today, null, false);
-        data = await service.GetAsync(); Assert.Equal(new[] { 15000m, 40000m, 100000m }, data.Jobs.Single().Requirements.OrderBy(x => x.Date).Select(x => x.CumulativeTarget));
+        await service.ProgressAsync(await Revision(), a.Id, 8000, clock.Today, null, false);
+        data = await service.GetAsync(); Assert.Equal(new[] { 15000m, 40000m, 100000m }, data.Requirements.OrderBy(x => x.Date).Select(x => x.CumulativeTarget));
+    }
+
+    [Fact]
+    public async Task RequirementsAreSharedByAllScheduledJobsForTheSamePart()
+    {
+        var first = await AddJob();
+        _ = await AddJob();
+
+        await service.SaveRequirementAsync(await Revision(), first.JobId, 0, clock.Today, 150000);
+
+        var data = await service.GetAsync();
+        var requirement = Assert.Single(data.Requirements);
+        Assert.Equal(partId, requirement.PartId);
+        var forecast = Assert.Single(ProductionScheduler.Requirements(data, ProductionScheduler.Forecast(data)));
+        Assert.False(forecast.Met);
+        Assert.Equal("Projected miss", forecast.Message);
     }
 
     [Fact]

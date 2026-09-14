@@ -18,7 +18,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 
-<PageTitle>Inspection</PageTitle>
+<PageTitle>@(inspection is null ? "Inspection" : $"{inspection.PartNumber} Lot# {inspection.LotNumber ?? "—"}")</PageTitle>
 
 @if (pendingUndo is not null)
 {
@@ -101,8 +101,8 @@ else
 {
     <div class="page-heading">
         <div>
-            <h1>Inspection <span class="inspection-heading-identifiers">Part# @inspection.PartNumber · Lot# @(inspection.LotNumber ?? "—")</span></h1>
-            <p>@inspection.CustomerName · Criteria revision @inspection.RevisionNumber@(inspection.PrintRevisionNumber is null ? null : $" · Print revision {inspection.PrintRevisionNumber}")</p>
+            <h1>Inspection for <span class="inspection-heading-identifiers">Part# @inspection.PartNumber · Lot# @(inspection.LotNumber ?? "—")</span></h1>
+            <p>@inspection.CustomerName · Criteria revision @inspection.RevisionNumber</p>
         </div>
         <div class="inspection-indicators" aria-label="Inspection status">
             <span class="inspection-indicator @(inspection.InspectionAccepted ? "inspection-indicator-positive" : "inspection-indicator-incomplete")">
@@ -184,14 +184,14 @@ else
                 </div>
                 <EditForm Model="findModel" OnValidSubmit="FindAsync" FormName="find-inspections">
                     <div class="inspection-find-grid">
-                        <div class="form-field"><label for="find-part-number">Part number</label><InputText id="find-part-number" @bind-Value="findModel.PartNumber" /></div>
-                        <div class="form-field"><label for="find-lot-number">Lot number</label><InputText id="find-lot-number" @bind-Value="findModel.LotNumber" /></div>
+                        <div class="form-field"><label for="find-part-number">Part Number</label><InputText id="find-part-number" @bind-Value="findModel.PartNumber" /></div>
+                        <div class="form-field"><label for="find-lot-number">Lot Number</label><InputText id="find-lot-number" @bind-Value="findModel.LotNumber" /></div>
                         <div class="form-field"><label for="find-po-number">Conformance PO#</label><InputText id="find-po-number" @bind-Value="findModel.ConformancePoNumber" /></div>
                         <div class="form-field"><label for="find-manufacturer-lot">Manufacturer's Lot#</label><InputText id="find-manufacturer-lot" @bind-Value="findModel.ManufacturerLotNumber" /></div>
-                        <div class="form-field"><label for="find-date-received">Date received</label><InputDate id="find-date-received" @bind-Value="findModel.DateReceived" /></div>
-                        <div class="form-field"><label for="find-inspection-date">Inspection date</label><InputDate id="find-inspection-date" @bind-Value="findModel.InspectionDate" /></div>
-                        <div class="form-field"><label for="find-quantity-received">Quantity received</label><InputNumber id="find-quantity-received" @bind-Value="findModel.QuantityReceived" /></div>
-                        <div class="form-field"><label for="find-quantity-inspected">Quantity inspected</label><InputNumber id="find-quantity-inspected" @bind-Value="findModel.QuantityInspected" /></div>
+                        <div class="form-field"><label for="find-date-received">Date Received</label><InputDate id="find-date-received" @bind-Value="findModel.DateReceived" /></div>
+                        <div class="form-field"><label for="find-inspection-date">Inspection Date</label><InputDate id="find-inspection-date" @bind-Value="findModel.InspectionDate" /></div>
+                        <div class="form-field"><label for="find-quantity-received">Quantity Received</label><InputNumber id="find-quantity-received" @bind-Value="findModel.QuantityReceived" /></div>
+                        <div class="form-field"><label for="find-quantity-inspected">Quantity Inspected</label><InputNumber id="find-quantity-inspected" @bind-Value="findModel.QuantityInspected" /></div>
                         <div class="form-field"><label for="find-inspector">Inspector</label><InputText id="find-inspector" @bind-Value="findModel.Inspector" /></div>
                     </div>
                     @if (findMessage is not null)
@@ -525,7 +525,7 @@ else
 
             <div class="inspection-header-group inspection-mutable-group" role="group" aria-label="Inspection details">
             <div class="form-field inspection-lot-field">
-                <label for="lot-number">Lot number</label>
+                <label for="lot-number">Lot Number</label>
                 <InputText id="lot-number" @bind-Value="inspection.LotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
             </div>
             <div class="form-field inspection-po-field">
@@ -545,7 +545,7 @@ else
                 <ValidationMessage For="@(() => inspection.DateReceived)" />
             </div>
             <div class="form-field inspection-date-field">
-                <label for="inspection-date">Inspection date</label>
+                <label for="inspection-date">Inspection Date</label>
                 <InputDate id="inspection-date"
                            @bind-Value="inspection.InspectionDate"
                            @bind-Value:after="SaveInspectionAfterEditAsync"
@@ -761,7 +761,7 @@ else
                             <strong>@inspection.MasterPrintFileName</strong>
                             @if (inspection.MasterPrintUploadedAtUtc is not null)
                             {
-                                <span> · Uploaded @inspection.MasterPrintUploadedAtUtc.Value.ToString("u")</span>
+                                <span> · Uploaded @inspection.MasterPrintUploadedAtUtc.Value.ToLocalTime().ToString("MM/dd/yyyy HH:mm:ss")</span>
                             }
                         </p>
                     }
@@ -788,7 +788,7 @@ else
     else if (activeTab == InspectionTab.History)
     {
         <section class="inspection-history-panel">
-            <h2>Inspection history</h2>
+            <h2>Inspection History</h2>
             @if (inspection.History.Count == 0)
             {
                 <p>No inspection history has been recorded.</p>
@@ -906,7 +906,7 @@ else
                                 <article class="certification-document-card">
                                     <div>
                                         <strong>@document.OriginalFileName</strong>
-                                        <small>Uploaded @document.UploadedAtUtc.ToString("u")</small>
+                                        <small>Uploaded @document.UploadedAtUtc.ToLocalTime().ToString("MM/dd/yyyy HH:mm:ss")</small>
                                     </div>
                                     <div class="row-actions">
                                         <a class="button button-secondary button-compact" href="@CertificationDocumentUrl(document.Id)" target="_blank" rel="noopener">Open / Print</a>

@@ -3,19 +3,19 @@
 @inject InspectionCriteriaService CriteriaService
 @inject ILogger<History> Logger
 
-<PageTitle>Inspection criteria history</PageTitle>
+<PageTitle>Inspection Criteria History</PageTitle>
 
 <p><a class="back-link" href="@($"/parts/{PartId}/edit")">← Part</a></p>
 
 <div class="page-heading">
     <div>
-        <h1>Inspection criteria history</h1>
+        <h1>Inspection Criteria History</h1>
         <p>Published revisions become permanent, read-only snapshots once an inspection uses them.</p>
     </div>
     @if (!isLoading && revisions.All(x => !x.IsDraft))
     {
         <a class="button button-primary" href="@($"/parts/{PartId}/inspection-criteria/create")">
-            @(revisions.Any(x => x.IsCurrent) ? "Create new revision" : "Create initial revision")
+            @(revisions.Any(x => x.IsCurrent) ? "Create New Revision" : "Create Initial Revision")
         </a>
     }
 </div>

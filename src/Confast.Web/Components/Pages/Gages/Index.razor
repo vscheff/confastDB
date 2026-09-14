@@ -10,7 +10,6 @@
         <h1>Gages</h1>
         <p>Manage inspection methods and the physical instruments of each type.</p>
     </div>
-    <button class="button button-secondary" type="button" @onclick="LoadAsync" disabled="@isLoading">Refresh</button>
 </div>
 
 @if (isLoading)
@@ -48,7 +47,7 @@ else
     <section>
         <div class="gage-tab-toolbar">
             <h2>Gage Types</h2>
-            <button class="button button-primary" type="button" @onclick="BeginAddType" disabled="@(isSaving || typeModel is not null)">Add gage type</button>
+            <button class="button button-primary" type="button" @onclick="BeginAddType" disabled="@(isSaving || typeModel is not null)">Add Gage Type</button>
         </div>
 
         @if (typeModel is not null)
@@ -97,7 +96,7 @@ else
     <section>
         <div class="gage-tab-toolbar">
             <h2>Physical Gages</h2>
-            <button class="button button-primary" type="button" @onclick="BeginAddGage" disabled="@(isSaving || gageModel is not null || gageTypes.Count == 0)">Add gage</button>
+            <button class="button button-primary" type="button" @onclick="BeginAddGage" disabled="@(isSaving || gageModel is not null || gageTypes.Count == 0)">Add Gage</button>
         </div>
 
         @if (gageModel is not null)

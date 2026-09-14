@@ -1,24 +1,44 @@
 .production-panel { margin: 1rem 0; padding: 1rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #f8fafc; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .production-fields { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+.production-fields > p { flex: 0 0 100%; order: -1; margin: 0; }
 .production-fields label { display: flex; flex-direction: column; gap: .3rem; min-width: 10rem; }
 .production-fields label:has(input[type=checkbox]) { flex-direction: row; align-items: center; min-width: auto; min-height: 2.5rem; }
 .production-fields ::deep input:not([type=checkbox]), .production-fields select, .production-fields textarea { min-height: 2.4rem; padding: .4rem; border: 1px solid #aebcc7; border-radius: .25rem; max-width: 100%; }
+.production-fields textarea { height: 2.4rem; resize: vertical; }
 .production-fields input[type=checkbox] { width: 1.2rem; height: 1.2rem; }
-.production-grid { overflow-x: auto; position: relative; left: 50%; width: min(calc(100vw - 2rem), 1800px); margin-left: max(calc(1rem - 50vw), -900px); }
+.production-schedule-envelope { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1800px); margin-left: max(calc(1rem - 50vw), -900px); }
+.production-schedule-toolbar { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
+.production-schedule-filters, .production-schedule-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.production-schedule-actions { justify-content: flex-end; margin-left: auto; }
+.production-grid { overflow-x: auto; width: 100%; }
 .production-grid table { min-width: 1450px; }
 .production-grid td { vertical-align: top; }
-.production-actions { display: flex; flex-wrap: wrap; gap: .3rem; min-width: 12rem; }
+.production-grid:has(.production-more-actions[open]) { overflow: visible; }
+.production-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: .3rem; min-width: max-content; }
+.production-actions .button, .production-more-actions > summary { min-height: 34px; padding: .4rem .65rem; font-size: .84rem; white-space: nowrap; }
+.production-move-button { min-width: 2rem; padding-inline: .4rem !important; }
+.production-more-actions { position: relative; display: flex; }
+.production-more-actions[open] { z-index: 2; }
+.production-more-actions > summary { list-style: none; cursor: pointer; }
+.production-more-actions > summary::-webkit-details-marker { display: none; }
+.production-more-menu { position: absolute; z-index: 2; top: calc(100% + .25rem); right: 0; display: grid; min-width: 8.5rem; gap: .3rem; padding: .4rem; background: #fff; border: 1px solid #c9c9c9; box-shadow: 0 3px 10px rgb(25 45 60 / 18%); }
+.production-more-menu .button { width: 100%; justify-content: flex-start; }
 .production-risk { color: #a4261d; font-weight: 600; }
-@media (max-width: 900px) { .production-grid { position: static; width: 100%; margin-left: 0; } }
+.production-start-status { margin: .35rem 0 0; font-size: .82rem; }
+@media (max-width: 900px) {
+    .production-schedule-envelope { position: static; width: 100%; margin-left: 0; }
+    .production-schedule-toolbar { align-items: stretch; }
+    .production-schedule-actions { margin-left: 0; justify-content: flex-start; }
+}
 .production-grid > table { table-layout: fixed; }
 .production-grid > table > thead th:nth-child(1) { width: 11%; }
 .production-grid > table > thead th:nth-child(2) { width: 12%; }
 .production-grid > table > thead th:nth-child(3) { width: 13%; }
 .production-grid > table > thead th:nth-child(4) { width: 14%; }
 .production-grid > table > thead th:nth-child(5) { width: 10%; }
-.production-grid > table > thead th:nth-child(6) { width: 13%; }
-.production-grid > table > thead th:nth-child(7) { width: 9%; }
+.production-grid > table > thead th:nth-child(6) { width: 8%; }
+.production-grid > table > thead th:nth-child(7) { width: 14%; }
 .production-grid > table > thead th:nth-child(8) { width: 18%; }
 .production-grid td { overflow-wrap: anywhere; }
 .list-toolbar select { min-height: 2.5rem; border: 1px solid #aebcc7; border-radius: .25rem; padding: .3rem; }

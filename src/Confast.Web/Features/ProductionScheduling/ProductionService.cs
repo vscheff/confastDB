@@ -1,6 +1,7 @@
 using System.Data;
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
+using Confast.Web.Features.Inspections;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -30,15 +31,131 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         return result;
     }
 
-    private async Task<ProductionSnapshot> Load(AppDbContext db, bool edit, bool admin) => new(
-        await db.Set<ProductionSettings>().Include(x => x.DefaultWorkingDays).SingleAsync(),
-        await db.Set<SortingMachine>().Include(x => x.WorkingDays).Include(x => x.Parts).OrderBy(x => x.Name).AsSplitQuery().ToListAsync(),
-        await db.Set<ProductionHoliday>().OrderBy(x => x.Date).ToListAsync(),
-        await db.Set<DowntimeReason>().OrderBy(x => x.Name).ToListAsync(),
-        await db.Set<MachineDowntime>().Include(x => x.Reason).ToListAsync(),
-        await db.Set<ProductionJob>().Include(x => x.Part).Include(x => x.Requirements)
-            .Include(x => x.Segments).ThenInclude(x => x.Progress).AsSplitQuery().ToListAsync(),
-        await db.Parts.OrderBy(x => x.PartNumber).ToListAsync(), Today, edit, admin);
+    private async Task<ProductionSnapshot> Load(AppDbContext db, bool edit, bool admin)
+    {
+        var jobs = await db.Set<ProductionJob>().Include(x => x.Part)
+            .Include(x => x.Segments).ThenInclude(x => x.Progress).AsSplitQuery().ToListAsync();
+
+        return new(
+            await db.Set<ProductionSettings>().Include(x => x.DefaultWorkingDays).SingleAsync(),
+            await db.Set<SortingMachine>().Include(x => x.WorkingDays).Include(x => x.Parts).OrderBy(x => x.Name).AsSplitQuery().ToListAsync(),
+            await db.Set<ProductionHoliday>().OrderBy(x => x.Date).ToListAsync(),
+            await db.Set<DowntimeReason>().OrderBy(x => x.Name).ToListAsync(),
+            await db.Set<MachineDowntime>().Include(x => x.Reason).ToListAsync(),
+            jobs,
+            await db.Set<ProductionRequirement>().OrderBy(x => x.Date).ToListAsync(),
+            await db.Parts.OrderBy(x => x.PartNumber).ToListAsync(),
+            await LoadStartReadinessAsync(db, jobs), Today, edit, admin);
+    }
+
+    private static async Task<List<ProductionStartReadiness>> LoadStartReadinessAsync(
+        AppDbContext db,
+        List<ProductionJob> jobs)
+    {
+        var partNumbers = jobs.Select(x => x.Part.PartNumber).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (partNumbers.Length == 0) return [];
+
+        var inspections = await db.Inspections.AsNoTracking()
+            .Where(x => partNumbers.Contains(x.Part.PartNumber))
+            .Select(x => new ProductionInspection(x.Id, x.Part.PartNumber, x.ConformancePoNumber))
+            .ToListAsync();
+        var inspectionIds = inspections.Select(x => x.Id).ToArray();
+        var nominalToleranceSettings = await db.NominalToleranceSettings.AsNoTracking().SingleOrDefaultAsync()
+            ?? new NominalToleranceSettings();
+        var results = inspectionIds.Length == 0 ? [] : await db.InspectionResults.AsNoTracking()
+            .Where(x => inspectionIds.Contains(x.InspectionId))
+            .Select(x => new ProductionInspectionResult(
+                x.InspectionId,
+                x.GageId,
+                x.InspectionCriterion.SecondaryProcessRequirementId,
+                x.InspectionCriterion.Minimum,
+                x.InspectionCriterion.MaximumOrTolerance,
+                x.ActualMin,
+                x.ActualMax,
+                x.DeviationApproved))
+            .ToListAsync();
+        var processes = inspectionIds.Length == 0 ? [] : await db.InspectionSecondaryProcesses.AsNoTracking()
+            .Where(x => inspectionIds.Contains(x.InspectionId))
+            .Select(x => new ProductionInspectionProcess(
+                x.InspectionId,
+                x.SecondaryProcessRequirementId,
+                x.ProcessName,
+                x.IsComplete))
+            .ToListAsync();
+
+        var processesByInspection = processes.GroupBy(x => x.InspectionId)
+            .ToDictionary(x => x.Key, x => x.ToList());
+        var acceptedInspectionIds = results.GroupBy(x => x.InspectionId)
+            .Where(group => IsAccepted(group, processesByInspection.GetValueOrDefault(group.Key, []), nominalToleranceSettings))
+            .Select(x => x.Key)
+            .ToHashSet();
+
+        return jobs.Select(job => StartReadiness(job, inspections, processesByInspection, acceptedInspectionIds)).ToList();
+    }
+
+    private static ProductionStartReadiness StartReadiness(
+        ProductionJob job,
+        IEnumerable<ProductionInspection> inspections,
+        IReadOnlyDictionary<long, List<ProductionInspectionProcess>> processesByInspection,
+        IReadOnlySet<long> acceptedInspectionIds)
+    {
+        if (string.IsNullOrWhiteSpace(job.PoNumber))
+            return new(job.Id, ProductionStartBlocker.MissingPoNumber);
+
+        var matches = inspections.Where(x => string.Equals(x.PartNumber, job.Part.PartNumber, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(x.ConformancePoNumber, job.PoNumber, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Count == 0) return new(job.Id, ProductionStartBlocker.NoMatchingInspection);
+
+        var acceptedMatches = matches.Where(x => acceptedInspectionIds.Contains(x.Id)).ToList();
+        if (acceptedMatches.Count == 0) return new(job.Id, ProductionStartBlocker.InspectionNotAccepted);
+
+        var nonSortProcesses = acceptedMatches
+            .Select(x => processesByInspection.GetValueOrDefault(x.Id, []))
+            .ToList();
+        if (nonSortProcesses.Any(processes => processes
+            .Where(process => !string.Equals(process.ProcessName.Trim(), "Sort", StringComparison.OrdinalIgnoreCase))
+            .All(process => process.IsComplete)))
+        {
+            return new(job.Id, ProductionStartBlocker.None);
+        }
+
+        var awaitingProcess = nonSortProcesses.SelectMany(x => x)
+            .Where(process => !process.IsComplete
+                && !string.Equals(process.ProcessName.Trim(), "Sort", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(process => process.RequirementId)
+            .First();
+        return new(job.Id, ProductionStartBlocker.SecondaryProcessesIncomplete, awaitingProcess.ProcessName);
+    }
+
+    private static bool IsAccepted(
+        IEnumerable<ProductionInspectionResult> results,
+        IEnumerable<ProductionInspectionProcess> processes,
+        NominalToleranceSettings nominalToleranceSettings)
+    {
+        var processCompletion = processes.ToDictionary(x => x.RequirementId, x => x.IsComplete);
+        return results.Any() && results.All(result =>
+            result.SecondaryProcessRequirementId is long requirementId
+                && processCompletion.TryGetValue(requirementId, out var isComplete)
+                && !isComplete
+            || result.GageId is not null
+                && InspectionResultEvaluator.Evaluate(
+                    result.Minimum,
+                    result.MaximumOrTolerance,
+                    result.ActualMin,
+                    result.ActualMax,
+                    result.DeviationApproved,
+                    nominalToleranceSettings.ToleranceFloor,
+                    nominalToleranceSettings.LargeDimensionDivisor) == InspectionResultEvaluation.Pass);
+    }
+
+    private sealed record ProductionInspectionResult(long InspectionId, long? GageId,
+        long? SecondaryProcessRequirementId, string? Minimum, string? MaximumOrTolerance,
+        string? ActualMin, string? ActualMax, bool DeviationApproved);
+
+    private sealed record ProductionInspection(long Id, string PartNumber, string? ConformancePoNumber);
+
+    private sealed record ProductionInspectionProcess(long InspectionId, long RequirementId,
+        string ProcessName, bool IsComplete);
 
     private async Task Write(long revision, bool administrator, string description,
         Func<AppDbContext, ProductionSnapshot, string, Task> action)
@@ -78,18 +195,23 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         {
             Quantity(job.Quantity, "Job quantity");
             if (job.Segments.Sum(x => x.Quantity) != job.Quantity) throw new SchedulingException("Segment quantities must reconcile with the job total.");
-            var target = 0m;
-            foreach (var r in job.Requirements.OrderBy(x => x.Date))
-            {
-                if (r.CumulativeTarget <= target || r.CumulativeTarget > job.Quantity) throw new SchedulingException("Requirements must increase cumulatively in date order and cannot exceed the job total.");
-                target = r.CumulativeTarget;
-            }
             foreach (var s in job.Segments)
             {
                 if (s.Quantity < 0 || s.CompletedQuantity < 0 || s.CompletedQuantity > s.Quantity)
                     throw new SchedulingException("Completed quantity must be between zero and segment quantity.");
                 if (s.State == ProductionState.Completed && s.CompletedQuantity != s.Quantity)
                     throw new SchedulingException("A completed segment must have its full quantity recorded.");
+            }
+        }
+        foreach (var partRequirements in data.Requirements.GroupBy(x => x.PartId))
+        {
+            var target = 0m;
+            var scheduled = data.Jobs.Where(x => x.PartId == partRequirements.Key).Sum(x => x.Quantity);
+            foreach (var requirement in partRequirements.OrderBy(x => x.Date))
+            {
+                if (requirement.CumulativeTarget <= target || requirement.CumulativeTarget > scheduled)
+                    throw new SchedulingException("Requirements must increase cumulatively in date order and cannot exceed the scheduled quantity for the part.");
+                target = requirement.CumulativeTarget;
             }
         }
         foreach (var s in data.Segments.Where(x => x.PredecessorId != null && x.State != ProductionState.Completed))
@@ -160,22 +282,21 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         });
 
     public Task DeleteJobAsync(long revision, long jobId) =>
-        Write(revision, false, $"Delete job {jobId}", (db, data, user) =>
+        Write(revision, false, $"Delete job {jobId}", async (db, data, user) =>
         {
             var job = data.Jobs.SingleOrDefault(x => x.Id == jobId)
                 ?? throw new SchedulingException("Job no longer exists.");
-            if (!CanDelete(job, data))
-                throw new SchedulingException("Only untouched jobs without cut-in dependencies can be deleted.");
+            var segmentIds = job.Segments.Select(x => x.Id).ToHashSet();
+            foreach (var dependent in data.Segments.Where(x => x.PredecessorId is { } predecessor && segmentIds.Contains(predecessor)))
+                dependent.PredecessorId = null;
 
-            db.RemoveRange(job.Requirements);
+            await db.Database.ExecuteSqlRawAsync("SELECT set_config('confast.allow_production_job_deletion', 'on', true)");
+            if (!data.Jobs.Any(x => x.Id != job.Id && x.PartId == job.PartId))
+                db.RemoveRange(data.Requirements.Where(x => x.PartId == job.PartId));
+            db.RemoveRange(job.Segments.SelectMany(x => x.Progress));
             db.RemoveRange(job.Segments);
             db.Remove(job);
-            return Task.CompletedTask;
         });
-
-    private static bool CanDelete(ProductionJob job, ProductionSnapshot data) =>
-        job.Segments.All(x => x.State == ProductionState.Pending && x.CompletedQuantity == 0 && x.Progress.Count == 0)
-        && !data.Segments.Any(x => x.JobId != job.Id && job.Segments.Any(segment => segment.Id == x.PredecessorId));
 
     private static string? Clean(string? value, int maximum)
     {
@@ -188,21 +309,22 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         Write(revision, false, $"Requirement for job {jobId}: {date}, additional {additionalQuantity}, remove {remove}", (db, data, user) =>
         {
             var job = data.Jobs.Single(x => x.Id == jobId);
-            var requirement = job.Requirements.SingleOrDefault(x => x.Id == requirementId);
-            var completed = job.Segments.Sum(x => x.CompletedQuantity);
+            var partRequirements = data.Requirements.Where(x => x.PartId == job.PartId).ToList();
+            var requirement = partRequirements.SingleOrDefault(x => x.Id == requirementId);
+            var completed = data.Jobs.Where(x => x.PartId == job.PartId).SelectMany(x => x.Segments).Sum(x => x.CompletedQuantity);
             if (requirement != null && requirement.CumulativeTarget <= completed)
                 throw new SchedulingException("Satisfied requirements retain their history. Add the next requirement instead.");
             if (remove)
             {
-                if (requirement != null) { job.Requirements.Remove(requirement); db.Remove(requirement); }
+                if (requirement != null) db.Remove(requirement);
                 return Task.CompletedTask;
             }
-            if (job.Requirements.Any(x => x.Id != requirementId && x.Date == date)) throw new SchedulingException("A requirement already exists on that date.");
+            if (partRequirements.Any(x => x.Id != requirementId && x.Date == date)) throw new SchedulingException("A requirement already exists for this part on that date.");
             if (additionalQuantity.HasValue) Quantity(additionalQuantity.Value, "Additional pieces needed");
-            var earlierTarget = job.Requirements.Where(x => x.Id != requirementId && x.Date < date).Select(x => x.CumulativeTarget).DefaultIfEmpty(0).Max();
-            var target = additionalQuantity.HasValue ? Math.Max(completed, earlierTarget) + additionalQuantity.Value : job.Quantity;
-            requirement ??= new() { JobId = jobId };
-            if (!job.Requirements.Contains(requirement)) job.Requirements.Add(requirement);
+            var earlierTarget = partRequirements.Where(x => x.Id != requirementId && x.Date < date).Select(x => x.CumulativeTarget).DefaultIfEmpty(0).Max();
+            var target = additionalQuantity.HasValue ? Math.Max(completed, earlierTarget) + additionalQuantity.Value : data.Jobs.Where(x => x.PartId == job.PartId).Sum(x => x.Quantity);
+            requirement ??= new() { PartId = job.PartId };
+            if (requirement.Id == 0) { data.Requirements.Add(requirement); db.Add(requirement); }
             requirement.Date = date; requirement.CumulativeTarget = target;
             return Task.CompletedTask;
         });
@@ -211,6 +333,8 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
     {
         var s = data.Segments.Single(x => x.Id == segmentId);
         if (s.State != ProductionState.Pending) throw new SchedulingException("Only pending work can start.");
+        var inspectionReadiness = data.StartReadiness.Single(x => x.JobId == s.JobId);
+        if (!inspectionReadiness.IsReady) throw new SchedulingException(inspectionReadiness.Message);
         if (s.NotBefore > Today) throw new SchedulingException("Remove or adjust the start constraint before starting early.");
         if (s.PredecessorId is { } predecessor && data.Segments.Single(x => x.Id == predecessor).State != ProductionState.Completed)
             throw new SchedulingException("Complete the cut-in predecessor first.");
@@ -224,26 +348,90 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         return Task.CompletedTask;
     });
 
-    public Task ProgressAsync(long revision, long segmentId, decimal cumulative, DateOnly asOf, string? notes, bool complete) =>
-        Write(revision, false, $"Progress segment {segmentId}: {cumulative} through {asOf}; complete {complete}", (db, data, user) =>
+    public Task ProgressAsync(long revision, long segmentId, decimal additionalCompleted, DateOnly asOf, string? notes, bool complete) =>
+        Write(revision, false, $"Progress segment {segmentId}: add {additionalCompleted} through {asOf}; complete {complete}", (db, data, user) =>
         {
             var s = data.Segments.Single(x => x.Id == segmentId);
             if (s.State != ProductionState.Running) throw new SchedulingException("Only running segments accept progress. Completed history is locked.");
             if (asOf > Today || asOf < s.ActualStart || asOf < s.ProgressAsOf)
-                throw new SchedulingException("Checkpoint must be on or after actual start and the previous checkpoint, and no later than today. Correct a prior quantity using the current checkpoint date.");
-            if (cumulative < 0 || cumulative > s.Quantity || decimal.Round(cumulative, 3) != cumulative)
-                throw new SchedulingException("Cumulative segment completion must be between zero and segment quantity, with at most three decimals.");
-            if (complete && cumulative != s.Quantity) throw new SchedulingException("Record the full segment quantity before completing it.");
-            s.Progress.Add(new() { MachineId = s.MachineId, AsOf = asOf, PreviousQuantity = s.CompletedQuantity,
-                CompletedQuantity = cumulative, RecordedAt = clock.GetUtcNow().UtcDateTime, RecordedBy = user, Notes = Clean(notes, 4000) });
-            s.CompletedQuantity = cumulative; s.ProgressAsOf = asOf;
-            if (complete)
-            {
-                s.State = ProductionState.Completed; s.ActualCompletion = asOf;
-                s.ActualElapsedWorkingDays = ProductionScheduler.Elapsed(data, data.Machines.Single(x => x.Id == s.MachineId), s);
-            }
+                throw new SchedulingException("Checkpoint must be on or after actual start and the previous checkpoint, and no later than today.");
+            if (additionalCompleted < 0 || decimal.Round(additionalCompleted, 3) != additionalCompleted || additionalCompleted > s.Quantity - s.CompletedQuantity)
+                throw new SchedulingException("Additional completed pieces must fit the remaining segment quantity, with at most three decimals.");
+            RecordProgress(data, s, s.CompletedQuantity + additionalCompleted, asOf, notes, complete, user);
             return Task.CompletedTask;
         });
+
+    public Task CompleteSegmentAsync(long revision, long segmentId, decimal finalCompleted, DateOnly asOf, string? notes,
+        CompletionQuantityAdjustment adjustment) =>
+        Write(revision, false, $"Complete segment {segmentId}: final {finalCompleted}; adjustment {adjustment}", (db, data, user) =>
+        {
+            var segment = data.Segments.Single(x => x.Id == segmentId);
+            if (segment.State != ProductionState.Running) throw new SchedulingException("Only running segments can be completed.");
+            if (asOf > Today || asOf < segment.ActualStart || asOf < segment.ProgressAsOf)
+                throw new SchedulingException("Completion must be on or after actual start and the previous checkpoint, and no later than today.");
+            if (finalCompleted < segment.CompletedQuantity || finalCompleted < 0 || decimal.Round(finalCompleted, 3) != finalCompleted)
+                throw new SchedulingException("Final completed pieces cannot be less than the recorded total and must have at most three decimals.");
+
+            var difference = finalCompleted - segment.Quantity;
+            var job = data.Jobs.Single(x => x.Id == segment.JobId);
+            var nextSegment = job.Segments.SingleOrDefault(x => x.Id != segment.Id && x.State != ProductionState.Completed);
+            if (difference == 0)
+            {
+                if (adjustment != CompletionQuantityAdjustment.Exact)
+                    throw new SchedulingException("This segment already matches its scheduled quantity. Reload and try again.");
+            }
+            else if (nextSegment != null)
+            {
+                if (adjustment != CompletionQuantityAdjustment.RebalanceNextSegment)
+                    throw new SchedulingException("Review the quantity difference before completing this segment.");
+                var revisedNextQuantity = nextSegment.Quantity - difference;
+                if (revisedNextQuantity < 0)
+                    throw new SchedulingException("The quantity difference is larger than the next segment. Adjust the final quantity or revise the schedule first.");
+                if (revisedNextQuantity == 0)
+                {
+                    job.Segments.Remove(nextSegment);
+                    db.Remove(nextSegment);
+                }
+                else nextSegment.Quantity = revisedNextQuantity;
+            }
+            else
+            {
+                if (adjustment != CompletionQuantityAdjustment.UpdateJobQuantity)
+                    throw new SchedulingException("Review the quantity difference before updating the job total.");
+                var revisedJobQuantity = job.Quantity + difference;
+                Quantity(revisedJobQuantity, "Job quantity");
+                job.Quantity = revisedJobQuantity;
+            }
+
+            segment.Quantity = finalCompleted;
+            RecordProgress(data, segment, finalCompleted, asOf, notes, true, user);
+            return Task.CompletedTask;
+        });
+
+    public Task CorrectProgressAsync(long revision, long segmentId, decimal cumulativeCompleted, DateOnly asOf, string? notes) =>
+        Write(revision, false, $"Correct progress segment {segmentId}: {cumulativeCompleted} through {asOf}", (db, data, user) =>
+        {
+            var s = data.Segments.Single(x => x.Id == segmentId);
+            if (s.State != ProductionState.Running) throw new SchedulingException("Only running segments accept progress corrections. Completed history is locked.");
+            if (asOf > Today || asOf < s.ActualStart || asOf < s.ProgressAsOf)
+                throw new SchedulingException("Correction must be on or after actual start and the previous checkpoint, and no later than today.");
+            if (cumulativeCompleted < 0 || cumulativeCompleted > s.Quantity || decimal.Round(cumulativeCompleted, 3) != cumulativeCompleted)
+                throw new SchedulingException("Corrected segment completion must be between zero and segment quantity, with at most three decimals.");
+            RecordProgress(data, s, cumulativeCompleted, asOf, notes, false, user);
+            return Task.CompletedTask;
+        });
+
+    private void RecordProgress(ProductionSnapshot data, ProductionSegment segment, decimal cumulativeCompleted, DateOnly asOf, string? notes, bool complete, string user)
+    {
+        if (complete && cumulativeCompleted != segment.Quantity) throw new SchedulingException("Record all remaining pieces before completing the segment.");
+        segment.Progress.Add(new() { MachineId = segment.MachineId, AsOf = asOf, PreviousQuantity = segment.CompletedQuantity,
+            CompletedQuantity = cumulativeCompleted, RecordedAt = clock.GetUtcNow().UtcDateTime, RecordedBy = user, Notes = Clean(notes, 4000) });
+        segment.CompletedQuantity = cumulativeCompleted; segment.ProgressAsOf = asOf;
+        if (!complete) return;
+
+        segment.State = ProductionState.Completed; segment.ActualCompletion = asOf;
+        segment.ActualElapsedWorkingDays = ProductionScheduler.Elapsed(data, data.Machines.Single(x => x.Id == segment.MachineId), segment);
+    }
 
     public Task SetConstraintAsync(long revision, long segmentId, DateOnly? notBefore, bool pinned) =>
         Write(revision, false, $"Constraint segment {segmentId}: {notBefore}, pinned {pinned}", (db, data, user) =>
@@ -306,8 +494,8 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             var job = data.Jobs.Single(x => x.Id == s.JobId);
             var otherCompleted = job.Segments.Where(x => x.Id != s.Id).Sum(x => x.CompletedQuantity);
             var stop = jobStopTarget - otherCompleted;
-            if (decimal.Round(stop, 3) != stop || stop < s.CompletedQuantity || stop < 0 || stop >= s.Quantity)
-                throw new SchedulingException("Stop target must include completed pieces and leave a positive remainder for resumption.");
+            if (decimal.Truncate(jobStopTarget) != jobStopTarget || decimal.Round(stop, 3) != stop || stop < s.CompletedQuantity || stop < 0 || stop >= s.Quantity)
+                throw new SchedulingException("Stop target must be a whole number, include completed pieces, and leave a positive remainder for resumption.");
             var resume = NewSegment(data, job, s.MachineId, s.Quantity - stop);
             s.Quantity = stop;
             job.Segments.Add(resume);

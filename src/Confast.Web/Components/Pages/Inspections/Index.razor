@@ -19,7 +19,7 @@
             <button class="button button-secondary" type="button" @onclick="LoadAsync" disabled="@isLoading">
                 Refresh
             </button>
-            <a class="button button-primary" href="/inspections/create">Create inspection</a>
+            <a class="button button-primary" href="/inspections/create">Create Inspection</a>
         </div>
     </div>
 
@@ -32,7 +32,7 @@
     {
         <div class="inspection-filter-summary" role="status">
             <span>Filtered inspections: @SearchNavigation.Summary (@inspections.Count)</span>
-            <button class="button button-secondary button-compact" type="button" @onclick="ClearFilter" disabled="@(isLoading || isFiltering)">Clear filter</button>
+            <button class="button button-secondary button-compact" type="button" @onclick="ClearFilter" disabled="@(isLoading || isFiltering)">Clear Filter</button>
         </div>
     }
 
@@ -49,14 +49,14 @@
                 </div>
                 <EditForm Model="filterModel" OnValidSubmit="ApplyFilterAsync" FormName="filter-inspections">
                     <div class="inspection-find-grid">
-                        <div class="form-field"><label for="filter-part-number">Part number</label><InputText id="filter-part-number" @bind-Value="filterModel.PartNumber" /></div>
-                        <div class="form-field"><label for="filter-lot-number">Lot number</label><InputText id="filter-lot-number" @bind-Value="filterModel.LotNumber" /></div>
+                        <div class="form-field"><label for="filter-part-number">Part Number</label><InputText id="filter-part-number" @bind-Value="filterModel.PartNumber" /></div>
+                        <div class="form-field"><label for="filter-lot-number">Lot Number</label><InputText id="filter-lot-number" @bind-Value="filterModel.LotNumber" /></div>
                         <div class="form-field"><label for="filter-po-number">Conformance PO#</label><InputText id="filter-po-number" @bind-Value="filterModel.ConformancePoNumber" /></div>
                         <div class="form-field"><label for="filter-manufacturer-lot">Manufacturer's Lot#</label><InputText id="filter-manufacturer-lot" @bind-Value="filterModel.ManufacturerLotNumber" /></div>
-                        <div class="form-field"><label for="filter-date-received">Date received</label><InputDate id="filter-date-received" @bind-Value="filterModel.DateReceived" /></div>
-                        <div class="form-field"><label for="filter-inspection-date">Inspection date</label><InputDate id="filter-inspection-date" @bind-Value="filterModel.InspectionDate" /></div>
-                        <div class="form-field"><label for="filter-quantity-received">Quantity received</label><InputNumber id="filter-quantity-received" @bind-Value="filterModel.QuantityReceived" /></div>
-                        <div class="form-field"><label for="filter-quantity-inspected">Quantity inspected</label><InputNumber id="filter-quantity-inspected" @bind-Value="filterModel.QuantityInspected" /></div>
+                        <div class="form-field"><label for="filter-date-received">Date Received</label><InputDate id="filter-date-received" @bind-Value="filterModel.DateReceived" /></div>
+                        <div class="form-field"><label for="filter-inspection-date">Inspection Date</label><InputDate id="filter-inspection-date" @bind-Value="filterModel.InspectionDate" /></div>
+                        <div class="form-field"><label for="filter-quantity-received">Quantity Received</label><InputNumber id="filter-quantity-received" @bind-Value="filterModel.QuantityReceived" /></div>
+                        <div class="form-field"><label for="filter-quantity-inspected">Quantity Inspected</label><InputNumber id="filter-quantity-inspected" @bind-Value="filterModel.QuantityInspected" /></div>
                         <div class="form-field"><label for="filter-inspector">Inspector</label><InputText id="filter-inspector" @bind-Value="filterModel.Inspector" /></div>
                     </div>
                     @if (filterMessage is not null)
@@ -64,7 +64,7 @@
                         <div class="alert alert-error" role="alert">@filterMessage</div>
                     }
                     <div class="form-actions">
-                        <button class="button button-primary" type="submit" disabled="@isFiltering">@(isFiltering ? "Filtering…" : "Apply filter")</button>
+                        <button class="button button-primary" type="submit" disabled="@isFiltering">@(isFiltering ? "Filtering…" : "Apply Filter")</button>
                         <button class="button button-secondary" type="button" @onclick="ClearFilterInputs" disabled="@isFiltering">Clear</button>
                     </div>
                 </EditForm>

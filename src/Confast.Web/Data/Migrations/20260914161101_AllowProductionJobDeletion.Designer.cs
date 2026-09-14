@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260914161101_AllowProductionJobDeletion")]
+    partial class AllowProductionJobDeletion
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2464,13 +2467,13 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("date")
                         .HasColumnName("date");
 
-                    b.Property<long>("PartId")
+                    b.Property<long>("JobId")
                         .HasColumnType("bigint")
-                        .HasColumnName("part_id");
+                        .HasColumnName("job_id");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PartId", "Date")
+                    b.HasIndex("JobId", "Date")
                         .IsUnique();
 
                     b.ToTable("production_requirements", null, t =>
@@ -3535,13 +3538,11 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.ProductionScheduling.ProductionRequirement", b =>
                 {
-                    b.HasOne("Confast.Web.Features.Parts.Part", "Part")
-                        .WithMany()
-                        .HasForeignKey("PartId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                    b.HasOne("Confast.Web.Features.ProductionScheduling.ProductionJob", null)
+                        .WithMany("Requirements")
+                        .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Part");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.ProductionScheduling.ProductionSegment", b =>
@@ -3738,6 +3739,8 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.ProductionScheduling.ProductionJob", b =>
                 {
+                    b.Navigation("Requirements");
+
                     b.Navigation("Segments");
                 });
 

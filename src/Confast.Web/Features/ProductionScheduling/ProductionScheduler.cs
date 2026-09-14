@@ -111,14 +111,14 @@ public static class ProductionScheduler
     public static List<RequirementForecast> Requirements(ProductionSnapshot data, List<SegmentForecast> forecasts)
     {
         var result = new List<RequirementForecast>();
-        foreach (var job in data.Jobs)
-        foreach (var requirement in job.Requirements.OrderBy(x => x.Date))
+        foreach (var requirement in data.Requirements.OrderBy(x => x.PartId).ThenBy(x => x.Date))
         {
-            var completed = job.Segments.Sum(x => x.CompletedQuantity);
+            var jobs = data.Jobs.Where(x => x.PartId == requirement.PartId).ToList();
+            var completed = jobs.SelectMany(x => x.Segments).Sum(x => x.CompletedQuantity);
             // Current corrected checkpoints are authoritative; never sum cumulative entries.
-            var events = job.Segments.Where(x => x.CompletedQuantity > 0)
+            var events = jobs.SelectMany(x => x.Segments).Where(x => x.CompletedQuantity > 0)
                 .Select(x => new { Date = x.ProgressAsOf ?? x.ActualCompletion ?? data.Horizon, Quantity = x.CompletedQuantity })
-                .Concat(forecasts.Where(x => job.Segments.Any(s => s.Id == x.SegmentId))
+                .Concat(forecasts.Where(x => jobs.SelectMany(job => job.Segments).Any(s => s.Id == x.SegmentId))
                     .SelectMany(x => x.Capacity).Select(x => new { x.Date, x.Quantity }))
                 .GroupBy(x => x.Date).OrderBy(x => x.Key);
             var accumulated = 0m;
@@ -131,10 +131,10 @@ public static class ProductionScheduler
             // For already fulfilled requirements, retain the earliest corrected historical evidence.
             if (completed >= requirement.CumulativeTarget)
             {
-                var dates = job.Segments.SelectMany(s => s.Progress).Select(p => p.AsOf).Distinct().Order().ToList();
+                var dates = jobs.SelectMany(job => job.Segments).SelectMany(s => s.Progress).Select(p => p.AsOf).Distinct().Order().ToList();
                 foreach (var date in dates)
                 {
-                    var quantity = job.Segments.Sum(s => s.Progress.Where(p => p.AsOf <= date)
+                    var quantity = jobs.SelectMany(job => job.Segments).Sum(s => s.Progress.Where(p => p.AsOf <= date)
                         .OrderByDescending(p => p.RecordedAt).ThenByDescending(p => p.Id).FirstOrDefault()?.CompletedQuantity ?? 0);
                     if (quantity >= requirement.CumulativeTarget) { reached = date; break; }
                 }
@@ -173,8 +173,9 @@ public static class ProductionScheduler
     private static decimal LatestSafeStart(ProductionSnapshot data, SortingMachine machine, ProductionSegment segment)
     {
         var job = data.Jobs.Single(x => x.Id == segment.JobId);
-        var completed = job.Segments.Sum(x => x.CompletedQuantity);
-        var next = job.Requirements.OrderBy(x => x.Date).FirstOrDefault(x => x.CumulativeTarget > completed);
+        var partJobs = data.Jobs.Where(x => x.PartId == job.PartId).ToList();
+        var completed = partJobs.SelectMany(x => x.Segments).Sum(x => x.CompletedQuantity);
+        var next = data.Requirements.Where(x => x.PartId == job.PartId).OrderBy(x => x.Date).FirstOrDefault(x => x.CumulativeTarget > completed);
         if (next == null) return decimal.MaxValue;
         var rate = machine.Parts.SingleOrDefault(x => x.PartId == job.PartId)?.TargetPph ?? 0;
         if (rate <= 0 || !machine.WorkingDays.Any(x => x.Hours > 0)) return decimal.MinValue;

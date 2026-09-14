@@ -40,10 +40,10 @@ public static class ProductionMapping
         job.ToTable("production_jobs", t => t.HasCheckConstraint("ck_job_quantity", "quantity > 0"));
         job.HasOne(x => x.Part).WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
         job.HasMany(x => x.Segments).WithOne().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
-        job.HasMany(x => x.Requirements).WithOne().HasForeignKey(x => x.JobId);
         var req = model.Entity<ProductionRequirement>();
         req.ToTable("production_requirements", t => t.HasCheckConstraint("ck_requirement_quantity", "cumulative_target > 0"));
-        req.HasIndex(x => new { x.JobId, x.Date }).IsUnique();
+        req.HasOne(x => x.Part).WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
+        req.HasIndex(x => new { x.PartId, x.Date }).IsUnique();
         var segment = model.Entity<ProductionSegment>();
         segment.ToTable("production_segments", t => t.HasCheckConstraint("ck_segment_quantity", "quantity >= 0 AND completed_quantity >= 0 AND completed_quantity <= quantity AND state BETWEEN 0 AND 2 AND (state <> 2 OR completed_quantity = quantity)"));
         segment.HasOne<SortingMachine>().WithMany().HasForeignKey(x => x.MachineId).OnDelete(DeleteBehavior.Restrict);

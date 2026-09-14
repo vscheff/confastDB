@@ -40,11 +40,11 @@ else
         <div class="heading-actions">
             @if (revision.IsDraft)
             {
-                <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Publish revision</button>
+                <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Publish Revision</button>
             }
             @if (revision.CanEdit && !confirmRevisionDelete)
             {
-                <button class="button button-danger" type="button" @onclick="BeginRevisionDelete" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Delete revision</button>
+                <button class="button button-danger" type="button" @onclick="BeginRevisionDelete" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Delete Revision</button>
             }
             else if (revision.CanEdit)
             {
@@ -125,7 +125,7 @@ else
                 <span class="detail-value">@(part?.SpecificationUsed ?? "—")</span>
             </div>
             <div class="compact-form-field destination-plants-field">
-                <span class="detail-label">Destination plants</span>
+                <span class="detail-label">Destination Plants</span>
                 <span class="detail-value">@DestinationPlantSummary</span>
             </div>
             <div class="compact-form-field part-active-field">
@@ -140,8 +140,8 @@ else
             @if (revision.CanEdit)
             {
                 <div class="heading-actions">
-                    <button class="button button-secondary" type="button" @onclick="AlignAllCriterionDecimalPlacesAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Match decimal places</button>
-                    <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add criterion</button>
+                    <button class="button button-secondary" type="button" @onclick="AlignAllCriterionDecimalPlacesAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Match Cecimal Places</button>
+                    <button class="button button-primary" type="button" @onclick="BeginAdd" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add Criterion</button>
                 </div>
             }
         </div>
@@ -485,7 +485,7 @@ else
                 @if (revision.HasMasterPrint)
                 {
                     <div class="heading-actions">
-                        <a class="button button-secondary" href="@MasterPrintViewerUrl" target="_blank" rel="noopener">Open in new tab</a>
+                        <a class="button button-secondary" href="@MasterPrintViewerUrl" target="_blank" rel="noopener">Open In New Tab</a>
                         @if (revision.CanEdit)
                         {
                             @if (confirmMasterPrintDelete)
@@ -527,7 +527,6 @@ else
             <div class="section-heading">
                 <div>
                     <h2>Certification Requirements</h2>
-                    <p>Not Applicable is represented by no requirement row.</p>
                 </div>
                 @if (revision.CanEdit)
                 {

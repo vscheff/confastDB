@@ -5,14 +5,18 @@
 @inject ILogger<Index> Logger
 
 <PageTitle>Production Scheduling</PageTitle>
-<div class="page-heading"><div><h1>Production Scheduling</h1><p>Machine queues, manual progress, and quantity requirements.</p></div><AuthorizeView Roles="@AppRoles.Administrator"><a class="button button-secondary" href="/production-scheduling/settings">Scheduling settings</a></AuthorizeView></div>
+<div class="production-schedule-envelope">
+<div class="page-heading"><div><h1>Production Scheduling</h1></div><AuthorizeView Roles="@AppRoles.Administrator"><a class="button button-secondary" href="/production-scheduling/settings">Scheduling settings</a></AuthorizeView></div>
 @if (message != null) { <div class="alert alert-error" role="alert">@message</div> }
 @if (data == null) { <p>Loading schedule…</p> }
 else
 {
-    <div class="list-toolbar">
+    <div class="list-toolbar production-schedule-toolbar">
+        <div class="production-schedule-filters">
         <label>Machine <select aria-label="Machine" disabled="@(!ready || busy)" @bind="machineId" @bind:after="CloseEditor">@foreach (var m in data.Machines) { <option value="@m.Id">@m.Name @(!m.IsActive ? "(inactive)" : "")</option> }</select></label>
         <label><input type="checkbox" @bind="showCompleted" /> Show completed history</label>
+        </div>
+        <div class="production-schedule-actions">
         <button class="button button-secondary" disabled="@busy" @onclick="Reload">Reload</button>
         @if (data.CanEdit && machineId != 0)
         {
@@ -20,8 +24,8 @@ else
             <button class="button button-secondary" @onclick="NewDowntime">Add downtime</button>
             <button class="button button-secondary" @onclick="Optimize">Optimize Schedule</button>
         }
+        </div>
     </div>
-    <p>Forecast from @D(data.Horizon) · Efficiency @N(data.Settings.EfficiencyPercent)% · Dates retain partial-day capacity. Equivalent days = hours ÷ this machine’s average configured working-day hours. Downtime blocks whole days, inclusive.</p>
     @if (!data.Machines.Any()) { <p class="status-message">Configure sorting machines (including manual sorting), working hours, and eligible parts in Scheduling settings.</p> }
     @if (preview != null)
     {
@@ -31,7 +35,7 @@ else
             {
                 var s = data.Segments.Single(x => x.Id == id); var j = Job(s); var f = preview.Forecasts.Single(x => x.SegmentId == id);
                 var r = Next(j); var risk = r == null ? null : preview.Requirements.Single(x => x.RequirementId == r.Id);
-                <tr><td>@(preview.Order.IndexOf(id) + 1)</td><td>@j.Part.PartNumber / #@id</td><td>@D(Forecast(s).Finish)</td><td>@D(f.Start)</td><td>@D(f.Finish) @f.Error</td><td>@(risk?.Message ?? "No further requirement known") @D(risk?.ExpectedDate)</td></tr>
+                <tr><td>@(preview.Order.IndexOf(id) + 1)</td><td>@j.Part.PartNumber / Segment @SegmentNumber(s)</td><td>@D(Forecast(s).Finish)</td><td>@D(f.Start)</td><td>@D(f.Finish) @f.Error</td><td>@(risk?.Message ?? "No further requirement known") @D(risk?.ExpectedDate)</td></tr>
             }
             </tbody></table></div>
             <button class="button button-primary" disabled="@busy" @onclick="ApplyPreview">Apply proposed order</button> <button class="button button-secondary" @onclick="() => preview = null">Cancel</button>
@@ -50,9 +54,39 @@ else
         }
         else if (editor == "progress")
         {
-            <p>Enter cumulative completed pieces for segment #@selected!.Id (allocation @N(selected.Quantity)). This is an end-of-day checkpoint; remaining work resumes after this date. Corrections replace the current value.</p>
-            <label>Cumulative segment completed <input inputmode="numeric" @bind="progressQuantityText" @bind:after="ParseProgressQuantity" /></label><label>As of (through end of day) <InputDate @bind-Value="date" /></label><label>Correction / progress notes <textarea @bind="notes"></textarea></label>
-            <button class="button button-primary" @onclick="() => SaveProgress(false)">Record checkpoint</button><button class="button button-secondary" @onclick="() => SaveProgress(true)">Record and complete segment</button>
+            <p>Enter pieces completed since the last checkpoint @if (Job(selected!).Segments.Count == 1) { <text>this job</text> } else { <text>for Segment @SegmentNumber(selected!)</text> } (current total @N(selected!.CompletedQuantity) of @N(selected.Quantity)).</p>
+            <label>Completed Pieces <input inputmode="numeric" @bind="progressQuantityText" @bind:event="oninput" @bind:after="ParseProgressQuantity" @onkeydown="SaveProgressOnEnter" /></label><label>Date Completed<InputDate @bind-Value="date" @bind-Value:event="oninput" @onkeydown="SaveProgressOnEnter" /></label><label>Notes <textarea @bind="notes" @bind:event="oninput" @onkeydown="SaveProgressOnEnter"></textarea></label>
+            <button class="button button-primary" @onclick="() => SaveProgress(false)">Record Checkpoint</button><button class="button button-secondary" @onclick="() => SaveProgress(true)">Record and Complete</button>
+        }
+        else if (editor == "progress-correction")
+        {
+            <p>Correct the cumulative total for Segment @SegmentNumber(selected!) (allocation @N(selected!.Quantity)). This appends an audited correction; it does not alter earlier checkpoints.</p>
+            <label>Corrected cumulative completed pieces <input inputmode="numeric" @bind="progressQuantityText" @bind:after="ParseProgressQuantity" /></label><label>As of (through end of day) <InputDate @bind-Value="date" /></label><label>Correction notes <textarea @bind="notes"></textarea></label>
+            <button class="button button-primary" @onclick="SaveProgressCorrection">Save correction</button>
+        }
+        else if (editor == "completion-confirmation")
+        {
+            var difference = pendingCompletionQuantity - selected!.Quantity;
+            var nextSegment = Job(selected).Segments.SingleOrDefault(x => x.Id != selected.Id && x.State != ProductionState.Completed);
+            <p><strong>The final quantity is @N(Math.Abs(difference)) piece@(Math.Abs(difference) == 1 ? "" : "s") @(difference < 0 ? "less" : "more") than @if (Job(selected).Segments.Count == 1) { <text>this job's scheduled quantity</text> } else { <text>Segment @SegmentNumber(selected)’s scheduled quantity</text> } of @N(selected.Quantity).</strong></p>
+            @if (nextSegment != null)
+            {
+                <p>@if (difference < 0) { <text>Do you want to add @N(-difference) pieces to next Segment @SegmentNumber(nextSegment), changing it from @N(nextSegment.Quantity) to @N(nextSegment.Quantity - difference)?</text> } else { <text>Remove @N(difference) pieces from next Segment @SegmentNumber(nextSegment), changing it from @N(nextSegment.Quantity) to @N(nextSegment.Quantity - difference).</text> }</p>
+                <button class="button button-primary" @onclick="() => ConfirmCompletion(CompletionQuantityAdjustment.RebalanceNextSegment)">@(difference < 0 ? "Add to Next Segment and Complete" : "Remove from Next Segment and Complete")</button>
+            }
+            else
+            {
+                @if (Job(selected).Segments.Count == 1)
+                {
+                    <p>Would you like to update the quantity for this job from @N(Job(selected).Quantity) to @N(pendingCompletionQuantity)?</p>
+                }
+                else
+                {
+                    <p>Would you like to update the job total from @N(Job(selected).Quantity) to @N(Job(selected).Quantity + difference), and Segment @SegmentNumber(selected) from @N(selected.Quantity) to @N(pendingCompletionQuantity)?</p>
+                }
+                <button class="button button-primary" @onclick="() => ConfirmCompletion(CompletionQuantityAdjustment.UpdateJobQuantity)">Update Job Quantity and Complete</button>
+            }
+            <button class="button button-secondary" @onclick="CancelCompletion">Cancel</button>
         }
         else if (editor == "constraint")
         {
@@ -62,15 +96,15 @@ else
         }
         else if (editor == "requirement")
         {
-            <p>Additional pieces needed beyond current completion or earlier cumulative requirements, whichever is larger. Blank quantity sets a stable target of the full job quantity. Saving edits only this requirement; later cumulative targets stay explicit.</p>
-            <label>Shortage date (finish on this date is on time) <InputDate @bind-Value="date" /></label><label>Additional pieces needed (optional) <InputNumber @bind-Value="optionalQuantity" /></label>
+            <p>Requirements apply to every scheduled job for this part. Additional pieces are needed beyond current part completion or earlier cumulative requirements, whichever is larger. Blank quantity sets a stable target of the full scheduled quantity for the part. Saving edits only this requirement; later cumulative targets stay explicit.</p>
+            <label>Shortage date (finish on this date is on time) <InputDate @bind-Value="date" /></label><label>Additional pieces needed (optional) <input inputmode="numeric" @bind="optionalQuantityText" @bind:event="oninput" @onchange="ParseOptionalQuantity" @onkeydown="SaveRequirementOnEnter" /></label>
             <button class="button button-primary" @onclick="() => SaveRequirement(false)">Save next requirement</button>
             @if (requirementId != 0) { <button class="button button-danger-outline" @onclick="() => SaveRequirement(true)">Remove outstanding requirement</button> }
         }
         else if (editor == "cutin")
         {
-            <label>Stop at cumulative job completion <InputNumber @bind-Value="quantity" /></label>
-            <label>Run this queued segment before resuming <select aria-label="Run this queued segment before resuming" @bind="otherId"><option value="0">Select pending job</option>@foreach (var s in data.Segments.Where(x => x.MachineId == machineId && x.State == ProductionState.Pending && x.JobId != selected!.JobId)) { <option value="@s.Id">@Job(s).Part.PartNumber — #@s.Id (@N(s.Quantity) pieces)</option> }</select></label>
+            <label>Stop at cumulative job completion <ThousandsSeparatedDecimalInput @bind-Value="cutInStopTarget" DecimalPlaces="0" /></label>
+            <label>Run this queued segment before resuming <select aria-label="Run this queued segment before resuming" @bind="otherId"><option value="0">Select pending job</option>@foreach (var s in data.Segments.Where(x => x.MachineId == machineId && x.State == ProductionState.Pending && x.JobId != selected!.JobId)) { <option value="@s.Id">@Job(s).Part.PartNumber — Segment @SegmentNumber(s) (@N(s.Quantity) pieces)</option> }</select></label>
             <p>This splits the allocation and preserves the stop → cut-in → resume order. Start and completion remain explicit actions.</p><button class="button button-primary" @onclick="SaveCutIn">Create cut-in</button>
         }
         else if (editor == "reassign")
@@ -91,34 +125,39 @@ else
     @foreach (var s in Queue)
     {
         var j = Job(s); var f = Forecast(s); var next = Next(j); var risk = next == null ? null : requirements.Single(x => x.RequirementId == next.Id);
-        <tr @key="s.Id"><td><strong>@j.Part.PartNumber</strong><br />PO: @(j.PoNumber ?? "—")<br />MO: @(j.MoNumber ?? "—")<br /><small>Job #@j.Id · Segment #@s.Id</small></td>
-            <td>@if (next == null) { <span>No further requirement known</span> } else { <strong>@D(next.Date)</strong><br /><span>@N(next.CumulativeTarget - j.Segments.Sum(x => x.CompletedQuantity)) additional pieces</span><br /><small>@N(next.CumulativeTarget) cumulative target</small><br /><span class="@(risk!.Met ? "" : "production-risk")">@risk.Message · @D(risk.ExpectedDate)</span> }</td>
-            <td>@D(f.Start) → @D(f.Finish)<br />@if (s.NotBefore != null) { <small>No earlier than @D(s.NotBefore)</small><br /> }<small>Actual start: @D(s.ActualStart)<br />Completed: @D(s.ActualCompletion)</small>@if (f.Error != null) { <p class="production-risk">@f.Error</p> }</td>
-            <td>@N(f.RequiredHours) h total<br />@N(f.RemainingHours) h remaining<br />@(f.DayHours > 0 ? N(f.RemainingHours / f.DayHours) : "—") equivalent days remaining<br /><small>Original: @N(s.OriginalHours) h<br />Target @W(f.TargetPph) PPH<br />Effective @W(f.EffectivePph) PPH</small></td>
-            <td>@N(s.Quantity > 0 ? s.CompletedQuantity / s.Quantity * 100 : 100)% segment<br />@N(j.Segments.Sum(x => x.CompletedQuantity) / j.Quantity * 100)% job<br />@N(f.ElapsedDays) elapsed working days<br /><small>Checkpoint: @D(s.ProgressAsOf)</small>@if (f.StaleProgress) { <p class="production-risk">Progress is stale; no unreported output assumed.</p> }</td>
-            <td>Job: @N(j.Quantity)<br />Segment: @N(s.Quantity)<br />Segment completed: @N(s.CompletedQuantity)<br />Job completed: @N(j.Segments.Sum(x => x.CompletedQuantity))<br /><small>Job boxes: @(ProductionScheduler.Boxes(j.Quantity, j.Part.BoxQuantity)?.ToString("N0") ?? "Set Part box quantity")</small></td>
-            <td>@j.Notes<br /><strong>@s.State</strong>@if (s.IsPinned) { <span> · Pinned</span> }@if (s.PredecessorId != null) { <br /><small>After segment #@s.PredecessorId</small> }</td>
+        <tr @key="s.Id"><td><strong>@j.Part.PartNumber</strong><br />PO: @(j.PoNumber ?? "—")<br />MO: @(j.MoNumber ?? "—")@if (j.Segments.Count > 1) { <br /><small>Segment @SegmentNumber(s)</small> }</td>
+        <td>@if (next == null) { <span>No further requirement known</span> } else { <strong>@D(next.Date)</strong><br /><span>@N(next.CumulativeTarget - CompletedForPart(j.PartId)) additional pieces</span><br /><small>@N(next.CumulativeTarget) cumulative target</small><br /><span class="@(risk!.Met ? "" : "production-risk")">@risk.Message · @D(risk.ExpectedDate)</span> }</td>
+            <td>@ScheduleDate(f.Start) → @ScheduleDate(f.Finish)<br />@if (s.NotBefore != null) { <small>No earlier than @ScheduleDate(s.NotBefore)</small><br /> }<small>Actual start: @ScheduleDate(s.ActualStart)<br />Completed: @ScheduleDate(s.ActualCompletion)</small>@if (f.Error != null) { <p class="production-risk">@f.Error</p> }</td>
+            <td>Total: @Duration(f.RequiredHours, f.DayHours)<br />Remaining: @Duration(f.RemainingHours, f.DayHours)<br /><small>Original: @Duration(s.OriginalHours, f.DayHours)</small></td>
+            <td>@if (j.Segments.Count > 1) { <span>@N(s.Quantity > 0 ? s.CompletedQuantity / s.Quantity * 100 : 100)% segment</span><br /> }@N(j.Segments.Sum(x => x.CompletedQuantity) / j.Quantity * 100)% job<br />@N(f.ElapsedDays) elapsed days
+                @if (f.StaleProgress) { <p class="production-risk">Progress is stale; no unreported output assumed.</p> }</td>
+            <td>Job: @N(j.Quantity)<br />@if (j.Segments.Count > 1) { <span>Segment: @N(s.Quantity)<br />Segment completed: @N(s.CompletedQuantity)<br /></span> }Job completed: @N(j.Segments.Sum(x => x.CompletedQuantity))<br /><small>Job boxes: @(ProductionScheduler.Boxes(j.Quantity, j.Part.BoxQuantity)?.ToString("N0") ?? "Set Part box quantity")</small></td>
+            <td>@j.Notes<br /><strong>@s.State</strong>@if (s.IsPinned) { <span> · Pinned</span> }@if (s.State == ProductionState.Pending && !StartReadiness(j).IsReady) { <p class="production-start-status production-risk">@StartReadiness(j).Message</p> }</td>
             <td><div class="table-actions production-actions">@if (data.CanEdit)
             {
-                <button class="button button-secondary" @onclick="() => EditJob(j)">Edit job</button><button class="button button-secondary" @onclick="() => EditRequirement(j)">Next requirement</button>
-                @if (CanDelete(j)) { <button class="button button-danger-outline" disabled="@busy" @onclick="() => Run(() => Service.DeleteJobAsync(data.Settings.Revision, j.Id))">Delete job</button> }
                 @if (s.State == ProductionState.Pending)
                 {
-                    <button class="button button-primary" disabled="@busy" @onclick="() => Run(() => Service.StartAsync(data.Settings.Revision, s.Id))">Start</button>
-                    <button class="button button-secondary" disabled="@busy" aria-label="Move earlier" @onclick="() => Run(() => Service.MoveAsync(data.Settings.Revision, s.Id, -1))">↑ Earlier</button><button class="button button-secondary" disabled="@busy" @onclick="() => Run(() => Service.MoveAsync(data.Settings.Revision, s.Id, 1))">↓ Later</button>
-                    <button class="button button-secondary" @onclick="() => OpenConstraint(s)">Start / pin</button><button class="button button-secondary" @onclick="() => OpenReassignment(s)">Reassign</button>
+                    <button class="button button-secondary production-move-button" disabled="@busy" aria-label="Move earlier" @onclick="() => Run(() => Service.MoveAsync(data.Settings.Revision, s.Id, -1))">↑</button><button class="button button-secondary production-move-button" disabled="@busy" aria-label="Move later" @onclick="() => Run(() => Service.MoveAsync(data.Settings.Revision, s.Id, 1))">↓</button><button class="button button-primary" disabled="@(busy || !StartReadiness(j).IsReady)" @onclick="() => Run(() => Service.StartAsync(data.Settings.Revision, s.Id))">Start</button>
                 }
-                @if (s.State == ProductionState.Running) { <button class="button button-primary" @onclick="() => OpenProgress(s)">Progress / complete</button><button class="button button-secondary" @onclick="() => OpenReassignment(s)">Reassign</button> }
-                @if (s.State != ProductionState.Completed) { <button class="button button-secondary" @onclick="() => OpenCutIn(s)">Cut-in</button> }
+                @if (s.State == ProductionState.Running) { <button class="button button-primary" @onclick="() => OpenProgress(s)">Progress</button> }
+                <button class="button button-secondary" @onclick="() => EditJob(j)">Edit</button>
+                <details class="production-more-actions"><summary class="button button-secondary">More</summary><div class="production-more-menu">
+                    <button class="button button-secondary" @onclick="() => EditRequirement(j)">Requirements</button>
+                    @if (s.State != ProductionState.Completed) { <button class="button button-secondary" @onclick="() => OpenCutIn(s)">Cut-In</button><button class="button button-secondary" @onclick="() => OpenReassignment(s)">Reassign</button> }
+                    @if (s.State == ProductionState.Running) { <button class="button button-secondary" @onclick="() => OpenProgressCorrection(s)">Correct Total</button> }
+                    @if (s.State == ProductionState.Pending) { <button class="button button-secondary" @onclick="() => OpenConstraint(s)">Pin</button> }
+                    <button class="button button-danger-outline" disabled="@busy" @onclick="() => Run(() => Service.DeleteJobAsync(data.Settings.Revision, j.Id))">Delete</button>
+                </div></details>
             }</div></td></tr>
         @if (s.Progress.Count > 0)
         {
-            <tr><td colspan="8"><details><summary>Progress history for segment #@s.Id (@s.Progress.Count checkpoints)</summary><table class="data-table"><thead><tr><th>Through date</th><th>Previous cumulative</th><th>New cumulative</th><th>Recorded</th><th>Notes</th></tr></thead><tbody>@foreach (var p in s.Progress.OrderByDescending(x => x.RecordedAt)) { <tr><td>@D(p.AsOf)</td><td>@N(p.PreviousQuantity)</td><td>@N(p.CompletedQuantity)</td><td>@p.RecordedAt.ToLocalTime().ToString("g")</td><td>@p.Notes</td></tr> }</tbody></table></details></td></tr>
+            <tr><td colspan="8"><details><summary>Progress history for Segment @SegmentNumber(s) (@s.Progress.Count checkpoints)</summary><table class="data-table"><thead><tr><th>Through date</th><th>Previous cumulative</th><th>Change</th><th>New cumulative</th><th>Recorded</th><th>Notes</th></tr></thead><tbody>@foreach (var p in s.Progress.OrderByDescending(x => x.RecordedAt)) { <tr><td>@D(p.AsOf)</td><td>@N(p.PreviousQuantity)</td><td>@N(p.CompletedQuantity - p.PreviousQuantity)</td><td>@N(p.CompletedQuantity)</td><td>@p.RecordedAt.ToLocalTime().ToString("g")</td><td>@p.Notes</td></tr> }</tbody></table></details></td></tr>
         }
     }
     </tbody></table></div>
     <h2>Downtime</h2><div class="table-shell"><table class="data-table"><thead><tr><th>Reason</th><th>First day</th><th>Last day (inclusive)</th><th>Notes</th><th></th></tr></thead><tbody>@foreach (var d in data.Downtime.Where(x => x.MachineId == machineId).OrderBy(x => x.Start)) { <tr><td>@d.Reason.Name</td><td>@D(d.Start)</td><td>@D(d.End)</td><td>@d.Notes</td><td>@if (data.CanEdit) { <button class="button button-secondary" @onclick="() => EditDowntime(d)">Edit</button> }</td></tr> }</tbody></table></div>
 }
+</div>
 
 @code {
     private ProductionSnapshot? data;
@@ -129,26 +168,43 @@ else
     private string? message, editor, po, mo, notes;
     private string quantityText = "0";
     private string progressQuantityText = "0";
+    private string optionalQuantityText = "";
     private bool busy, showCompleted, pinned, ready;
     private bool invalidQuantity;
     private bool invalidProgressQuantity;
+    private bool invalidOptionalQuantity;
     private decimal quantity;
+    private decimal pendingCompletionQuantity;
+    private decimal? cutInStopTarget;
     private decimal? optionalQuantity;
     private DateOnly date, endDate;
     private DateOnly? optionalDate;
     private ProductionSegment? selected;
     private ProductionJob? selectedJob;
     private IEnumerable<ProductionSegment> Queue => data!.Segments.Where(x => x.MachineId == machineId && (showCompleted || x.State != ProductionState.Completed)).OrderBy(x => x.State == ProductionState.Completed ? 2 : x.State == ProductionState.Running ? 0 : 1).ThenBy(x => x.Sequence);
-    private string EditorTitle => editor switch { "job" => "Job", "progress" => "Progress checkpoint", "requirement" => "Next shortage requirement", "constraint" => "Start constraint and optimizer pin", "cutin" => "Quantity cut-in", "reassign" => "Machine reassignment", _ => "Downtime" };
+    private string EditorTitle => editor switch { "job" => "Job", "progress" => "Progress Checkpoint", "progress-correction" => "Correct Completed Pieces", "completion-confirmation" => "Confirm Completed Quantity", "requirement" => "Next Shortage Requirement", "constraint" => "Start Constraint and Optimizer Pin", "cutin" => "Quantity Cut-In", "reassign" => "Machine Reassignment", _ => "Downtime" };
     private static string N(decimal n) => n.ToString("#,0.###");
-    private static string W(decimal n) => n.ToString("#,0");
     private static string D(DateOnly? d) => d?.ToString("MMM d, yyyy") ?? "—";
+    private static string ScheduleDate(DateOnly? d) => d?.ToString("MM/dd/yyyy") ?? "—";
+    private static string Duration(decimal hours, decimal dayHours)
+    {
+        if (dayHours <= 0) return "—";
+
+        var totalMinutes = decimal.ToInt64(decimal.Round(Math.Max(hours, 0) * 60, 0, MidpointRounding.AwayFromZero));
+        var dayMinutes = decimal.ToInt64(decimal.Round(dayHours * 60, 0, MidpointRounding.AwayFromZero));
+        if (dayMinutes == 0) return "—";
+        var days = totalMinutes / dayMinutes;
+        var remainingMinutes = totalMinutes % dayMinutes;
+        var remainingHours = remainingMinutes / 60;
+        var minutes = remainingMinutes % 60;
+        return $"{days:N0} Day {remainingHours:N0} Hrs {minutes:N0} Min";
+    }
     private ProductionJob Job(ProductionSegment s) => data!.Jobs.Single(x => x.Id == s.JobId);
-    private bool CanDelete(ProductionJob job) =>
-        job.Segments.All(x => x.State == ProductionState.Pending && x.CompletedQuantity == 0 && x.Progress.Count == 0)
-        && !data!.Segments.Any(x => x.JobId != job.Id && job.Segments.Any(segment => segment.Id == x.PredecessorId));
+    private ProductionStartReadiness StartReadiness(ProductionJob job) => data!.StartReadiness.Single(x => x.JobId == job.Id);
+    private int SegmentNumber(ProductionSegment s) => Job(s).Segments.OrderBy(x => x.Id).ToList().IndexOf(s) + 1;
     private SegmentForecast Forecast(ProductionSegment s) => forecasts.Single(x => x.SegmentId == s.Id);
-    private ProductionRequirement? Next(ProductionJob j) => j.Requirements.OrderBy(x => x.Date).FirstOrDefault(x => x.CumulativeTarget > j.Segments.Sum(s => s.CompletedQuantity));
+    private decimal CompletedForPart(long partId) => data!.Jobs.Where(x => x.PartId == partId).SelectMany(x => x.Segments).Sum(x => x.CompletedQuantity);
+    private ProductionRequirement? Next(ProductionJob j) => data!.Requirements.Where(x => x.PartId == j.PartId).OrderBy(x => x.Date).FirstOrDefault(x => x.CumulativeTarget > CompletedForPart(j.PartId));
     private IEnumerable<Confast.Web.Features.Parts.Part> EligibleParts(long id) => data!.Parts.Where(p => data.Machines.Any(m => m.Id == id && m.Parts.Any(x => x.PartId == p.Id)));
     protected override Task OnInitializedAsync() => Reload();
     protected override void OnAfterRender(bool firstRender) { if (firstRender) { ready = true; StateHasChanged(); } }
@@ -175,7 +231,8 @@ else
         if (invalidQuantity) { message = "Enter a valid job quantity."; return Task.CompletedTask; }
         return Run(() => Service.SaveJobAsync(data!.Settings.Revision, selectedJob?.Id ?? 0, partId, machineId, quantity, po, mo, notes));
     }
-    private void OpenProgress(ProductionSegment s) { CloseEditor(); selected = s; editor = "progress"; quantity = s.CompletedQuantity; progressQuantityText = FormatWholeQuantity(quantity); invalidProgressQuantity = false; date = data!.Horizon; notes = null; }
+    private void OpenProgress(ProductionSegment s) { CloseEditor(); selected = s; editor = "progress"; quantity = 0; progressQuantityText = FormatWholeQuantity(quantity); invalidProgressQuantity = false; date = data!.Horizon; notes = null; }
+    private void OpenProgressCorrection(ProductionSegment s) { CloseEditor(); selected = s; editor = "progress-correction"; quantity = s.CompletedQuantity; progressQuantityText = FormatWholeQuantity(quantity); invalidProgressQuantity = false; date = data!.Horizon; notes = null; }
     private void ParseProgressQuantity()
     {
         invalidProgressQuantity = !decimal.TryParse(progressQuantityText, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var parsed)
@@ -187,15 +244,53 @@ else
         : FormatQuantity(value);
     private Task SaveProgress(bool complete)
     {
-        if (invalidProgressQuantity) { message = "Enter a whole-number completed quantity."; return Task.CompletedTask; }
-        return Run(() => Service.ProgressAsync(data!.Settings.Revision, selected!.Id, quantity, date, notes, complete));
+        if (invalidProgressQuantity) { message = "Enter a whole-number piece quantity."; return Task.CompletedTask; }
+        if (!complete) return Run(() => Service.ProgressAsync(data!.Settings.Revision, selected!.Id, quantity, date, notes, false));
+
+        pendingCompletionQuantity = selected!.CompletedQuantity + quantity;
+        if (pendingCompletionQuantity != selected.Quantity)
+        {
+            message = null;
+            editor = "completion-confirmation";
+            return Task.CompletedTask;
+        }
+        return ConfirmCompletion(CompletionQuantityAdjustment.Exact);
+    }
+    private Task ConfirmCompletion(CompletionQuantityAdjustment adjustment) =>
+        Run(() => Service.CompleteSegmentAsync(data!.Settings.Revision, selected!.Id, pendingCompletionQuantity, date, notes, adjustment));
+    private void CancelCompletion() { editor = "progress"; pendingCompletionQuantity = 0; }
+    private Task SaveProgressOnEnter(KeyboardEventArgs args) => args.Key == "Enter" ? SaveProgress(false) : Task.CompletedTask;
+    private Task SaveProgressCorrection()
+    {
+        if (invalidProgressQuantity) { message = "Enter a whole-number piece quantity."; return Task.CompletedTask; }
+        return Run(() => Service.CorrectProgressAsync(data!.Settings.Revision, selected!.Id, quantity, date, notes));
     }
     private void OpenConstraint(ProductionSegment s) { CloseEditor(); selected = s; editor = "constraint"; optionalDate = s.NotBefore; pinned = s.IsPinned; }
     private Task SaveConstraint() => Run(() => Service.SetConstraintAsync(data!.Settings.Revision, selected!.Id, optionalDate, pinned));
-    private void EditRequirement(ProductionJob j) { CloseEditor(); selectedJob = j; editor = "requirement"; var r = Next(j); requirementId = r?.Id ?? 0; date = r?.Date ?? data!.Horizon; optionalQuantity = r == null ? null : r.CumulativeTarget - Math.Max(j.Segments.Sum(s => s.CompletedQuantity), j.Requirements.Where(x => x.Date < r.Date).Select(x => x.CumulativeTarget).DefaultIfEmpty(0).Max()); }
-    private Task SaveRequirement(bool remove) => Run(() => Service.SaveRequirementAsync(data!.Settings.Revision, selectedJob!.Id, requirementId, date, optionalQuantity, remove));
-    private void OpenCutIn(ProductionSegment s) { CloseEditor(); selected = s; editor = "cutin"; quantity = Job(s).Segments.Sum(x => x.CompletedQuantity); otherId = 0; }
-    private Task SaveCutIn() => Run(() => Service.CutInAsync(data!.Settings.Revision, selected!.Id, otherId, quantity));
+    private void EditRequirement(ProductionJob j) { CloseEditor(); selectedJob = j; editor = "requirement"; var r = Next(j); requirementId = r?.Id ?? 0; date = r?.Date ?? data!.Horizon; optionalQuantity = r == null ? null : r.CumulativeTarget - Math.Max(CompletedForPart(j.PartId), data!.Requirements.Where(x => x.PartId == j.PartId && x.Date < r.Date).Select(x => x.CumulativeTarget).DefaultIfEmpty(0).Max()); optionalQuantityText = optionalQuantity.HasValue ? FormatWholeQuantity(optionalQuantity.Value) : ""; invalidOptionalQuantity = false; }
+    private void ParseOptionalQuantity()
+    {
+        if (string.IsNullOrWhiteSpace(optionalQuantityText)) { optionalQuantity = null; optionalQuantityText = ""; invalidOptionalQuantity = false; return; }
+        invalidOptionalQuantity = !decimal.TryParse(optionalQuantityText, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var parsed)
+            || parsed != decimal.Truncate(parsed);
+        if (!invalidOptionalQuantity) { optionalQuantity = parsed; optionalQuantityText = FormatWholeQuantity(parsed); }
+    }
+    private Task SaveRequirementOnEnter(KeyboardEventArgs args) => args.Key == "Enter" ? SaveRequirement(false) : Task.CompletedTask;
+    private Task SaveRequirement(bool remove)
+    {
+        if (!remove)
+        {
+            ParseOptionalQuantity();
+            if (invalidOptionalQuantity) { message = "Enter a whole number."; return Task.CompletedTask; }
+        }
+        return Run(() => Service.SaveRequirementAsync(data!.Settings.Revision, selectedJob!.Id, requirementId, date, optionalQuantity, remove));
+    }
+    private void OpenCutIn(ProductionSegment s) { CloseEditor(); selected = s; editor = "cutin"; cutInStopTarget = Job(s).Segments.Sum(x => x.CompletedQuantity); otherId = 0; }
+    private Task SaveCutIn()
+    {
+        if (cutInStopTarget is null) { message = "Enter a whole-number stop target."; return Task.CompletedTask; }
+        return Run(() => Service.CutInAsync(data!.Settings.Revision, selected!.Id, otherId, cutInStopTarget.Value));
+    }
     private void OpenReassignment(ProductionSegment s) { CloseEditor(); selected = s; editor = "reassign"; otherId = 0; }
     private Task SaveReassignment() => Run(() => Service.ReassignAsync(data!.Settings.Revision, selected!.Id, otherId));
     private void NewDowntime() { CloseEditor(); editor = "downtime"; downtimeId = otherId = 0; date = endDate = data!.Horizon; notes = null; }

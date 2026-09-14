@@ -1,7 +1,5 @@
-export function skipNativePickerOnTab(container) {
-    const input = container.querySelector('input[type="date"]');
-
-    if (!input || input.dataset.tabNavigationConfigured) {
+function configureDateInput(input) {
+    if (input.dataset.tabNavigationConfigured) {
         return;
     }
 
@@ -22,3 +20,33 @@ export function skipNativePickerOnTab(container) {
         focusableElements[nextIndex]?.focus();
     });
 }
+
+export function skipNativePickerOnTab(container) {
+    const input = container.querySelector('input[type="date"]');
+    if (input) {
+        configureDateInput(input);
+    }
+}
+
+function configureDateInputs(container) {
+    for (const input of container.querySelectorAll('input[type="date"]')) {
+        configureDateInput(input);
+    }
+}
+
+configureDateInputs(document);
+
+new MutationObserver(records => {
+    for (const record of records) {
+        for (const node of record.addedNodes) {
+            if (node.nodeType !== Node.ELEMENT_NODE) {
+                continue;
+            }
+
+            if (node.matches('input[type="date"]')) {
+                configureDateInput(node);
+            }
+            configureDateInputs(node);
+        }
+    }
+}).observe(document.body, { childList: true, subtree: true });
