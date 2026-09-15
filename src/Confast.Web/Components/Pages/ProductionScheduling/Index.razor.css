@@ -14,6 +14,8 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .production-grid { overflow-x: auto; width: 100%; }
 .production-grid table { min-width: 1450px; }
 .production-grid td { vertical-align: top; }
+.production-downtime-row { background: #fff7ed; }
+.production-downtime-row td { border-top: 2px solid #fdba74; border-bottom: 2px solid #fdba74; }
 .production-grid:has(.production-more-actions[open]) { overflow: visible; }
 .production-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: .3rem; min-width: max-content; }
 .production-actions .button, .production-more-actions > summary { min-height: 34px; padding: .4rem .65rem; font-size: .84rem; white-space: nowrap; }

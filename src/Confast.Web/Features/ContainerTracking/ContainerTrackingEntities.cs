@@ -88,7 +88,7 @@ public sealed class ContainerReceiptHistory
     public long ContainerId { get; set; }
     public Container Container { get; set; } = null!;
     public DateOnly? PreviousReceivedDate { get; set; }
-    public DateOnly ReceivedDate { get; set; }
+    public DateOnly? ReceivedDate { get; set; }
     public string? Reason { get; set; }
     public string ActingUserId { get; set; } = string.Empty;
     public DateTimeOffset PerformedAtUtc { get; set; }

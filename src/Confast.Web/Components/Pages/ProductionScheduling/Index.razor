@@ -3,6 +3,7 @@
 @using Confast.Web.Features.ProductionScheduling
 @inject ProductionService Service
 @inject ILogger<Index> Logger
+@inject TimeProvider Clock
 
 <PageTitle>Production Scheduling</PageTitle>
 <div class="production-schedule-envelope">
@@ -90,7 +91,11 @@ else
         }
         else if (editor == "constraint")
         {
-            <label>Start no earlier than (blank removes) <InputDate @bind-Value="optionalDate" /></label><label><input type="checkbox" @bind="pinned" /> Pin against optimizer changes</label>
+            @if (ConstraintArrivalDate is { } arrival)
+            {
+                <p class="production-start-status production-risk">Material En Route: this job cannot start before the container's Estimated Arrival date of @D(arrival). The earliest-start date cannot be removed or set earlier.</p>
+            }
+            <label>Start no earlier than@(ConstraintArrivalDate == null ? " (blank removes)" : "") <InputDate @bind-Value="optionalDate" min="@ConstraintArrivalDateInput" /></label><label><input type="checkbox" @bind="pinned" /> Pin against optimizer changes</label>
             <p>A pin fixes this queue position during optimization. It does not fix its projected dates or prevent explicit planner moves.</p>
             <button class="button button-primary" @onclick="SaveConstraint">Save constraint</button>
         }
@@ -122,8 +127,15 @@ else
         </section>
     }
     <div class="table-shell production-grid"><table class="data-table"><thead><tr><th>Part / references</th><th>Next requirement</th><th>Start / calculated finish</th><th>Hours / equivalent days</th><th>Progress</th><th>Quantities / boxes</th><th>Notes / status</th><th>Actions</th></tr></thead><tbody>
-    @foreach (var s in Queue)
+    @foreach (var entry in ScheduleEntries)
     {
+        if (entry.Downtime is { } downtime)
+        {
+            <tr class="production-downtime-row" @key="downtime.Id"><td><strong>Downtime</strong><br /><small>@downtime.Reason.Name</small></td><td>Machine unavailable</td><td>@ScheduleDate(downtime.Start) → @ScheduleDate(downtime.End)</td><td>@DowntimeDuration(downtime)</td><td>—</td><td>—</td><td>@downtime.Notes<br /><strong>@DowntimeStatus(downtime)</strong></td><td><div class="table-actions production-actions">@if (data.CanEdit) { <button class="button button-secondary" @onclick="() => EditDowntime(downtime)">Edit</button> }</div></td></tr>
+            continue;
+        }
+
+        var s = entry.Segment!;
         var j = Job(s); var f = Forecast(s); var next = Next(j); var risk = next == null ? null : requirements.Single(x => x.RequirementId == next.Id);
         <tr @key="s.Id"><td><strong>@j.Part.PartNumber</strong><br />PO: @(j.PoNumber ?? "—")<br />MO: @(j.MoNumber ?? "—")@if (j.Segments.Count > 1) { <br /><small>Segment @SegmentNumber(s)</small> }</td>
         <td>@if (next == null) { <span>No further requirement known</span> } else { <strong>@D(next.Date)</strong><br /><span>@N(next.CumulativeTarget - CompletedForPart(j.PartId)) additional pieces</span><br /><small>@N(next.CumulativeTarget) cumulative target</small><br /><span class="@(risk!.Met ? "" : "production-risk")">@risk.Message · @D(risk.ExpectedDate)</span> }</td>
@@ -132,7 +144,7 @@ else
             <td>@if (j.Segments.Count > 1) { <span>@N(s.Quantity > 0 ? s.CompletedQuantity / s.Quantity * 100 : 100)% segment</span><br /> }@N(j.Segments.Sum(x => x.CompletedQuantity) / j.Quantity * 100)% job<br />@N(f.ElapsedDays) elapsed days
                 @if (f.StaleProgress) { <p class="production-risk">Progress is stale; no unreported output assumed.</p> }</td>
             <td>Job: @N(j.Quantity)<br />@if (j.Segments.Count > 1) { <span>Segment: @N(s.Quantity)<br />Segment completed: @N(s.CompletedQuantity)<br /></span> }Job completed: @N(j.Segments.Sum(x => x.CompletedQuantity))<br /><small>Job boxes: @(ProductionScheduler.Boxes(j.Quantity, j.Part.BoxQuantity)?.ToString("N0") ?? "Set Part box quantity")</small></td>
-            <td>@j.Notes<br /><strong>@s.State</strong>@if (s.IsPinned) { <span> · Pinned</span> }@if (s.State == ProductionState.Pending && !StartReadiness(j).IsReady) { <p class="production-start-status production-risk">@StartReadiness(j).Message</p> }</td>
+            <td>@j.Notes<br /><strong>@s.State</strong>@if (s.IsPinned) { <span> · Pinned</span> }@if (s.State == ProductionState.Pending && (IsMaterialEnRoute(j) || !StartReadiness(j).IsReady)) { <p class="production-start-status production-risk">@StartBlockerMessage(j)</p> }</td>
             <td><div class="table-actions production-actions">@if (data.CanEdit)
             {
                 @if (s.State == ProductionState.Pending)
@@ -155,7 +167,6 @@ else
         }
     }
     </tbody></table></div>
-    <h2>Downtime</h2><div class="table-shell"><table class="data-table"><thead><tr><th>Reason</th><th>First day</th><th>Last day (inclusive)</th><th>Notes</th><th></th></tr></thead><tbody>@foreach (var d in data.Downtime.Where(x => x.MachineId == machineId).OrderBy(x => x.Start)) { <tr><td>@d.Reason.Name</td><td>@D(d.Start)</td><td>@D(d.End)</td><td>@d.Notes</td><td>@if (data.CanEdit) { <button class="button button-secondary" @onclick="() => EditDowntime(d)">Edit</button> }</td></tr> }</tbody></table></div>
 }
 </div>
 
@@ -181,11 +192,27 @@ else
     private DateOnly? optionalDate;
     private ProductionSegment? selected;
     private ProductionJob? selectedJob;
+    private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
     private IEnumerable<ProductionSegment> Queue => data!.Segments.Where(x => x.MachineId == machineId && (showCompleted || x.State != ProductionState.Completed)).OrderBy(x => x.State == ProductionState.Completed ? 2 : x.State == ProductionState.Running ? 0 : 1).ThenBy(x => x.Sequence);
+    private IEnumerable<ScheduleEntry> ScheduleEntries => Queue.Select(s => new ScheduleEntry(s, null, Forecast(s).Start))
+        .Concat(data!.Downtime.Where(x => x.MachineId == machineId).Select(d => new ScheduleEntry(null, d, d.Start)))
+        .OrderBy(x => x.Date ?? DateOnly.MaxValue)
+        .ThenBy(x => x.Downtime == null ? 1 : 0);
     private string EditorTitle => editor switch { "job" => "Job", "progress" => "Progress Checkpoint", "progress-correction" => "Correct Completed Pieces", "completion-confirmation" => "Confirm Completed Quantity", "requirement" => "Next Shortage Requirement", "constraint" => "Start Constraint and Optimizer Pin", "cutin" => "Quantity Cut-In", "reassign" => "Machine Reassignment", _ => "Downtime" };
     private static string N(decimal n) => n.ToString("#,0.###");
     private static string D(DateOnly? d) => d?.ToString("MMM d, yyyy") ?? "—";
+    private bool IsMaterialEnRoute(ProductionJob job) => data!.MaterialEnRouteJobIds.Contains(job.Id);
+    private DateOnly? ConstraintArrivalDate => selected is null ? null : data!.ContainerArrivalDatesByJobId.GetValueOrDefault(selected.JobId);
+    private string? ConstraintArrivalDateInput => ConstraintArrivalDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    private string StartBlockerMessage(ProductionJob job) =>
+        IsMaterialEnRoute(job) ? "Material En Route" : StartReadiness(job).Message;
     private static string ScheduleDate(DateOnly? d) => d?.ToString("MM/dd/yyyy") ?? "—";
+    private static string DowntimeDuration(MachineDowntime downtime)
+    {
+        var days = downtime.End.DayNumber - downtime.Start.DayNumber + 1;
+        return $"{days:N0} calendar day{(days == 1 ? "" : "s")}";
+    }
+    private string DowntimeStatus(MachineDowntime downtime) => downtime.Start <= Today && Today <= downtime.End ? "In progress" : "Planned";
     private static string Duration(decimal hours, decimal dayHours)
     {
         if (dayHours <= 0) return "—";
@@ -265,7 +292,12 @@ else
         if (invalidProgressQuantity) { message = "Enter a whole-number piece quantity."; return Task.CompletedTask; }
         return Run(() => Service.CorrectProgressAsync(data!.Settings.Revision, selected!.Id, quantity, date, notes));
     }
-    private void OpenConstraint(ProductionSegment s) { CloseEditor(); selected = s; editor = "constraint"; optionalDate = s.NotBefore; pinned = s.IsPinned; }
+    private void OpenConstraint(ProductionSegment s)
+    {
+        CloseEditor(); selected = s; editor = "constraint";
+        optionalDate = ConstraintArrivalDate is { } arrival && (s.NotBefore == null || s.NotBefore < arrival) ? arrival : s.NotBefore;
+        pinned = s.IsPinned;
+    }
     private Task SaveConstraint() => Run(() => Service.SetConstraintAsync(data!.Settings.Revision, selected!.Id, optionalDate, pinned));
     private void EditRequirement(ProductionJob j) { CloseEditor(); selectedJob = j; editor = "requirement"; var r = Next(j); requirementId = r?.Id ?? 0; date = r?.Date ?? data!.Horizon; optionalQuantity = r == null ? null : r.CumulativeTarget - Math.Max(CompletedForPart(j.PartId), data!.Requirements.Where(x => x.PartId == j.PartId && x.Date < r.Date).Select(x => x.CumulativeTarget).DefaultIfEmpty(0).Max()); optionalQuantityText = optionalQuantity.HasValue ? FormatWholeQuantity(optionalQuantity.Value) : ""; invalidOptionalQuantity = false; }
     private void ParseOptionalQuantity()
@@ -298,6 +330,7 @@ else
     private Task SaveDowntime(bool remove) => Run(() => Service.SaveDowntimeAsync(data!.Settings.Revision, downtimeId, machineId, otherId, date, endDate, notes, remove));
     private void Optimize() { CloseEditor(); preview = ProductionScheduler.Optimize(data!, machineId); }
     private Task ApplyPreview() => Run(() => Service.ApplyOptimizationAsync(preview!));
+    private sealed record ScheduleEntry(ProductionSegment? Segment, MachineDowntime? Downtime, DateOnly? Date);
 }
 
 

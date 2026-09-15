@@ -82,11 +82,23 @@
                     @if (ContainerEditPolicy.HasDeparted(container.Etd, Tracking.Today)) { <small class="tracking-lock">Departed / Locked</small> }</td>
                     <td>@(container.CbpNumber ?? "—")</td>
                     <td>@Date(container.Etd)</td><td>@Date(container.Eta)</td><td>@(container.ReceivedDate is null ? "Not received" : Date(container.ReceivedDate))</td>
-                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.AddedToProductionSchedule ? "Yes" : "No")</td>
+                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.HasMissingScheduleEligibility ? "Missing eligibility" : container.AddedToProductionSchedule ? "Yes" : "No")</td>
                     <td class="table-action"><div class="tracking-receipt-cell">
                         @if (permissions.CanEdit)
                         {
                             <button type="button" class="button button-primary" @onclick="() => OpenReceiveDialog(container)" disabled="@busy">@ReceiptButtonLabel(container)</button>
+                            @if (container.CanUnreceive)
+                            {
+                                @if (confirmUnreceiveId == container.Id)
+                                {
+                                    <button type="button" class="button button-danger" @onclick="() => UnreceiveAsync(container)" disabled="@busy">Confirm Unreceive</button>
+                                    <button type="button" class="button button-secondary" @onclick="() => confirmUnreceiveId = null" disabled="@busy">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="button button-danger-outline" @onclick="() => confirmUnreceiveId = container.Id" disabled="@busy">Unreceive Container</button>
+                                }
+                            }
                         }
                     </div></td></tr>
                 @if (containersExpanded)
@@ -168,6 +180,7 @@
     private DateOnly receiveDate;
     private string? receiveReason;
     private long? confirmShipmentDeleteId;
+    private long? confirmUnreceiveId;
     private string ReceivedToday => ReceivedParts.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     protected override Task OnInitializedAsync() => LoadAsync();
     private static string Date(DateOnly? value) => value?.ToString("MMM d, yyyy") ?? "—";
@@ -183,6 +196,24 @@
         receiveReason = null;
     }
     private void CloseReceiveDialog() => receiving = null;
+    private async Task UnreceiveAsync(ContainerSummary container)
+    {
+        if (busy || confirmUnreceiveId != container.Id) return;
+        busy = true;
+        try
+        {
+            var result = await ReceivedParts.UnreceiveContainerAsync(container.Id, container.Version);
+            message = result.Message ?? "Container unreceived.";
+            isError = !result.Succeeded;
+            if (result.Succeeded)
+            {
+                confirmUnreceiveId = null;
+                shipments = await Tracking.SearchAsync(search);
+            }
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to unreceive container {ContainerId}", container.Id); message = "Container could not be unreceived."; isError = true; }
+        finally { busy = false; }
+    }
     private async Task ReceiveAsync()
     {
         if (busy || receiving is null) return;
@@ -202,7 +233,7 @@
     }
     private async Task LoadAsync()
     {
-        busy = true; confirmShipmentDeleteId = null;
+        busy = true; confirmShipmentDeleteId = null; confirmUnreceiveId = null;
         try { permissions = await Access.GetAsync(); shipments = await Tracking.SearchAsync(search); }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load shipments"); message = "Shipments could not be loaded."; isError = true; }
         finally { busy = false; }

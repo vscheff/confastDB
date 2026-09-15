@@ -55,6 +55,8 @@ public static class ProductionScheduler
                 var required = effective > 0 ? segment.Quantity / effective : 0;
                 var remaining = effective > 0 ? (segment.Quantity - segment.CompletedQuantity) / effective : 0;
                 var earliest = segment.NotBefore ?? data.Horizon;
+                if (data.ContainerArrivalDatesByJobId.GetValueOrDefault(job.Id) is { } arrival && arrival > earliest)
+                    earliest = arrival;
                 if (segment.ProgressAsOf is { } checkpoint && checkpoint.AddDays(1) > earliest) earliest = checkpoint.AddDays(1);
                 if (earliest.DayNumber - data.Horizon.DayNumber >= MaximumDays)
                     error = "Start constraint exceeds the ten-year forecast horizon. Review the explicit constraint.";

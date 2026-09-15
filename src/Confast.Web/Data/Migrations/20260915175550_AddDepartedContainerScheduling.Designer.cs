@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260915175550_AddDepartedContainerScheduling")]
+    partial class AddDepartedContainerScheduling
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2290,10 +2293,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("part_id");
 
-                    b.Property<bool>("IsPreferred")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_preferred");
-
                     b.Property<decimal>("TargetPph")
                         .HasPrecision(24, 6)
                         .HasColumnType("numeric(24,6)")
@@ -2301,10 +2300,7 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("MachineId", "PartId");
 
-                    b.HasIndex("PartId")
-                        .IsUnique()
-                        .HasDatabaseName("UX_part_machines_preferred_part")
-                        .HasFilter("is_preferred");
+                    b.HasIndex("PartId");
 
                     b.ToTable("part_machines", null, t =>
                         {
@@ -2396,10 +2392,10 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PartId");
+
                     b.HasIndex("ContainerGroupPartId")
                         .IsUnique();
-
-                    b.HasIndex("PartId");
 
                     b.ToTable("production_jobs", null, t =>
                         {

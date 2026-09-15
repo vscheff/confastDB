@@ -8,7 +8,7 @@ Apply the checked-in `AddProductionScheduling` and `AddProductionSchedulingInteg
 
 Configure machines, including a machine named for manual sorting, and their actual weekday hours. No machine names, rates, or workweeks are assumed. Add eligible parts with target PPH; optionally provide the Part's box quantity. Configure global holidays and selectable downtime reasons. Missing rates, inactive machines, missing working capacity, and missing box quantities are shown explicitly. Eligibility cannot be removed while that part has unfinished work on the machine.
 
-These records are authoritative in ConFastDB. There is no FileMaker/MISys synchronization, import, or automatic job creation in this slice. Do not independently maintain the same schedule in both applications without an operational ownership decision.
+These records are authoritative in ConFastDB. When the schedule is opened, each container whose Estimated Departure has passed is picked up once: every positive-quantity container line with an active preferred machine becomes a source-linked job at the end of that machine's queue. Its PO is carried forward and its Estimated Arrival becomes a hard earliest-start constraint. Lines without an active preferred machine stay unscheduled without blocking eligible sibling lines; Container Tracking marks the container as missing eligibility, highlights the affected line, and offers a retry after eligibility is configured. Those jobs retain their ordinary segment status; their pending blocker reads **Material En Route** until the source container is received. The automatic job is retained with its container-line source rather than being deletable as an unrelated planner job.
 
 ## Planner workflow
 

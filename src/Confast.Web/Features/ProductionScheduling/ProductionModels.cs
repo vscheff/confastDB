@@ -41,6 +41,7 @@ public sealed class PartMachine
     public long PartId { get; set; }
     public Part Part { get; set; } = null!;
     public decimal TargetPph { get; set; }
+    public bool IsPreferred { get; set; }
 }
 
 public sealed class ProductionHoliday
@@ -76,6 +77,8 @@ public sealed class ProductionJob
     public string? MoNumber { get; set; }
     public decimal Quantity { get; set; }
     public string? Notes { get; set; }
+    // Container-created jobs retain their source so the departure catch-up can be idempotent.
+    public long? ContainerGroupPartId { get; set; }
     public List<ProductionSegment> Segments { get; set; } = [];
 }
 
@@ -148,6 +151,8 @@ public sealed record ProductionSnapshot(ProductionSettings Settings, List<Sortin
     List<ProductionStartReadiness> StartReadiness, DateOnly Horizon, bool CanEdit, bool IsAdministrator)
 {
     public IEnumerable<ProductionSegment> Segments => Jobs.SelectMany(x => x.Segments);
+    public HashSet<long> MaterialEnRouteJobIds { get; init; } = [];
+    public Dictionary<long, DateOnly> ContainerArrivalDatesByJobId { get; init; } = [];
 }
 
 public enum ProductionStartBlocker

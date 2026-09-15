@@ -64,6 +64,47 @@ public sealed class ReceivedPartsService(
         return await SaveAsync(db, transaction, cancellationToken);
     }
 
+    public async Task<ReceiptOperationResult> UnreceiveContainerAsync(
+        long containerId,
+        uint version,
+        CancellationToken cancellationToken = default)
+    {
+        await trackingAccess.RequireEditAsync(cancellationToken);
+        var userId = await RequireUserIdAsync(cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var container = await db.Containers
+            .FromSqlInterpolated($"SELECT c.*, c.xmin FROM containers AS c WHERE id = {containerId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (container is null) return ReceiptOperationResult.Invalid("Container no longer exists.");
+        if (container.Version != version) return ReceiptOperationResult.Conflict();
+        if (container.ReceivedDate is null) return ReceiptOperationResult.Invalid("Only a received container can be unreceived.");
+
+        var hasReceiptWork = await db.ContainerReceiptAllocations.AnyAsync(a =>
+            a.ContainerGroupPart.ContainerGroup.ContainerId == containerId, cancellationToken);
+        if (hasReceiptWork)
+            return ReceiptOperationResult.Invalid("This container cannot be unreceived because one or more parts have inspection receipt work.");
+
+        var previousDate = container.ReceivedDate;
+        container.ReceivedDate = null;
+        container.ReceivedAtUtc = null;
+        container.ReceivedByUserId = null;
+        await db.ContainerGroupParts
+            .Where(x => x.ContainerGroup.ContainerId == containerId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.ActualReceivedQuantity, (int?)null), cancellationToken);
+        db.ContainerReceiptHistory.Add(new ContainerReceiptHistory
+        {
+            ContainerId = containerId,
+            PreviousReceivedDate = previousDate,
+            ReceivedDate = null,
+            Reason = "Container unreceived.",
+            ActingUserId = userId,
+            PerformedAtUtc = clock.GetUtcNow()
+        });
+        db.Entry(container).Property(x => x.ContainerNumber).IsModified = true;
+        return await SaveAsync(db, transaction, cancellationToken);
+    }
+
     public async Task<ReceiptOperationResult> CorrectActualReceivedQuantityAsync(
         long lineId,
         uint containerVersion,

@@ -2,10 +2,12 @@
 @page "/container-tracking/shipments/{ShipmentId:long}/containers/create"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Confast.Web.Features.ContainerTracking
+@using Confast.Web.Features.ProductionScheduling
 @using Microsoft.AspNetCore.Components.Forms
 @using System.ComponentModel.DataAnnotations
 @inject ContainerTrackingService Tracking
 @inject ReceivedPartsService ReceivedParts
+@inject ProductionService Production
 @inject TrackingAccess Access
 @inject NavigationManager Navigation
 @inject ILogger<Detail> Logger
@@ -30,6 +32,18 @@ else
                 <button type="button" class="button button-primary" @onclick="OpenReceiveDialog" disabled="@busy">
                     @(metadata.ReceivedDate is null ? "Receive container" : !metadata.ReceiptAuditRecorded ? "Reconcile received container" : "Correct received date")
                 </button>
+                @if (metadata.CanUnreceive)
+                {
+                    @if (confirmUnreceive)
+                    {
+                        <button type="button" class="button button-danger" @onclick="UnreceiveAsync" disabled="@busy">Confirm Unreceive</button>
+                        <button type="button" class="button button-secondary" @onclick="() => confirmUnreceive = false" disabled="@busy">Cancel</button>
+                    }
+                    else
+                    {
+                        <button type="button" class="button button-danger-outline" @onclick="() => confirmUnreceive = true" disabled="@busy">Unreceive Container</button>
+                    }
+                }
             }
             <button class="button button-secondary" @onclick="ReloadAsync" disabled="@busy">Reload / discard edits</button>
             @if (CanDelete)
@@ -97,7 +111,7 @@ else
             {
                 <fieldset class="tracking-fields" disabled="@(!permissions.CanEdit || busy)">
                     <div class="form-field container-received-field"><label>Received date</label><output>@(metadata.ReceivedDate?.ToString("MMM d, yyyy") ?? "Not received")</output></div>
-                    <div class="checkbox-field container-schedule-field"><InputCheckbox id="container-schedule" @bind-Value="metadata.AddedToProductionSchedule" /><label for="container-schedule">Added to production schedule</label></div>
+                    <div class="form-field container-schedule-field"><label>Production schedule</label><output>@(metadata.AddedToProductionSchedule ? "Added automatically" : "Waiting for departure")</output></div>
                 </fieldset>
             }
         </div>
@@ -135,21 +149,22 @@ else
                                 <td colspan="7">
                                     <div class="table-shell tracking-collapsed-parts">
                                         <div class="tracking-collapsed-parts-heading">Parts</div>
-                                        <table class="data-table"><thead><tr><th>Part</th><th>PO number</th><th>Quantity</th><th>Customer</th></tr></thead><tbody>
+                                        <table class="data-table"><thead><tr><th>Part</th><th>PO number</th><th>Quantity</th><th>Customer</th><th>Schedule</th></tr></thead><tbody>
                                             @if (group.Parts.Count == 0)
                                             {
-                                                <tr><td colspan="4">No part lines.</td></tr>
+                                                <tr><td colspan="5">No part lines.</td></tr>
                                             }
                                             else
                                             {
                                                 @foreach (var part in group.Parts)
                                                 {
                                                     var choice = parts.FirstOrDefault(x => x.Id == part.PartId);
-                                                    <tr @key="part">
+                                                    <tr class="@(part.ScheduleState == ContainerPartScheduleState.MissingEligibility ? "tracking-schedule-missing" : "")" @key="part">
                                                         <td>@(choice?.PartNumber ?? "—")</td>
                                                         <td>@(part.PurchaseOrderNumber ?? "—")</td>
                                                         <td>@(part.Quantity?.ToString("N0") ?? "—")</td>
                                                         <td>@(choice?.CustomerName ?? "—")</td>
+                                                        <td>@if (part.ScheduleState == ContainerPartScheduleState.MissingEligibility) { <span class="production-risk">Missing eligibility</span><br /> } @if (CanAttemptSchedule(part)) { <button type="button" class="button button-secondary" disabled="@busy" @onclick="() => AppendToScheduleAsync(part)">Add to schedule</button> } else { @(part.ScheduleState == ContainerPartScheduleState.Scheduled ? "Scheduled" : part.ScheduleState == ContainerPartScheduleState.MissingEligibility ? "" : "—") }</td>
                                                     </tr>
                                                 }
                                             }
@@ -203,13 +218,13 @@ else
                                 <table class="data-table tracking-parts"><thead><tr><th>Part — Customer</th><th>PO number</th><th>Quantity</th><th>Actions</th></tr></thead><tbody>
                                     @foreach (var part in group.Parts)
                                     {
-                                        <tr @key="part">
+                                        <tr class="@(part.ScheduleState == ContainerPartScheduleState.MissingEligibility ? "tracking-schedule-missing" : "")" @key="part">
                                             <td><InputSelect @bind-Value="part.PartId" aria-label="Part"><option value="0">Select Part</option>
                                                 @foreach (var option in GetPartsForGroup(group)) { <option value="@option.Id">@option.Label</option> }
                                             </InputSelect><ValidationMessage For="@(() => part.PartId)" /></td>
                                             <td><InputText @bind-Value="part.PurchaseOrderNumber" aria-label="PO number" maxlength="100" /><ValidationMessage For="@(() => part.PurchaseOrderNumber)" /></td>
                                             <td><ThousandsSeparatedIntegerInput @bind-Value="part.Quantity" aria-label="Quantity" /><ValidationMessage For="@(() => part.Quantity)" /></td>
-                                            <td>@if (CanEditContents) { <button type="button" class="button button-danger-outline" @onclick="() => group.Parts.Remove(part)">Remove</button> }</td>
+                                            <td>@if (part.ScheduleState == ContainerPartScheduleState.MissingEligibility) { <span class="production-risk">Missing eligibility</span> } @if (CanAttemptSchedule(part)) { <button type="button" class="button button-secondary" disabled="@busy" @onclick="() => AppendToScheduleAsync(part)">Add to schedule</button> } @if (CanEditContents) { <button type="button" class="button button-danger-outline" @onclick="() => group.Parts.Remove(part)">Remove</button> }</td>
                                         </tr>
                                     }
                                 </tbody></table>
@@ -260,6 +275,7 @@ else
     private List<TrackingChoice> parts = [];
     private DateOnly? persistedEtd;
     private bool busy, loaded, isError, editingBill, confirmDelete, groupsExpanded, showReceiveDialog;
+    private bool confirmUnreceive;
     private DateOnly receiveDate;
     private string? receiveReason;
     private string ReceivedToday => ReceivedParts.Today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -288,6 +304,22 @@ else
         receiveReason = null;
         showReceiveDialog = true;
     }
+    private async Task UnreceiveAsync()
+    {
+        if (busy || !confirmUnreceive) return;
+        busy = true;
+        try
+        {
+            var result = await ReceivedParts.UnreceiveContainerAsync(Id, metadata.Version);
+            if (!result.Succeeded) { message = result.Message; isError = true; return; }
+            confirmUnreceive = false;
+            await ReloadAsync();
+            message = "Container unreceived.";
+            isError = false;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to unreceive container {ContainerId}", Id); message = "Container could not be unreceived."; isError = true; }
+        finally { busy = false; }
+    }
     private async Task ReceiveAsync()
     {
         if (busy) return;
@@ -304,6 +336,23 @@ else
         catch (Exception ex) { Logger.LogError(ex, "Failed to receive container {ContainerId}", Id); message = "Container receipt could not be saved."; isError = true; }
         finally { busy = false; }
     }
+    private async Task AppendToScheduleAsync(ContainerPartEditModel part)
+    {
+        if (busy || part.Id == 0) return;
+        busy = true;
+        try
+        {
+            await Production.AppendContainerPartAsync(part.Id);
+            await ReloadAsync();
+            message = "Part added to the production schedule."; isError = false;
+        }
+        catch (SchedulingException ex) { message = ex.Message; isError = true; }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to add container part {ContainerPartId} to production schedule", part.Id); message = "Part could not be added to the production schedule."; isError = true; }
+        finally { busy = false; }
+    }
+    private static bool CanAttemptSchedule(ContainerPartEditModel part) =>
+        !part.IsOnProductionSchedule &&
+        part.ScheduleState is ContainerPartScheduleState.MissingEligibility or ContainerPartScheduleState.ReadyToAdd;
     private string PartLabel(long partId) => parts.FirstOrDefault(x => x.Id == partId)?.Label ?? "—";
     public override Task SetParametersAsync(ParameterView parameters)
     {
@@ -340,7 +389,7 @@ else
 
     private async Task ReloadAsync()
     {
-        busy = true; loaded = false; message = null; editingBill = false; confirmDelete = false; isDateInputNavigationConfigured = false;
+        busy = true; loaded = false; message = null; editingBill = false; confirmDelete = false; confirmUnreceive = false; isDateInputNavigationConfigured = false;
         try
         {
             permissions = await Access.GetAsync();

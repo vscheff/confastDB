@@ -2,6 +2,7 @@ using System.Data;
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.ContainerTracking;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -26,15 +27,101 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
         var access = await Access(db);
+        // Passing an ETD is a time-based domain event, not a checkbox a planner has
+        // to remember. Catch it up when the schedule is opened; the source-line key
+        // makes repeated reads harmless.
+        var settings = await db.Set<ProductionSettings>().FromSqlRaw("SELECT *, xmin FROM production_settings WHERE id = 1 FOR UPDATE").SingleAsync();
         var result = await Load(db, access.Edit, access.Admin);
+        if (await AppendDepartedContainerPartsAsync(db, result))
+        {
+            settings.Revision++;
+            db.Set<ProductionAudit>().Add(new()
+            {
+                Revision = settings.Revision,
+                RecordedAt = clock.GetUtcNow().UtcDateTime,
+                RecordedBy = "System",
+                Description = "Appended departed container parts to the production schedule"
+            });
+            await db.SaveChangesAsync();
+            result = await Load(db, access.Edit, access.Admin);
+        }
         await transaction.CommitAsync();
         return result;
+    }
+
+    private async Task<bool> AppendDepartedContainerPartsAsync(AppDbContext db, ProductionSnapshot data, long? containerGroupPartId = null)
+    {
+        var containers = await db.Containers
+            .Where(x => x.EstimatedDepartureDate < Today && x.EstimatedArrivalDate != null &&
+                (containerGroupPartId == null || x.Groups.Any(group => group.Parts.Any(part => part.Id == containerGroupPartId))) )
+            .Include(x => x.Groups).ThenInclude(x => x.Parts)
+            .OrderBy(x => x.EstimatedDepartureDate).ThenBy(x => x.Id)
+            .ToListAsync();
+        var changed = false;
+
+        foreach (var container in containers)
+        {
+            var lines = container.Groups.SelectMany(x => x.Parts).Where(x => x.Quantity > 0).OrderBy(x => x.Id).ToList();
+            foreach (var line in lines)
+            {
+                if (data.Jobs.Any(job => job.ContainerGroupPartId == line.Id)) continue;
+                if (!data.Parts.Any(part => part.Id == line.PartId && part.IsActive)
+                    || !data.Machines.Any(machine => machine.IsActive && machine.Parts.Any(rate => rate.PartId == line.PartId && rate.IsPreferred)))
+                    continue;
+                var machine = data.Machines.Single(x => x.IsActive
+                    && x.Parts.Any(rate => rate.PartId == line.PartId && rate.IsPreferred));
+                var job = new ProductionJob
+                {
+                    PartId = line.PartId,
+                    Part = data.Parts.Single(x => x.Id == line.PartId),
+                    PoNumber = line.PurchaseOrderNumber,
+                    Quantity = line.Quantity,
+                    Notes = $"Container {container.ContainerNumber}",
+                    ContainerGroupPartId = line.Id
+                };
+                // ETA is a hard earliest-start constraint, even if the container is
+                // appended before the ship physically arrives.
+                var segment = NewSegment(data, job, machine.Id, job.Quantity);
+                segment.NotBefore = container.EstimatedArrivalDate;
+                job.Segments.Add(segment);
+                data.Jobs.Add(job);
+                db.Add(job);
+                changed = true;
+            }
+
+            var allLinesScheduled = lines.All(line => data.Jobs.Any(job => job.ContainerGroupPartId == line.Id));
+            if (container.AddedToProductionSchedule != allLinesScheduled)
+            {
+                container.AddedToProductionSchedule = allLinesScheduled;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    public async Task AppendContainerPartAsync(long containerGroupPartId)
+    {
+        var snapshot = await GetAsync();
+        await Write(snapshot.Settings.Revision, false, $"Append container part {containerGroupPartId} to the production schedule", async (db, data, user) =>
+        {
+            await AppendDepartedContainerPartsAsync(db, data, containerGroupPartId);
+            if (!data.Jobs.Any(job => job.ContainerGroupPartId == containerGroupPartId))
+                throw new SchedulingException("This part still has no active preferred machine eligibility. Update machine eligibility, then try again.");
+        });
     }
 
     private async Task<ProductionSnapshot> Load(AppDbContext db, bool edit, bool admin)
     {
         var jobs = await db.Set<ProductionJob>().Include(x => x.Part)
             .Include(x => x.Segments).ThenInclude(x => x.Progress).AsSplitQuery().ToListAsync();
+
+        var containerJobs = await (
+            from job in db.Set<ProductionJob>()
+            join line in db.ContainerGroupParts on job.ContainerGroupPartId equals line.Id
+            join containerGroup in db.ContainerGroups on line.ContainerGroupId equals containerGroup.Id
+            join container in db.Containers on containerGroup.ContainerId equals container.Id
+            select new { job.Id, container.ReceivedDate, container.EstimatedArrivalDate }).ToListAsync();
 
         return new(
             await db.Set<ProductionSettings>().Include(x => x.DefaultWorkingDays).SingleAsync(),
@@ -45,7 +132,12 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             jobs,
             await db.Set<ProductionRequirement>().OrderBy(x => x.Date).ToListAsync(),
             await db.Parts.OrderBy(x => x.PartNumber).ToListAsync(),
-            await LoadStartReadinessAsync(db, jobs), Today, edit, admin);
+            await LoadStartReadinessAsync(db, jobs), Today, edit, admin)
+        {
+            MaterialEnRouteJobIds = containerJobs.Where(x => x.ReceivedDate == null).Select(x => x.Id).ToHashSet(),
+            ContainerArrivalDatesByJobId = containerJobs.Where(x => x.EstimatedArrivalDate != null)
+                .ToDictionary(x => x.Id, x => x.EstimatedArrivalDate!.Value)
+        };
     }
 
     private static async Task<List<ProductionStartReadiness>> LoadStartReadinessAsync(
@@ -286,6 +378,8 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         {
             var job = data.Jobs.SingleOrDefault(x => x.Id == jobId)
                 ?? throw new SchedulingException("Job no longer exists.");
+            if (job.ContainerGroupPartId != null)
+                throw new SchedulingException("Container-created work remains linked to its container line and cannot be deleted from the production schedule.");
             var segmentIds = job.Segments.Select(x => x.Id).ToHashSet();
             foreach (var dependent in data.Segments.Where(x => x.PredecessorId is { } predecessor && segmentIds.Contains(predecessor)))
                 dependent.PredecessorId = null;
@@ -335,6 +429,8 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         if (s.State != ProductionState.Pending) throw new SchedulingException("Only pending work can start.");
         var inspectionReadiness = data.StartReadiness.Single(x => x.JobId == s.JobId);
         if (!inspectionReadiness.IsReady) throw new SchedulingException(inspectionReadiness.Message);
+        if (ContainerArrivalDate(data, s) is { } arrival && arrival > Today)
+            throw new SchedulingException($"Material is not expected until {arrival:MMM d, yyyy}; production cannot start before the container's Estimated Arrival date.");
         if (s.NotBefore > Today) throw new SchedulingException("Remove or adjust the start constraint before starting early.");
         if (s.PredecessorId is { } predecessor && data.Segments.Single(x => x.Id == predecessor).State != ProductionState.Completed)
             throw new SchedulingException("Complete the cut-in predecessor first.");
@@ -438,9 +534,14 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         {
             var s = data.Segments.Single(x => x.Id == segmentId);
             if (s.State != ProductionState.Pending) throw new SchedulingException("Only pending work accepts start constraints and optimizer pins.");
+            if (ContainerArrivalDate(data, s) is { } arrival && (notBefore == null || notBefore < arrival))
+                throw new SchedulingException($"This job's container is not expected until {arrival:MMM d, yyyy}. Its start constraint cannot be earlier than the Estimated Arrival date.");
             s.NotBefore = notBefore; s.IsPinned = pinned;
             return Task.CompletedTask;
         });
+
+    private static DateOnly? ContainerArrivalDate(ProductionSnapshot data, ProductionSegment segment) =>
+        data.ContainerArrivalDatesByJobId.GetValueOrDefault(segment.JobId);
 
     public Task MoveAsync(long revision, long segmentId, int direction) => Write(revision, false, $"Move segment {segmentId}: {direction}", (db, data, user) =>
     {
@@ -577,9 +678,38 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             var machine = data.Machines.SingleOrDefault(x => x.Id == machineId) ?? throw new SchedulingException("Select a machine.");
             _ = data.Parts.SingleOrDefault(x => x.Id == partId) ?? throw new SchedulingException("Select a part.");
             var rate = machine.Parts.SingleOrDefault(x => x.PartId == partId);
-            if (rate == null) { rate = new() { PartId = partId }; machine.Parts.Add(rate); }
+            if (rate == null)
+            {
+                rate = new()
+                {
+                    PartId = partId,
+                    // A part with no eligible machines cannot have a preference;
+                    // its first eligibility therefore becomes the preference.
+                    IsPreferred = !data.Machines.SelectMany(x => x.Parts).Any(x => x.PartId == partId)
+                };
+                machine.Parts.Add(rate);
+            }
             rate.TargetPph = pph;
             return Task.CompletedTask;
+        });
+
+    public Task SetPreferredMachineAsync(long revision, long machineId, long partId) =>
+        Write(revision, true, $"Part {partId}: preferred machine {machineId}", async (db, data, user) =>
+        {
+            var machine = data.Machines.SingleOrDefault(x => x.Id == machineId) ?? throw new SchedulingException("Select a machine.");
+            if (!machine.IsActive) throw new SchedulingException("A preferred machine must be active.");
+            _ = data.Parts.SingleOrDefault(x => x.Id == partId) ?? throw new SchedulingException("Select a part.");
+            var preferred = machine.Parts.SingleOrDefault(x => x.PartId == partId)
+                ?? throw new SchedulingException("The preferred machine must be eligible for this part.");
+            var currentPreferred = data.Machines.SelectMany(x => x.Parts)
+                .Where(x => x.PartId == partId && x.IsPreferred && x != preferred)
+                .ToList();
+            foreach (var rate in currentPreferred) rate.IsPreferred = false;
+            // PostgreSQL enforces the filtered unique index after each statement.
+            // Flush the old preference before setting its replacement so EF command
+            // ordering cannot briefly create two preferred rows.
+            if (currentPreferred.Count != 0) await db.SaveChangesAsync();
+            preferred.IsPreferred = true;
         });
 
     public Task RemoveRateAsync(long revision, long machineId, long partId) => Write(revision, true, $"Remove eligibility: part {partId}, machine {machineId}", (db, data, user) =>
@@ -588,6 +718,19 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             throw new SchedulingException("Finish or explicitly reassign this part's unfinished work before removing eligibility.");
         var machine = data.Machines.SingleOrDefault(x => x.Id == machineId) ?? throw new SchedulingException("Select a machine.");
         var rate = machine.Parts.SingleOrDefault(x => x.PartId == partId);
+        if (rate?.IsPreferred == true)
+        {
+            var eligible = data.Machines
+                .Where(x => x.Parts.Any(partRate => partRate.PartId == partId))
+                .OrderBy(x => x.Name).ThenBy(x => x.Id)
+                .ToList();
+            var currentIndex = eligible.FindIndex(x => x.Id == machineId);
+            var replacement = eligible.Count > 1
+                ? eligible[currentIndex > 0 ? currentIndex - 1 : eligible.Count - 1]
+                : null;
+            if (replacement != null)
+                replacement.Parts.Single(x => x.PartId == partId).IsPreferred = true;
+        }
         if (rate != null) { machine.Parts.Remove(rate); db.Remove(rate); }
         return Task.CompletedTask;
     });

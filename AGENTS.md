@@ -294,6 +294,23 @@ Avoid catching broad `Exception` unless there is a concrete reason to handle fai
 
 Tests should concentrate on behavior where regression would matter.
 
+### Integration-test workflow
+
+Integration tests use the dedicated disposable PostgreSQL database configured by
+`CONFAST_TEST_CONNECTION_STRING`; the fixture migrates and truncates that database
+between cases. Read the README's **Integration tests** section before diagnosing a
+test failure. Never substitute the development database or stop the running app to
+run tests.
+
+When the application is running from the normal Debug output, run integration tests
+in Release so Windows does not lock the test build's referenced application DLL:
+
+```powershell
+dotnet test --configuration Release
+```
+
+The running app and the disposable test database are intended to coexist.
+
 Prioritize tests for:
 
 - business rules

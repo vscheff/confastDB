@@ -847,12 +847,15 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .tracking-collapsed-parts { margin-top: .4rem; overflow-x: auto; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
 .tracking-collapsed-parts-heading { margin: 0 0 .3rem; color: #526373; font-size: .78rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .tracking-collapsed-parts .data-table { min-width: 680px; table-layout: fixed; }
-.tracking-collapsed-parts th:nth-child(1) { width: 28%; }
-.tracking-collapsed-parts th:nth-child(2) { width: 26%; }
-.tracking-collapsed-parts th:nth-child(3) { width: 23%; }
-.tracking-collapsed-parts th:nth-child(4) { width: 23%; }
+.tracking-collapsed-parts th:nth-child(1) { width: 23%; }
+.tracking-collapsed-parts th:nth-child(2) { width: 21%; }
+.tracking-collapsed-parts th:nth-child(3) { width: 16%; }
+.tracking-collapsed-parts th:nth-child(4) { width: 20%; }
+.tracking-collapsed-parts th:nth-child(5) { width: 20%; }
 .tracking-collapsed-parts th, .tracking-collapsed-parts td { padding: .4rem .55rem; background: #fff; }
 .tracking-collapsed-parts th { background: #e8f0f4; }
+.tracking-schedule-missing > td { background: #fff5dc !important; }
+.tracking-schedule-missing .button { margin-top: .35rem; }
 .receipt-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; padding: .8rem 1rem; color: #0f5132; background: #dff3e8; border: 1px solid #9dcdb2; border-radius: .5rem; }
 .receive-container-modal { width: min(100%, 470px); }
 .received-parts-toolbar { align-items: end; }

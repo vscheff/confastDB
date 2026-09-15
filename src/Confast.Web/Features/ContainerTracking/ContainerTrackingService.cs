@@ -1,5 +1,6 @@
 using System.Data;
 using Confast.Web.Data;
+using Confast.Web.Features.ProductionScheduling;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -28,7 +29,11 @@ public sealed class ContainerTrackingService(
         return await query.OrderByDescending(x => x.Id).Select(s => new ShipmentSummary(s.Id, s.Version, s.FreightCost,
             s.BillNumbers.OrderBy(b => b.Id).Select(b => b.Number).ToList(),
             s.Containers.OrderBy(c => c.Id).Select(c => new ContainerSummary(c.Id, c.Version, c.ContainerNumber, c.CbpNumber,
-                c.EstimatedDepartureDate, c.EstimatedArrivalDate, c.ReceivedDate, c.ReceivedAtUtc != null, c.AddedToProductionSchedule,
+                c.EstimatedDepartureDate, c.EstimatedArrivalDate, c.ReceivedDate, c.ReceivedAtUtc != null,
+                c.ReceivedDate != null && !c.Groups.SelectMany(g => g.Parts).Any(p => p.ReceiptAllocations.Any()), c.AddedToProductionSchedule,
+                c.EstimatedDepartureDate < Today && c.EstimatedArrivalDate != null && c.Groups.SelectMany(g => g.Parts).Any(p =>
+                    !db.Set<ProductionJob>().Any(job => job.ContainerGroupPartId == p.Id) &&
+                    !db.Set<SortingMachine>().Any(machine => machine.IsActive && machine.Parts.Any(rate => rate.PartId == p.PartId && rate.IsPreferred))),
                 c.Groups.Count, c.Groups.Sum(g => g.PalletCount ?? 0), c.Groups.Sum(g => g.TotalWeight ?? 0),
                 c.Groups.OrderBy(g => g.Id).Select(g => new ContainerGroupSummary(g.BillOfLading.Supplier.Name,
                     g.BillOfLading.Number, g.BillOfLading.Duty, g.TotalWeight, g.PalletCount, g.InvoiceNumber,
@@ -117,6 +122,7 @@ public sealed class ContainerTrackingService(
             {
                 Id = c.Id, ShipmentId = c.ShipmentId, Version = c.Version, ContainerNumber = c.ContainerNumber, CbpNumber = c.CbpNumber,
                 ReceivedDate = c.ReceivedDate, ReceiptAuditRecorded = c.ReceivedAtUtc != null,
+                CanUnreceive = c.ReceivedDate != null && !c.Groups.SelectMany(g => g.Parts).Any(p => p.ReceiptAllocations.Any()),
                 QuotedRate = c.QuotedRate, DrayageCharge = c.DrayageCharge,
                 EstimatedDepartureDate = c.EstimatedDepartureDate, EstimatedArrivalDate = c.EstimatedArrivalDate,
                 AddedToProductionSchedule = c.AddedToProductionSchedule
@@ -129,7 +135,15 @@ public sealed class ContainerTrackingService(
                     PalletCount = g.PalletCount, InvoiceNumber = g.InvoiceNumber, CertificationsReceived = g.CertificationsReceived,
                     Parts = g.Parts.OrderBy(p => p.Id).Select(p => new ContainerPartEditModel
                     {
-                        Id = p.Id, PartId = p.PartId, PurchaseOrderNumber = p.PurchaseOrderNumber, Quantity = p.Quantity
+                        Id = p.Id, PartId = p.PartId, PurchaseOrderNumber = p.PurchaseOrderNumber, Quantity = p.Quantity,
+                        IsOnProductionSchedule = db.Set<ProductionJob>().Any(job => job.ContainerGroupPartId == p.Id),
+                        ScheduleState = db.Set<ProductionJob>().Any(job => job.ContainerGroupPartId == p.Id)
+                            ? ContainerPartScheduleState.Scheduled
+                            : c.EstimatedDepartureDate < Today && c.EstimatedArrivalDate != null
+                                ? db.Set<SortingMachine>().Any(machine => machine.IsActive && machine.Parts.Any(rate => rate.PartId == p.PartId && rate.IsPreferred))
+                                    ? ContainerPartScheduleState.ReadyToAdd
+                                    : ContainerPartScheduleState.MissingEligibility
+                                : ContainerPartScheduleState.NotScheduled
                     }).ToList()
                 }).ToList()
             }, c.Shipment.BillNumbers.OrderBy(b => b.Id).Select(b => b.Number).ToList()))
@@ -170,7 +184,8 @@ public sealed class ContainerTrackingService(
             container.DrayageCharge = model.DrayageCharge;
             // Receipt is an audited operation; ordinary metadata saves must not create,
             // correct, or clear it as a side effect of a stale edit model.
-            container.AddedToProductionSchedule = model.AddedToProductionSchedule;
+            // Production Scheduling owns this status. Metadata edits cannot mark a
+            // container as scheduled without creating its source-linked jobs.
             // The root token protects metadata and all content rows as one aggregate.
             if (model.Id != 0) db.Entry(container).Property(x => x.ContainerNumber).IsModified = true;
             await db.SaveChangesAsync(cancellationToken);

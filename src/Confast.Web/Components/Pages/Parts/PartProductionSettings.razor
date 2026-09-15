@@ -7,7 +7,7 @@
     <div class="section-heading part-production-list-heading">
         <div>
             <h2 id="part-production-settings-heading">Production Scheduling</h2>
-            <p>This part’s eligible machines and target rates.</p>
+            <p>This part’s eligible machines, preferred machine, and target rates.</p>
         </div>
         @if (data?.IsAdministrator == true)
         {
@@ -35,16 +35,16 @@
         {
             <div class="table-shell">
                 <table class="data-table part-production-rates-table">
-                    <thead><tr><th>Machine</th><th>Target PPH</th><th>Effective PPH</th>@if (data.IsAdministrator) { <th class="part-production-rate-actions-header">Actions</th> }</tr></thead>
+                    <thead><tr><th>Machine</th><th>Preferred Machine</th><th>Target PPH</th><th>Effective PPH</th>@if (data.IsAdministrator) { <th class="part-production-rate-actions-header">Actions</th> }</tr></thead>
                     <tbody>
                         @if (showNewMachine)
                         {
-                            <tr class="part-production-new-rate"><td><select aria-label="Eligible machine" @bind="newMachineId"><option value="">Select a machine</option>@foreach (var machine in AvailableMachines) { <option value="@machine.Id">@machine.Name@(!machine.IsActive ? " (inactive)" : null)</option> }</select></td><td><ThousandsSeparatedLongInput @bind-Value="newTargetPph" class="part-production-rate-input" aria-label="Target PPH" @onkeydown="HandleNewTargetPphKeyDown" /></td><td>@EffectivePph(newTargetPph)</td><td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="SaveNewMachineAsync">Save</button><button class="button button-secondary" type="button" disabled="@isSaving" @onclick="CancelAddingMachine">Cancel</button></td></tr>
+                            <tr class="part-production-new-rate"><td><select aria-label="Eligible machine" @bind="newMachineId"><option value="">Select a machine</option>@foreach (var machine in AvailableMachines) { <option value="@machine.Id">@machine.Name@(!machine.IsActive ? " (inactive)" : null)</option> }</select></td><td></td><td><ThousandsSeparatedLongInput @bind-Value="newTargetPph" class="part-production-rate-input" aria-label="Target PPH" @onkeydown="HandleNewTargetPphKeyDown" /></td><td>@EffectivePph(newTargetPph)</td><td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="SaveNewMachineAsync">Save</button><button class="button button-secondary" type="button" disabled="@isSaving" @onclick="CancelAddingMachine">Cancel</button></td></tr>
                         }
                         @foreach (var machine in EligibleMachines)
                         {
                             var rate = rateEditors.Single(editor => editor.MachineId == machine.Id);
-                            <tr><td>@machine.Name@(!machine.IsActive ? " (inactive)" : null)</td><td>@if (data.IsAdministrator) { <ThousandsSeparatedLongInput @bind-Value="rate.TargetPph" class="part-production-rate-input" aria-label="@($"Target PPH for {machine.Name}")" @onkeydown="args => HandleTargetPphKeyDown(args, rate)" /> } else { @rate.TargetPph?.ToString("N0") }</td><td>@EffectivePph(rate.TargetPph)</td>@if (data.IsAdministrator) { <td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="() => SaveRateAsync(rate)">Save</button><button class="button button-danger-outline" type="button" disabled="@isSaving" @onclick="() => RemoveAsync(machine.Id)">Remove Eligibility</button></td> }</tr>
+                            <tr><td>@machine.Name@(!machine.IsActive ? " (inactive)" : null)</td><td class="part-production-preferred"><div class="part-production-preferred-content">@if (data.IsAdministrator) { <input type="radio" name="preferred-machine" aria-label="@($"Preferred machine: {machine.Name}")" checked="@rate.IsPreferred" disabled="@(isSaving || !machine.IsActive)" @onchange="() => SetPreferredMachineAsync(machine.Id)" /> } else if (rate.IsPreferred) { <span>Preferred</span> }</div></td><td>@if (data.IsAdministrator) { <ThousandsSeparatedLongInput @bind-Value="rate.TargetPph" class="part-production-rate-input" aria-label="@($"Target PPH for {machine.Name}")" @onkeydown="args => HandleTargetPphKeyDown(args, rate)" /> } else { @rate.TargetPph?.ToString("N0") }</td><td>@EffectivePph(rate.TargetPph)</td>@if (data.IsAdministrator) { <td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="() => SaveRateAsync(rate)">Save</button><button class="button button-danger-outline" type="button" disabled="@isSaving" @onclick="() => RemoveAsync(machine.Id)">Remove Eligibility</button></td> }</tr>
                         }
                     </tbody>
                 </table>
@@ -86,8 +86,11 @@
         try
         {
             data = await ProductionService.GetAsync();
-            rateEditors = EligibleMachines.Select(machine => new RateEditor(machine.Id,
-                decimal.ToInt64(machine.Parts.Single(rate => rate.PartId == PartId).TargetPph))).ToList();
+            rateEditors = EligibleMachines.Select(machine =>
+            {
+                var rate = machine.Parts.Single(rate => rate.PartId == PartId);
+                return new RateEditor(machine.Id, decimal.ToInt64(rate.TargetPph), rate.IsPreferred);
+            }).ToList();
         }
         catch (UnauthorizedAccessException)
         {
@@ -137,6 +140,12 @@
         await RunAsync(() => ProductionService.RemoveRateAsync(data.Settings.Revision, machineId, PartId));
     }
 
+    private async Task SetPreferredMachineAsync(long machineId)
+    {
+        if (data is null || isSaving) return;
+        await RunAsync(() => ProductionService.SetPreferredMachineAsync(data.Settings.Revision, machineId, PartId));
+    }
+
     private Task HandleNewTargetPphKeyDown(KeyboardEventArgs args) =>
         args.Key == "Enter" ? SaveNewMachineAsync() : Task.CompletedTask;
 
@@ -147,10 +156,11 @@
         ? ProductionScheduler.EffectivePph(targetPph.Value, data!.Settings.EfficiencyPercent).ToString("N0")
         : "—";
 
-    private sealed class RateEditor(long machineId, long targetPph)
+    private sealed class RateEditor(long machineId, long targetPph, bool isPreferred)
     {
         public long MachineId { get; } = machineId;
         public long? TargetPph { get; set; } = targetPph;
+        public bool IsPreferred { get; } = isPreferred;
     }
 
     private async Task RunAsync(Func<Task> action)

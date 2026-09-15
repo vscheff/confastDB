@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Confast.Web.Features.ContainerTracking;
 
 namespace Confast.Web.Features.ProductionScheduling;
 
@@ -27,6 +28,7 @@ public static class ProductionMapping
         var rate = model.Entity<PartMachine>();
         rate.ToTable("part_machines", t => t.HasCheckConstraint("ck_machine_pph", "target_pph = trunc(target_pph) AND target_pph > 0"));
         rate.HasKey(x => new { x.MachineId, x.PartId });
+        rate.HasIndex(x => x.PartId).IsUnique().HasFilter("is_preferred").HasDatabaseName("UX_part_machines_preferred_part");
         rate.HasOne(x => x.Part).WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
         model.Entity<ProductionHoliday>().ToTable("production_holidays").HasKey(x => x.Date);
         var reason = model.Entity<DowntimeReason>();
@@ -39,6 +41,8 @@ public static class ProductionMapping
         var job = model.Entity<ProductionJob>();
         job.ToTable("production_jobs", t => t.HasCheckConstraint("ck_job_quantity", "quantity > 0"));
         job.HasOne(x => x.Part).WithMany().HasForeignKey(x => x.PartId).OnDelete(DeleteBehavior.Restrict);
+        job.HasOne<ContainerGroupPart>().WithMany().HasForeignKey(x => x.ContainerGroupPartId).OnDelete(DeleteBehavior.Restrict);
+        job.HasIndex(x => x.ContainerGroupPartId).IsUnique();
         job.HasMany(x => x.Segments).WithOne().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.Restrict);
         var req = model.Entity<ProductionRequirement>();
         req.ToTable("production_requirements", t => t.HasCheckConstraint("ck_requirement_quantity", "cumulative_target > 0"));

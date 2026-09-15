@@ -35,6 +35,7 @@ public sealed class ContainerEditModel
     public string? CbpNumber { get; set; }
     public DateOnly? ReceivedDate { get; set; }
     public bool ReceiptAuditRecorded { get; set; }
+    public bool CanUnreceive { get; set; }
     [Range(typeof(decimal), "0", "9999999999999999.99")]
     public decimal? QuotedRate { get; set; }
     [Range(typeof(decimal), "0", "9999999999999999.99")]
@@ -87,7 +88,13 @@ public sealed class ContainerPartEditModel
     public string PurchaseOrderNumber { get; set; } = string.Empty;
     [Required, Range(0, int.MaxValue)]
     public int? Quantity { get; set; }
+    // This is deliberately separate from the display state: retry eligibility is
+    // never allowed to make an already-created source job look retryable.
+    public bool IsOnProductionSchedule { get; set; }
+    public ContainerPartScheduleState ScheduleState { get; set; }
 }
+
+public enum ContainerPartScheduleState { NotScheduled, Scheduled, MissingEligibility, ReadyToAdd }
 
 public sealed record TrackingChoice(long Id, long? SupplierId, string PartNumber, string CustomerName, bool IsActive)
 {
@@ -95,7 +102,7 @@ public sealed record TrackingChoice(long Id, long? SupplierId, string PartNumber
 }
 public sealed record BillOfLadingChoice(long Id, long SupplierId, string Number, string SupplierName, decimal? Duty);
 public sealed record ContainerSummary(long Id, uint Version, string Number, string? CbpNumber, DateOnly? Etd, DateOnly? Eta, DateOnly? ReceivedDate,
-    bool ReceiptAuditRecorded, bool AddedToProductionSchedule, int GroupCount, int Pallets, decimal Weight, List<ContainerGroupSummary> Groups);
+    bool ReceiptAuditRecorded, bool CanUnreceive, bool AddedToProductionSchedule, bool HasMissingScheduleEligibility, int GroupCount, int Pallets, decimal Weight, List<ContainerGroupSummary> Groups);
 public sealed record ContainerGroupSummary(string SupplierName, string BillNumber, decimal? Duty, decimal? Weight,
     int? Pallets, string? InvoiceNumber, bool CertificationsReceived, List<ContainerPartSummary> Parts);
 public sealed record ContainerPartSummary(string PartNumber, string CustomerName, string PurchaseOrderNumber, int Quantity);

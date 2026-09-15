@@ -1,10 +1,12 @@
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Parts;
 using Confast.Web.Features.ProductionScheduling;
+using Confast.Web.Features.Suppliers;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Tests;
@@ -90,6 +92,7 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         await service.SaveMachineAsync(await Revision(), 0, "Sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
         machineId = (await service.GetAsync()).Machines.Single().Id;
         await service.SaveRateAsync(await Revision(), machineId, partId, 10000);
+        await service.SetPreferredMachineAsync(await Revision(), machineId, partId);
     }
     public Task DisposeAsync() => Task.CompletedTask;
     private async Task<long> Revision() => (await service.GetAsync()).Settings.Revision;
@@ -97,6 +100,175 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     {
         await service.SaveJobAsync(await Revision(), 0, partId, machineId, quantity, "PO-1", "MO-1", null);
         return (await service.GetAsync()).Segments.MaxBy(x => x.Id)!;
+    }
+
+    [Fact]
+    public async Task DepartedContainerPartsAreAppendedOnceAndRespectEstimatedArrival()
+    {
+        long lineId, missingEligibilityLineId, missingEligibilityPartId;
+        var arrival = clock.Today.AddDays(4);
+        await using (var db = database.CreateDbContext())
+        {
+            var supplier = new Supplier { Name = "Container scheduling supplier" };
+            var shipment = new Shipment();
+            var container = new Container
+            {
+                Shipment = shipment,
+                ContainerNumber = "SCHEDULE-CONTAINER",
+                EstimatedDepartureDate = clock.Today.AddDays(-1),
+                EstimatedArrivalDate = arrival
+            };
+            var bill = new BillOfLading { Supplier = supplier, Number = "SCHEDULE-BOL" };
+            var group = new ContainerGroup { Container = container, BillOfLading = bill };
+            var line = new ContainerGroupPart
+            {
+                ContainerGroup = group,
+                PartId = partId,
+                PurchaseOrderNumber = "PO-1",
+                Quantity = 250
+            };
+            var missingEligibilityPart = new Part
+            {
+                CustomerId = await db.Parts.Where(x => x.Id == partId).Select(x => x.CustomerId).SingleAsync(),
+                PartNumber = "SCHEDULE-NO-ELIGIBILITY",
+                BoxQuantity = 1000
+            };
+            var missingEligibilityLine = new ContainerGroupPart
+            {
+                ContainerGroup = group,
+                Part = missingEligibilityPart,
+                PurchaseOrderNumber = "PO-MISSING",
+                Quantity = 100
+            };
+            db.AddRange(line, missingEligibilityLine);
+            await db.SaveChangesAsync();
+            lineId = line.Id;
+            missingEligibilityLineId = missingEligibilityLine.Id;
+            missingEligibilityPartId = missingEligibilityPart.Id;
+        }
+
+        var first = await service.GetAsync();
+        var job = Assert.Single(first.Jobs);
+        var segment = Assert.Single(job.Segments);
+        var forecast = Assert.Single(ProductionScheduler.Forecast(first));
+        Assert.Equal(lineId, job.ContainerGroupPartId);
+        Assert.Equal("PO-1", job.PoNumber);
+        Assert.Equal(250, job.Quantity);
+        Assert.Equal(arrival, segment.NotBefore);
+        Assert.True(forecast.Start >= arrival);
+        Assert.Contains(job.Id, first.MaterialEnRouteJobIds);
+        var tooEarly = await Assert.ThrowsAsync<SchedulingException>(() =>
+            service.SetConstraintAsync(first.Settings.Revision, segment.Id, arrival.AddDays(-1), false));
+        Assert.Contains("Estimated Arrival", tooEarly.Message);
+        await Assert.ThrowsAsync<SchedulingException>(() =>
+            service.SetConstraintAsync(first.Settings.Revision, segment.Id, null, false));
+
+        var second = await service.GetAsync();
+        Assert.Single(second.Jobs);
+        await using var verify = database.CreateDbContext();
+        var persistedContainer = await verify.Containers.SingleAsync(x => x.ContainerNumber == "SCHEDULE-CONTAINER");
+        Assert.False(persistedContainer.AddedToProductionSchedule);
+        await service.SaveRateAsync(await Revision(), machineId, missingEligibilityPartId, 10000);
+        await service.AppendContainerPartAsync(missingEligibilityLineId);
+        Assert.Equal(new[] { lineId, missingEligibilityLineId }, (await service.GetAsync()).Jobs
+            .Select(x => x.ContainerGroupPartId!.Value).Order());
+        await verify.Entry(persistedContainer).ReloadAsync();
+        var correctedArrival = arrival.AddDays(3);
+        persistedContainer.EstimatedArrivalDate = correctedArrival;
+        await verify.SaveChangesAsync();
+        Assert.True(ProductionScheduler.Forecast(await service.GetAsync())
+            .Single(x => x.SegmentId == segment.Id).Start >= correctedArrival);
+
+        persistedContainer.ReceivedDate = clock.Today;
+        await verify.SaveChangesAsync();
+        Assert.DoesNotContain(job.Id, (await service.GetAsync()).MaterialEnRouteJobIds);
+    }
+
+    [Fact]
+    public async Task DepartedContainerPartsUseThePartPreferredMachine()
+    {
+        await service.SaveMachineAsync(await Revision(), 0, "Preferred sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
+        var preferredMachineId = (await service.GetAsync()).Machines.Single(x => x.Name == "Preferred sorter").Id;
+        await service.SaveRateAsync(await Revision(), preferredMachineId, partId, 10000);
+        await service.SetPreferredMachineAsync(await Revision(), preferredMachineId, partId);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var supplier = new Supplier { Name = "Preferred machine supplier" };
+            var shipment = new Shipment();
+            var container = new Container
+            {
+                Shipment = shipment,
+                ContainerNumber = "PREFERRED-MACHINE-CONTAINER",
+                EstimatedDepartureDate = clock.Today.AddDays(-1),
+                EstimatedArrivalDate = clock.Today.AddDays(1)
+            };
+            var bill = new BillOfLading { Supplier = supplier, Number = "PREFERRED-MACHINE-BOL" };
+            db.Add(new ContainerGroupPart
+            {
+                ContainerGroup = new ContainerGroup { Container = container, BillOfLading = bill },
+                PartId = partId,
+                PurchaseOrderNumber = "PO-1",
+                Quantity = 250
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var scheduled = await service.GetAsync();
+        Assert.Equal(preferredMachineId, Assert.Single(Assert.Single(scheduled.Jobs).Segments).MachineId);
+    }
+
+    [Fact]
+    public async Task ChangingPreferredMachineDoesNotViolateTheSinglePreferenceConstraint()
+    {
+        await service.SaveMachineAsync(await Revision(), 0, "Before sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
+        var beforeMachineId = (await service.GetAsync()).Machines.Single(x => x.Name == "Before sorter").Id;
+        await service.SaveRateAsync(await Revision(), beforeMachineId, partId, 10000);
+
+        await service.SetPreferredMachineAsync(await Revision(), beforeMachineId, partId);
+
+        var rates = (await service.GetAsync()).Machines.SelectMany(x => x.Parts).Where(x => x.PartId == partId).ToList();
+        Assert.Equal(beforeMachineId, rates.Single(x => x.IsPreferred).MachineId);
+    }
+
+    [Fact]
+    public async Task FirstEligibleMachineIsAutomaticallyPreferred()
+    {
+        await service.SaveMachineAsync(await Revision(), 0, "First preference sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
+        var firstMachineId = (await service.GetAsync()).Machines.Single(x => x.Name == "First preference sorter").Id;
+        var part = new Part { CustomerId = (await database.CreateDbContext().Parts.Select(x => x.CustomerId).SingleAsync()), PartNumber = "SORT-2", BoxQuantity = 1000 };
+        await using (var db = database.CreateDbContext())
+        {
+            db.Add(part);
+            await db.SaveChangesAsync();
+        }
+
+        await service.SaveRateAsync(await Revision(), firstMachineId, part.Id, 10000);
+
+        var rate = Assert.Single((await service.GetAsync()).Machines.Single(x => x.Id == firstMachineId).Parts, x => x.PartId == part.Id);
+        Assert.True(rate.IsPreferred);
+    }
+
+    [Fact]
+    public async Task RemovingPreferredMachinePromotesThePreviousEligibleMachine()
+    {
+        await service.SaveMachineAsync(await Revision(), 0, "Before sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
+        var beforeMachineId = (await service.GetAsync()).Machines.Single(x => x.Name == "Before sorter").Id;
+        await service.SaveRateAsync(await Revision(), beforeMachineId, partId, 10000);
+        await service.SetPreferredMachineAsync(await Revision(), machineId, partId);
+
+        await service.RemoveRateAsync(await Revision(), machineId, partId);
+
+        var remaining = (await service.GetAsync()).Machines.Single(x => x.Id == beforeMachineId).Parts.Single(x => x.PartId == partId);
+        Assert.True(remaining.IsPreferred);
+    }
+
+    [Fact]
+    public async Task RemovingTheOnlyEligiblePreferredMachineIsAllowed()
+    {
+        await service.RemoveRateAsync(await Revision(), machineId, partId);
+
+        Assert.DoesNotContain((await service.GetAsync()).Machines.SelectMany(x => x.Parts), x => x.PartId == partId);
     }
 
     [Fact]

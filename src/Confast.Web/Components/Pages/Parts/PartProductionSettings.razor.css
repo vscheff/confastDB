@@ -6,8 +6,12 @@
 .part-production-settings .table-shell { width: fit-content; max-width: 100%; }
 .part-production-rates-table { width: auto; }
 .part-production-rates-table th:first-child, .part-production-rates-table td:first-child { min-width: 14rem; }
-.part-production-rates-table th:nth-child(2), .part-production-rates-table td:nth-child(2) { width: 8rem; min-width: 8rem; }
-.part-production-rates-table th:nth-child(3), .part-production-rates-table td:nth-child(3) { width: 8.5rem; min-width: 8.5rem; }
+.part-production-rates-table th:nth-child(2), .part-production-rates-table td:nth-child(2) { width: 9.5rem; min-width: 9.5rem; }
+.part-production-rates-table th:nth-child(3), .part-production-rates-table td:nth-child(3) { width: 8rem; min-width: 8rem; }
+.part-production-rates-table th:nth-child(4), .part-production-rates-table td:nth-child(4) { width: 8.5rem; min-width: 8.5rem; }
+.part-production-preferred { position: relative; padding-inline: 0 !important; vertical-align: middle; }
+.part-production-preferred-content { position: absolute; inset: 0; display: grid; place-items: center; transform: translateX(-.4rem); }
+.part-production-preferred-content input[type=radio] { margin: 0; }
 .part-production-rate-actions, .part-production-rate-actions-header { width: 1%; white-space: nowrap; text-align: right; }
 .part-production-rate-actions .button { min-height: 2.15rem; padding: .35rem .65rem; }
 .part-production-new-rate { background: #edf7fc; }

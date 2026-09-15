@@ -82,6 +82,51 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
     }
 
     [Fact]
+    public async Task UnreceiveClearsReceiptAndReceivedPartsWhenNoInspectionReceiptWorkExists()
+    {
+        await ReceiveAsync();
+
+        var result = await receivedParts.UnreceiveContainerAsync(containerId, await ContainerVersionAsync());
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Empty(await receivedParts.GetReceivedPartsAsync(null, true));
+        await using var db = database.CreateDbContext();
+        var container = await db.Containers.SingleAsync(x => x.Id == containerId);
+        Assert.Null(container.ReceivedDate);
+        Assert.Null(container.ReceivedAtUtc);
+        Assert.Null(container.ReceivedByUserId);
+        Assert.Null((await db.ContainerGroupParts.SingleAsync(x => x.Id == lineId)).ActualReceivedQuantity);
+        var history = await db.ContainerReceiptHistory.OrderBy(x => x.Id).ToListAsync();
+        Assert.Collection(history,
+            received => Assert.Equal(clock.Today, received.ReceivedDate),
+            unreceived =>
+            {
+                Assert.Equal(clock.Today, unreceived.PreviousReceivedDate);
+                Assert.Null(unreceived.ReceivedDate);
+                Assert.Equal("Container unreceived.", unreceived.Reason);
+            });
+    }
+
+    [Fact]
+    public async Task UnreceiveIsBlockedAfterAnyInspectionReceiptWorkEvenWhenReversed()
+    {
+        await ReceiveAsync();
+        var line = await CurrentLineAsync();
+        var created = await BeginAsync(line, "MFG-A", "LOT-A", 25);
+        Assert.True(created.Succeeded, created.Message);
+        line = await CurrentLineAsync();
+        var allocation = Assert.Single(line.Allocations);
+        Assert.True((await receivedParts.ReverseAllocationAsync(allocation.Id, "Entered against the wrong container")).Succeeded);
+
+        var result = await receivedParts.UnreceiveContainerAsync(containerId, await ContainerVersionAsync());
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("inspection receipt work", result.Message);
+        await using var db = database.CreateDbContext();
+        Assert.NotNull((await db.Containers.SingleAsync(x => x.Id == containerId)).ReceivedDate);
+    }
+
+    [Fact]
     public async Task BeginInspectionExplainsWhenPartHasNoCurrentPublishedRevision()
     {
         await ReceiveAsync();
