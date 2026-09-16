@@ -98,7 +98,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     }
 
     [Fact]
-    public async Task BrowserTestUserProvisioning_CreatesQualityUserWithoutAdministratorRole()
+    public async Task BrowserTestUserProvisioning_CreatesQualityAndProductionUserWithoutAdministratorRole()
     {
         await using var services = CreateServices(new BrowserTestUserOptions
         {
@@ -113,6 +113,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         Assert.NotNull(user);
         Assert.True(await userManager.CheckPasswordAsync(user, "Browser-test1!"));
         Assert.True(await userManager.IsInRoleAsync(user, AppRoles.Quality));
+        Assert.True(await userManager.IsInRoleAsync(user, AppRoles.Production));
         Assert.False(await userManager.IsInRoleAsync(user, AppRoles.Administrator));
     }
 

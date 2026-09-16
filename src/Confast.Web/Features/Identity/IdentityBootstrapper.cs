@@ -34,10 +34,12 @@ public static class IdentityBootstrapper
 
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        if (!await roleManager.RoleExistsAsync(AppRoles.Quality))
+        string[] browserTestRoles = [AppRoles.Quality, AppRoles.Production];
+        foreach (var role in browserTestRoles)
         {
-            var roleResult = await roleManager.CreateAsync(new IdentityRole(AppRoles.Quality));
-            ThrowIfFailed(roleResult, $"create the {AppRoles.Quality} role");
+            if (await roleManager.RoleExistsAsync(role)) continue;
+            var roleResult = await roleManager.CreateAsync(new IdentityRole(role));
+            ThrowIfFailed(roleResult, $"create the {role} role");
         }
 
         var username = options.Username!.Trim();
@@ -52,11 +54,12 @@ public static class IdentityBootstrapper
                     "reactivate the browser-test user");
             }
 
-            if (!await userManager.IsInRoleAsync(existingUser, AppRoles.Quality))
+            foreach (var role in browserTestRoles)
             {
+                if (await userManager.IsInRoleAsync(existingUser, role)) continue;
                 ThrowIfFailed(
-                    await userManager.AddToRoleAsync(existingUser, AppRoles.Quality),
-                    $"assign the {AppRoles.Quality} role to the browser-test user");
+                    await userManager.AddToRoleAsync(existingUser, role),
+                    $"assign the {role} role to the browser-test user");
             }
 
             logger.LogInformation("Browser-test user {Username} is available.", username);
@@ -75,9 +78,10 @@ public static class IdentityBootstrapper
         ThrowIfFailed(
             await userManager.CreateAsync(user, options.Password!),
             "create the browser-test user");
-        ThrowIfFailed(
-            await userManager.AddToRoleAsync(user, AppRoles.Quality),
-            $"assign the {AppRoles.Quality} role to the browser-test user");
+        foreach (var role in browserTestRoles)
+            ThrowIfFailed(
+                await userManager.AddToRoleAsync(user, role),
+                $"assign the {role} role to the browser-test user");
 
         logger.LogInformation("Created browser-test user {Username}.", username);
     }

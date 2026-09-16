@@ -15,12 +15,21 @@ h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: .35rem; font-size: clamp(1.75rem, 4vw, 2.25rem); line-height: 1.15; }
 h1:focus { outline: none; }
 
-.app-header { display: flex; align-items: center; gap: 2rem; min-height: 64px; padding: 0 2rem; color: #fff; background: #17324a; box-shadow: 0 1px 3px rgb(0 0 0 / 18%); }
-.brand { color: #fff; font-family: 'Avengeance Heroic Avenger', fantasy; font-size: 1.4rem; font-weight: 400; letter-spacing: .04em; line-height: 1; text-decoration: none; }
-.app-header nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 .25rem; color: #d8e5ef; text-decoration: none; border-bottom: 3px solid transparent; }
-.app-header nav a.active { color: #fff; border-bottom-color: #5fc3f0; }
-.app-header nav { display: flex; gap: 1rem; }
-.user-menu { display: flex; align-items: center; gap: .75rem; margin-left: auto; color: #d8e5ef; font-size: .9rem; }
+.app-header { display: flex; align-items: center; min-height: 64px; padding: 0; color: #fff; background: #17324a; box-shadow: 0 1px 3px rgb(0 0 0 / 18%); }
+.header-brand-group { align-self: stretch; display: flex; align-items: center; }
+.main-menu { position: relative; display: flex; align-items: center; justify-content: center; width: 72px; align-self: stretch; }
+.main-menu-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-height: 44px; padding: 0; color: #fff; background: transparent; border: 0; border-radius: .3rem; cursor: pointer; font-size: 1.55rem; line-height: 1; list-style: none; }
+.main-menu-toggle::-webkit-details-marker { display: none; }
+.main-menu-toggle:hover { background: rgb(255 255 255 / 10%); }
+.main-menu-toggle:focus-visible { outline: 3px solid rgb(95 195 240 / 75%); outline-offset: 2px; }
+.main-menu-panel { position: absolute; top: calc(100% + .55rem); left: 0; z-index: 100; display: none; min-width: 16rem; padding: .35rem; background: #fff; border: 1px solid #9eabb5; border-radius: .4rem; box-shadow: 0 5px 14px rgb(0 0 0 / 25%); }
+.main-menu[open] .main-menu-panel { display: grid; }
+.main-menu-panel a { display: flex; align-items: center; min-height: 40px; padding: .35rem .65rem; color: #1d2935; border-radius: .25rem; text-decoration: none; }
+.main-menu-panel a:hover, .main-menu-panel a:focus-visible { color: #103f5a; background: #e5f2f8; }
+.main-menu-panel a.active { color: #10577f; background: #d5ebf6; font-weight: 700; }
+.header-brand-divider { align-self: stretch; width: 1px; background: #6d8496; }
+.brand { margin-left: .85rem; color: #fff; font-family: 'Avengeance Heroic Avenger', fantasy; font-size: 1.4rem; font-weight: 400; letter-spacing: .04em; line-height: 1; text-decoration: none; }
+.user-menu { display: flex; align-items: center; gap: .75rem; margin-left: auto; padding-right: .85rem; color: #d8e5ef; font-size: .9rem; }
 .user-menu form { margin: 0; }
 .header-link { display: inline-flex; align-items: center; min-height: 36px; padding: .3rem .55rem; color: #fff; background: transparent; border: 1px solid #6d8496; border-radius: .35rem; cursor: pointer; text-decoration: none; }
 .header-link:hover { background: rgb(255 255 255 / 10%); }
@@ -35,6 +44,7 @@ h1:focus { outline: none; }
 .subtab:hover { color: #1f5f83; background: #edf5f9; }
 .subtab:focus-visible { outline: 3px solid rgb(31 124 175 / 25%); outline-offset: 2px; }
 .subtab-active { color: #176b9c; background: #fff; border-color: #c8d2d9 #c8d2d9 #fff; }
+.production-eligibility-indicator { margin-left: .35rem; color: #bf1d1d; font-size: .8em; vertical-align: .1em; }
 .list-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: .75rem; margin-bottom: .75rem; }
 .gage-tab-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
 .gage-tab-toolbar h2 { margin-bottom: 0; }
@@ -565,6 +575,7 @@ body:has(.modal-backdrop) { overflow: hidden; }
 .inspection-search-navigation .button { min-height: 30px; padding: .32rem .55rem; font-size: .78rem; white-space: nowrap; }
 .inspection-search-navigation .button:disabled { cursor: default; }
 body:has(.flip-inspection-modal) { overflow: hidden; }
+body:has(.tracking-modal-backdrop) { overflow: hidden; }
 .flip-inspection-modal { width: min(100%, 880px); max-height: min(82vh, calc(100vh - 5rem)); margin-top: -2vh; }
 .duplicate-inspection-modal h2 { margin: 0 0 .4rem; color: #103f5a; }
 .flip-inspection-modal h2 { margin: 0 0 .4rem; color: #103f5a; }
@@ -696,9 +707,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 }
 
 @media (max-width: 680px) {
-    .app-header { padding: 0 1rem; }
-    .app-header { flex-wrap: wrap; gap: .4rem 1rem; padding-block: .5rem; }
-    .app-header nav { order: 3; width: 100%; gap: .65rem; overflow-x: auto; }
+    .app-header { gap: .5rem; }
     .user-menu { margin-left: auto; }
     .app-main { width: min(100% - 1rem, 1100px); padding-top: 1.25rem; }
     .parts-list-page {
@@ -808,6 +817,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .tracking-metadata-grid .container-schedule-field { grid-area: 2 / 3; }
 .tracking-metadata-grid .container-drayage-field { grid-area: 2 / 2; }
 .tracking-form .form-field label, .tracking-group .form-field label { display: grid; gap: .35rem; }
+.tracking-metadata-grid .container-received-field output, .tracking-metadata-grid .container-schedule-field output { display: flex; align-items: center; min-height: 44px; }
 .tracking-form input:disabled, .tracking-form select:disabled, .tracking-contents input:disabled, .tracking-contents select:disabled { color: #344757; background: #f2f5f7; opacity: 1; }
 .tracking-form h2 { margin-top: 0; }
 .tracking-container-heading > div, .tracking-shipment .section-heading > div { min-width: 0; }
@@ -883,9 +893,7 @@ body:has(.flip-inspection-modal) { overflow: hidden; }
 .receipt-allocation-modal { width: min(100%, 680px); }
 .tracking-contents .button, .tracking-form .button, .tracking-shipment .button { white-space: nowrap; }
 @media (max-width: 1200px) {
-    .app-header { flex-wrap: wrap; gap: .35rem 1.25rem; padding: .5rem 1rem; }
-    .app-header nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; gap: .35rem 1rem; }
-    .app-header nav a, .app-header .user-menu { white-space: nowrap; }
+    .app-header .user-menu { white-space: nowrap; }
 }
 @media (min-width: 761px) {
     .tracking-shipment { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1500px); margin-left: max(calc(.5rem - 50vw), -750px); }

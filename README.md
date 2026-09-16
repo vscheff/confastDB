@@ -47,8 +47,8 @@ This keeps local sandboxed runs independent of Windows DPAPI and Event Log permi
 production uses the normal persistent Data Protection and logging configuration.
 
 To enable authenticated browser testing, configure a dedicated Development-only account
-with User Secrets. The account is created on Development startup with the `Quality` role,
-which exercises normal inspection workflows without granting administration privileges:
+with User Secrets. The account is created on Development startup with the `Quality` and
+`Production` roles, which exercise normal floor workflows without granting administration privileges:
 
 ```powershell
 dotnet user-secrets set --project src/Confast.Web "BrowserTestUser:Username" "browser-test"

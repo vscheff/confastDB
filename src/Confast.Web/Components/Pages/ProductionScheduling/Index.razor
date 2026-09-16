@@ -93,7 +93,7 @@ else
         {
             @if (ConstraintArrivalDate is { } arrival)
             {
-                <p class="production-start-status production-risk">Material En Route: this job cannot start before the container's Estimated Arrival date of @D(arrival). The earliest-start date cannot be removed or set earlier.</p>
+                <p class="production-start-status production-risk">This job cannot start before its container material-availability date of @D(arrival). The earliest-start date cannot be removed or set earlier.</p>
             }
             <label>Start no earlier than@(ConstraintArrivalDate == null ? " (blank removes)" : "") <InputDate @bind-Value="optionalDate" min="@ConstraintArrivalDateInput" /></label><label><input type="checkbox" @bind="pinned" /> Pin against optimizer changes</label>
             <p>A pin fixes this queue position during optimization. It does not fix its projected dates or prevent explicit planner moves.</p>

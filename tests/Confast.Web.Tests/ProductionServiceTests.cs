@@ -154,12 +154,12 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         Assert.Equal(lineId, job.ContainerGroupPartId);
         Assert.Equal("PO-1", job.PoNumber);
         Assert.Equal(250, job.Quantity);
-        Assert.Equal(arrival, segment.NotBefore);
+        Assert.Null(segment.NotBefore);
         Assert.True(forecast.Start >= arrival);
         Assert.Contains(job.Id, first.MaterialEnRouteJobIds);
         var tooEarly = await Assert.ThrowsAsync<SchedulingException>(() =>
             service.SetConstraintAsync(first.Settings.Revision, segment.Id, arrival.AddDays(-1), false));
-        Assert.Contains("Estimated Arrival", tooEarly.Message);
+        Assert.Contains("not available until", tooEarly.Message);
         await Assert.ThrowsAsync<SchedulingException>(() =>
             service.SetConstraintAsync(first.Settings.Revision, segment.Id, null, false));
 
@@ -181,7 +181,13 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
 
         persistedContainer.ReceivedDate = clock.Today;
         await verify.SaveChangesAsync();
-        Assert.DoesNotContain(job.Id, (await service.GetAsync()).MaterialEnRouteJobIds);
+        var received = await service.GetAsync();
+        Assert.DoesNotContain(job.Id, received.MaterialEnRouteJobIds);
+        Assert.Equal(clock.Today, received.ContainerArrivalDatesByJobId[job.Id]);
+        Assert.True(ProductionScheduler.Forecast(received).Single(x => x.SegmentId == segment.Id).Start < correctedArrival);
+        await service.SetConstraintAsync(received.Settings.Revision, segment.Id, clock.Today, false);
+        await service.StartAsync(await Revision(), segment.Id);
+        Assert.Equal(ProductionState.Running, (await service.GetAsync()).Segments.Single(x => x.Id == segment.Id).State);
     }
 
     [Fact]

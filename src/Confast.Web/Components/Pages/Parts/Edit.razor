@@ -72,8 +72,13 @@ else
                 role="tab"
                 aria-controls="part-production-panel"
                 aria-selected="@(activeDetailTab == PartDetailTab.ProductionScheduling)"
+                aria-label="@(hasEligibleMachines ? null : "Production Scheduling — no eligible machines selected")"
                 @onclick="() => activeDetailTab = PartDetailTab.ProductionScheduling">
             Production Scheduling
+            @if (!hasEligibleMachines)
+            {
+                <span class="production-eligibility-indicator" aria-hidden="true">!</span>
+            }
         </button>
     </div>
 
@@ -300,7 +305,7 @@ else
     else
     {
         <div id="part-production-panel" role="tabpanel" aria-labelledby="part-production-tab">
-            <PartProductionSettings PartId="part.Id" />
+            <PartProductionSettings PartId="part.Id" OnEligibilityChanged="EligibilityChangedAsync" />
         </div>
     }
 }
@@ -309,6 +314,9 @@ else
 @code {
     [Parameter]
     public long Id { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Tab { get; set; }
 
     private PartEditModel? part;
     private IReadOnlyList<CustomerOption> customerOptions = [];
@@ -322,6 +330,7 @@ else
     private string? loadError;
     private string? saveMessage;
     private string saveMessageClass = "alert-success";
+    private bool hasEligibleMachines;
     private PartDetailTab activeDetailTab;
     private PartCriteriaTab activeCriteriaTab;
 
@@ -337,18 +346,22 @@ else
         loadError = null;
         saveMessage = null;
         currentRevision = null;
-        activeDetailTab = PartDetailTab.InspectionCriteria;
+        activeDetailTab = string.Equals(Tab, "production", StringComparison.OrdinalIgnoreCase)
+            ? PartDetailTab.ProductionScheduling
+            : PartDetailTab.InspectionCriteria;
         activeCriteriaTab = PartCriteriaTab.Criteria;
 
         try
         {
             var partTask = PartService.GetPartAsync(Id);
+            var eligibilityTask = PartService.HasEligibleMachineAsync(Id);
             var optionsTask = PartService.GetCustomerOptionsAsync();
             var criteriaTask = CriteriaService.GetPartSummaryAsync(Id);
             var certificationTypesTask = CriteriaService.GetCertificationTypeChoicesAsync();
 
-            await Task.WhenAll(partTask, optionsTask, criteriaTask, certificationTypesTask);
+            await Task.WhenAll(partTask, eligibilityTask, optionsTask, criteriaTask, certificationTypesTask);
             part = await partTask;
+            hasEligibleMachines = await eligibilityTask;
             customerOptions = await optionsTask;
             criteriaSummary = await criteriaTask;
             certificationTypeChoices = await certificationTypesTask;
@@ -381,6 +394,12 @@ else
 
     private string RevisionUrl(long revisionId) =>
         $"/parts/{Id}/inspection-criteria/{revisionId}";
+
+    private Task EligibilityChangedAsync(bool hasEligibility)
+    {
+        hasEligibleMachines = hasEligibility;
+        return Task.CompletedTask;
+    }
 
     private async Task LoadPlantsAsync(long customerId)
     {

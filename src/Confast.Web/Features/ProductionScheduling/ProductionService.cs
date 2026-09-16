@@ -32,7 +32,9 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         // makes repeated reads harmless.
         var settings = await db.Set<ProductionSettings>().FromSqlRaw("SELECT *, xmin FROM production_settings WHERE id = 1 FOR UPDATE").SingleAsync();
         var result = await Load(db, access.Edit, access.Admin);
-        if (await AppendDepartedContainerPartsAsync(db, result))
+        var clearedLegacyConstraints = ClearLegacyContainerArrivalConstraints(result);
+        var appendedContainerParts = await AppendDepartedContainerPartsAsync(db, result);
+        if (clearedLegacyConstraints || appendedContainerParts)
         {
             settings.Revision++;
             db.Set<ProductionAudit>().Add(new()
@@ -40,7 +42,9 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
                 Revision = settings.Revision,
                 RecordedAt = clock.GetUtcNow().UtcDateTime,
                 RecordedBy = "System",
-                Description = "Appended departed container parts to the production schedule"
+                Description = appendedContainerParts
+                    ? "Appended departed container parts to the production schedule"
+                    : "Replaced legacy container arrival constraints with the source material gate"
             });
             await db.SaveChangesAsync();
             result = await Load(db, access.Edit, access.Admin);
@@ -79,10 +83,10 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
                     Notes = $"Container {container.ContainerNumber}",
                     ContainerGroupPartId = line.Id
                 };
-                // ETA is a hard earliest-start constraint, even if the container is
-                // appended before the ship physically arrives.
+                // The material gate is derived from the source container, rather
+                // than stored as a planner's explicit start constraint. A receipt
+                // can therefore replace ETA without retaining a stale ETA pin.
                 var segment = NewSegment(data, job, machine.Id, job.Quantity);
-                segment.NotBefore = container.EstimatedArrivalDate;
                 job.Segments.Add(segment);
                 data.Jobs.Add(job);
                 db.Add(job);
@@ -135,9 +139,29 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             await LoadStartReadinessAsync(db, jobs), Today, edit, admin)
         {
             MaterialEnRouteJobIds = containerJobs.Where(x => x.ReceivedDate == null).Select(x => x.Id).ToHashSet(),
-            ContainerArrivalDatesByJobId = containerJobs.Where(x => x.EstimatedArrivalDate != null)
+            ContainerArrivalDatesByJobId = containerJobs.Where(x => x.ReceivedDate != null || x.EstimatedArrivalDate != null)
+                .ToDictionary(x => x.Id, x => x.ReceivedDate ?? x.EstimatedArrivalDate!.Value),
+            ContainerEstimatedArrivalDatesByJobId = containerJobs.Where(x => x.EstimatedArrivalDate != null)
                 .ToDictionary(x => x.Id, x => x.EstimatedArrivalDate!.Value)
         };
+    }
+
+    private static bool ClearLegacyContainerArrivalConstraints(ProductionSnapshot data)
+    {
+        var changed = false;
+        foreach (var segment in data.Segments.Where(x => x.State == ProductionState.Pending))
+        {
+            if (!data.ContainerEstimatedArrivalDatesByJobId.TryGetValue(segment.JobId, out var estimatedArrival)
+                || segment.NotBefore != estimatedArrival)
+                continue;
+
+            // Earlier versions copied ETA into NotBefore. That made it impossible
+            // for a later receipt date to advance the schedule. Treat an exactly
+            // matching old ETA as the generated material gate, not a manual pin.
+            segment.NotBefore = null;
+            changed = true;
+        }
+        return changed;
     }
 
     private static async Task<List<ProductionStartReadiness>> LoadStartReadinessAsync(
@@ -430,7 +454,7 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         var inspectionReadiness = data.StartReadiness.Single(x => x.JobId == s.JobId);
         if (!inspectionReadiness.IsReady) throw new SchedulingException(inspectionReadiness.Message);
         if (ContainerArrivalDate(data, s) is { } arrival && arrival > Today)
-            throw new SchedulingException($"Material is not expected until {arrival:MMM d, yyyy}; production cannot start before the container's Estimated Arrival date.");
+            throw new SchedulingException($"Container material is not available until {arrival:MMM d, yyyy}; production cannot start before that date.");
         if (s.NotBefore > Today) throw new SchedulingException("Remove or adjust the start constraint before starting early.");
         if (s.PredecessorId is { } predecessor && data.Segments.Single(x => x.Id == predecessor).State != ProductionState.Completed)
             throw new SchedulingException("Complete the cut-in predecessor first.");
@@ -535,7 +559,7 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
             var s = data.Segments.Single(x => x.Id == segmentId);
             if (s.State != ProductionState.Pending) throw new SchedulingException("Only pending work accepts start constraints and optimizer pins.");
             if (ContainerArrivalDate(data, s) is { } arrival && (notBefore == null || notBefore < arrival))
-                throw new SchedulingException($"This job's container is not expected until {arrival:MMM d, yyyy}. Its start constraint cannot be earlier than the Estimated Arrival date.");
+                throw new SchedulingException($"This job's container material is not available until {arrival:MMM d, yyyy}. Its start constraint cannot be earlier than that date.");
             s.NotBefore = notBefore; s.IsPinned = pinned;
             return Task.CompletedTask;
         });

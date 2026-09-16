@@ -138,6 +138,7 @@ builder.Services.AddScoped<InspectionService>();
 builder.Services.AddScoped<InspectionSearchNavigationContext>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionScheduling.ProductionService>();
+builder.Services.AddScoped<Confast.Web.Features.ProductionTracking.ProductionTrackingService>();
 builder.Services.AddScoped<PartFlipService>();
 
 if (builder.Environment.IsDevelopment())

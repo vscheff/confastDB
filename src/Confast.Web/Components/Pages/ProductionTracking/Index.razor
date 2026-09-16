@@ -1,0 +1,451 @@
+@page "/production-tracking"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Production + "," + AppRoles.Administrator)]
+@using Confast.Web.Features.ProductionTracking
+@using Confast.Web.Features.ProductionScheduling
+@inject ProductionTrackingService Service
+@inject TimeProvider Clock
+@inject ILogger<Index> Logger
+@implements IAsyncDisposable
+
+<PageTitle>Production Tracking</PageTitle>
+
+<div class="tracking-page-heading">
+    <div><h1>Production Tracking</h1></div>
+    <div class="tracking-heading-actions">@if (data is not null) { <span>@data.ProductionDate.ToString("dddd, MMMM d")</span> }<AuthorizeView Roles="@AppRoles.Administrator"><a class="button button-secondary" href="/production-tracking/settings">Tracking Settings</a></AuthorizeView></div>
+</div>
+
+@if (message is not null) { <div class="alert alert-error" role="alert">@message</div> }
+
+@if (data is null)
+{
+    <p>Loading production tracking…</p>
+}
+else
+{
+    <fieldset class="tracking-workspace" disabled="@busy">
+        <section class="machine-picker tracking-card">
+            <label for="tracking-machine">Machine</label>
+            <select id="tracking-machine" value="@selectedMachineId" @onchange="MachineChangedAsync">
+                <option value="">Select a machine</option>
+                @foreach (var machine in data.Machines) { <option value="@machine.Id">@machine.Name</option> }
+            </select>
+        </section>
+
+        @if (selectedMachineId is not null)
+        {
+            <div class="tracking-columns">
+                <aside class="tracking-sidebar">
+                    <section class="tracking-card job-picker">
+                        <div class="card-heading"><div><p class="eyebrow">Scheduled work</p><h2>Select Job</h2></div></div>
+                        @if (data.ScheduledJobs.Count == 0)
+                        {
+                            <p>No scheduled part/lot combinations are available for this machine.</p>
+                        }
+                        else
+                        {
+                            <div class="touch-list">
+                                @foreach (var job in data.ScheduledJobs)
+                                {
+                                    <button type="button" class="touch-list-item" @onclick="() => OpenScheduledAsync(job)">
+                                        <strong>@job.PartNumber</strong><span>Lot @job.LotNumber</span><small>@job.CustomerName · @job.State</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                        <button type="button" class="button button-secondary unscheduled-toggle" @onclick="() => showUnscheduled = !showUnscheduled">@(showUnscheduled ? "Hide Unscheduled Job" : "Choose Unscheduled Job")</button>
+                        @if (showUnscheduled)
+                        {
+                            <div class="unscheduled-fields">
+                                <label>Part Number
+                                    <select value="@selectedPartId" @onchange="PartChanged">
+                                        <option value="">Select a part</option>
+                                        @foreach (var part in data.EligibleParts) { <option value="@part.Id">@part.PartNumber — @part.CustomerName</option> }
+                                    </select>
+                                </label>
+                                <label>Lot Number
+                                    <select @bind="selectedInspectionId" disabled="@(selectedPartId is null)">
+                                        <option value="">Select a lot</option>
+                                        @foreach (var lot in AvailableLots) { <option value="@lot.InspectionId">@lot.LotNumber</option> }
+                                    </select>
+                                </label>
+                                <button type="button" class="button button-primary" disabled="@(selectedInspectionId is null)" @onclick="OpenUnscheduledAsync">Open Sort Log</button>
+                            </div>
+                        }
+                    </section>
+
+                    <section class="tracking-card todays-logs">
+                        <div class="card-heading"><div><p class="eyebrow">This machine</p><h2>Today's Logs</h2></div></div>
+                        @if (data.TodayLogs.Count == 0) { <p>No Sort Logs have been created today.</p> }
+                        else
+                        {
+                            <div class="touch-list">
+                                @foreach (var log in data.TodayLogs)
+                                {
+                                    <button type="button" class="touch-list-item @(data.CurrentLog?.Id == log.Id ? "selected" : null)" @onclick="() => OpenExistingAsync(log.Id)">
+                                        <strong>@log.PartNumber @if (log.IsRunning) { <span class="running-dot">RUNNING</span> }</strong>
+                                        <span>Lot# @log.LotNumber</span><small>@log.TotalPassed.ToString("N0") passed</small>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </section>
+                </aside>
+
+                <main class="tracking-main">
+                    @if (data.CurrentLog is null)
+                    {
+                        <section class="tracking-card empty-current"><h2>No Current Job</h2><p>Choose scheduled work or an unscheduled part and lot to open today's Sort Log.</p></section>
+                    }
+                    else
+                    {
+                        var log = data.CurrentLog;
+                        var activeLine = log.ActiveLine;
+                        var unfinishedLine = log.Lines.FirstOrDefault(x => x.StopTimeUtc is not null && x.DowntimeCauseId is null);
+                        <section class="current-job tracking-card">
+                            <div class="current-job-heading">
+                                <div><p class="eyebrow">Current Job</p><h2>@log.PartNumber</h2><p>Lot @log.LotNumber · @log.CustomerName</p></div>
+                                <div class="current-job-meta">
+                                    <span class="current-log-date">@log.ProductionDate.ToString("dddd, MMMM d")</span>
+                                    @if (activeLine is not null)
+                                    {
+                                        <div class="run-state"><strong>RUNNING</strong><span>Started @Local(activeLine.StartTimeUtc).ToString("h:mm tt")</span><span class="elapsed">@Elapsed(activeLine.StartTimeUtc)</span></div>
+                                    }
+                                </div>
+                            </div>
+                            @if (activeLine is not null)
+                            {
+                                <button type="button" class="stop-run" @onclick="StopRunAsync">STOP RUN</button>
+                            }
+                            else if (unfinishedLine is not null)
+                            {
+                                <div class="stop-details-needed"><p>Run @unfinishedLine.Sequence stopped at @Local(unfinishedLine.StopTimeUtc!.Value).ToString("h:mm tt"). Finish its stop details before starting another run.</p><div class="stop-details-actions"><button type="button" class="button button-primary" @onclick="() => EditLine(unfinishedLine, showStartFields: false)">Finish Stop Details</button><button type="button" class="button button-secondary" @onclick="ResumeRunAsync">Resume Run</button></div></div>
+                            }
+                            else
+                            {
+                                    <div class="start-details">
+                                    <div class="start-fields">
+                                        <div class="start-field-group">
+                                            <span class="start-field-group-heading">Boundary Samples</span>
+                                            <label>Ran <InputNumber @bind-Value="startBoundaryRan" min="0" /></label>
+                                            <label>Passed <InputNumber @bind-Value="startBoundaryPassed" min="0" /></label>
+                                        </div>
+                                        <label class="start-box-count">Start Box Count <InputNumber @bind-Value="startBoxCount" min="0" /></label>
+                                        <div class="start-field-group">
+                                            <span class="start-field-group-heading">Initials</span>
+                                            <label>Production <input class="initials-input" value="@startProductionInitials" @oninput="args => startProductionInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
+                                            <label>Quality <input class="initials-input" value="@startQualityInitials" @oninput="args => startQualityInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
+                                        </div>
+                                        <label class="wide">Notes <textarea @bind="startNotes" rows="2"></textarea></label>
+                                        </div>
+                                        @if (startMessage is not null) { <div class="alert alert-error start-run-error" role="alert">@startMessage</div> }
+                                        <button type="button" class="start-run" @onclick="StartRunAsync">START RUN</button>
+                                </div>
+                            }
+                        </section>
+
+                        <section class="metrics-grid" aria-label="Sort Log metrics">
+                            @Metric("Passed", log.Metrics.TotalPassed.ToString("N0"))
+                            @Metric("Run Time", Duration(log.Metrics.TotalRunTime))
+                            @Metric("PPH", log.Metrics.Pph.ToString("N0"))
+                            @Metric("Failed", log.Metrics.TotalFailed.ToString("N0"))
+                            @Metric("Downtime", Duration(log.Metrics.TotalDowntime))
+                            @Metric("Target PPH", log.Metrics.TargetPph.ToString("N0"))
+                            @Metric("Reject Rate", log.Metrics.FailureRate.ToString("P2"))
+                            @Metric("Feed Rate", log.Metrics.FeedRate.ToString("N0"))
+                            @Metric("Efficiency", log.Metrics.Efficiency.ToString("P1"))
+                        </section>
+
+                        <section class="tracking-card log-comments">
+                            <div class="card-heading"><div><h2>Comments</h2></div><button type="button" class="button button-primary" @onclick="SaveCommentsAsync">Save Comments</button></div>
+                            <textarea @bind="comments" rows="3" maxlength="4000"></textarea>
+                        </section>
+
+                        <section class="run-history">
+                            <div class="card-heading"><div><p class="eyebrow">Production intervals</p><h2>Completed Runs</h2></div></div>
+                            @if (log.Lines.All(x => x.StopTimeUtc is null)) { <p>No completed runs yet.</p> }
+                                <div class="run-card-list">
+                                    @foreach (var line in log.Lines.Where(x => x.StopTimeUtc is not null).OrderByDescending(x => x.Sequence))
+                                    {
+                                        var metrics = SortLogMetricsCalculator.Calculate([line], log.TargetPphSnapshot);
+                                        <article class="run-card">
+                                        <div class="run-card-time"><strong>@Local(line.StartTimeUtc).ToString("h:mm tt") – @Local(line.StopTimeUtc!.Value).ToString("h:mm tt")</strong><span>@Duration(line.StopTimeUtc.Value - line.StartTimeUtc)</span></div>
+                                        <div class="run-card-numbers"><span><small>Passed</small><strong>@line.PassQuantity.ToString("N0")</strong></span><span><small>Failed</small><strong>@line.FailQuantity.ToString("N0")</strong></span><span><small>Efficiency</small><strong>@metrics.Efficiency.ToString("P1")</strong></span><span><small>Reject Rate</small><strong>@metrics.FailureRate.ToString("P2")</strong></span></div>
+                                        <div class="run-card-detail"><span>Stopped: <strong>@(line.DowntimeCause ?? "Details required")</strong></span></div>
+                                        @if (!string.IsNullOrWhiteSpace(line.Notes)) { <p>@line.Notes</p> }
+                                        <button type="button" class="button button-secondary" @onclick="() => EditLine(line)">Edit</button>
+                                    </article>
+                                }
+                            </div>
+                        </section>
+                    }
+                </main>
+            </div>
+        }
+    </fieldset>
+}
+
+@if (lineEditor is not null && data?.CurrentLog is not null)
+{
+    <div class="tracking-modal-backdrop" role="presentation">
+        <section class="tracking-modal" role="dialog" aria-modal="true" aria-labelledby="run-editor-heading">
+            <div class="card-heading"><div><p class="eyebrow">Run @lineEditor.Sequence</p><h2 id="run-editor-heading">Run Details</h2></div><button type="button" class="modal-close" aria-label="Close" @onclick="CloseLineEditor">×</button></div>
+            <div class="line-editor-grid">
+                <label class="editor-downtime">Downtime Cause <select @bind="lineEditor.DowntimeCauseId"><option value="0">Select a cause</option>@foreach (var cause in AvailableCauses(lineEditor.DowntimeCauseId)) { <option value="@cause.Id">@cause.Name</option> }</select></label>
+                @if (lineEditor.ShowStartFields)
+                {
+                    <div class="line-editor-field-group run-time-group">
+                        <span class="line-editor-field-group-heading">Run Time</span>
+                        <label>Start Time <input class="compact-editor-input" type="time" step="1" @bind="lineEditor.StartTime" @bind:format="HH:mm:ss" /></label>
+                        <label>Stop Time <input class="compact-editor-input" type="time" step="1" @bind="lineEditor.StopTime" @bind:format="HH:mm:ss" /></label>
+                    </div>
+                }
+                else
+                {
+                    <label>Stop Time <input class="compact-editor-input" type="time" step="1" @bind="lineEditor.StopTime" @bind:format="HH:mm:ss" /></label>
+                }
+                <div class="line-editor-field-group quantity-group">
+                    <span class="line-editor-field-group-heading">Quantity</span>
+                    <label>Pass <InputNumber class="compact-editor-input" @bind-Value="lineEditor.PassQuantity" min="0" /></label>
+                    <label>Fail <InputNumber class="compact-editor-input" @bind-Value="lineEditor.FailQuantity" min="0" /></label>
+                </div>
+                @if (lineEditor.ShowStartFields)
+                {
+                    <div class="line-editor-field-group box-count-group">
+                        <span class="line-editor-field-group-heading">Box Count</span>
+                        <label>End <InputNumber class="compact-editor-input" @bind-Value="lineEditor.EndBoxCount" min="0" required aria-required="true" /></label>
+                        <label>Start <InputNumber @bind-Value="lineEditor.StartBoxCount" min="0" /></label>
+                    </div>
+                    <div class="line-editor-field-group">
+                        <span class="line-editor-field-group-heading">Boundary Samples</span>
+                        <label>Ran <InputNumber @bind-Value="lineEditor.BoundarySamplesRanQuantity" min="0" /></label>
+                        <label>Passed <InputNumber @bind-Value="lineEditor.BoundarySamplesPassedQuantity" min="0" /></label>
+                    </div>
+                }
+                else
+                {
+                    <label class="compact-end-box-count">End Box Count <InputNumber class="compact-end-box-input compact-editor-input" @bind-Value="lineEditor.EndBoxCount" min="0" required aria-required="true" /></label>
+                }
+                <div class="line-editor-field-group">
+                    <span class="line-editor-field-group-heading">Initials</span>
+                    <label>Production <input class="initials-input compact-editor-input" value="@lineEditor.ProductionInitials" @oninput="args => lineEditor.ProductionInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
+                    <label>Quality <input class="initials-input compact-editor-input" value="@lineEditor.QualityInitials" @oninput="args => lineEditor.QualityInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
+                </div>
+                <label class="wide">Notes <textarea @bind="lineEditor.Notes" rows="3"></textarea></label>
+            </div>
+            @if (lineEditorMessage is not null) { <div class="alert alert-error line-editor-error" role="alert">@lineEditorMessage</div> }
+            <div class="modal-actions"><button type="button" class="button button-primary" disabled="@busy" @onclick="SaveLineAsync">Save Run</button><button type="button" class="button button-secondary" disabled="@busy" @onclick="CloseLineEditor">Cancel</button></div>
+        </section>
+    </div>
+}
+
+@code {
+    private ProductionTrackingDashboard? data;
+    private long? selectedMachineId, selectedPartId, selectedInspectionId, selectedLogId;
+    private bool busy, showUnscheduled;
+    private string? message, startMessage, lineEditorMessage, startProductionInitials, startQualityInitials, startNotes, comments;
+    private long startBoundaryRan, startBoundaryPassed;
+    private long? startBoxCount;
+    private LineEditor? lineEditor;
+    private readonly CancellationTokenSource timerCancellation = new();
+
+    private IEnumerable<TrackingLotOption> AvailableLots => data?.Lots.Where(x => x.PartId == selectedPartId) ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _ = RunElapsedTimerAsync();
+    }
+
+    private async Task RunElapsedTimerAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(timerCancellation.Token))
+                if (data?.CurrentLog?.ActiveLine is not null) await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task MachineChangedAsync(ChangeEventArgs args)
+    {
+        selectedMachineId = long.TryParse(args.Value?.ToString(), out var id) ? id : null;
+        selectedLogId = selectedPartId = selectedInspectionId = null;
+        showUnscheduled = false;
+        await ReloadAsync();
+        selectedLogId = data!.TodayLogs.FirstOrDefault()?.Id;
+        if (selectedLogId is not null)
+            await ReloadAsync();
+    }
+
+    private void PartChanged(ChangeEventArgs args)
+    {
+        selectedPartId = long.TryParse(args.Value?.ToString(), out var id) ? id : null;
+        selectedInspectionId = null;
+    }
+
+    private Task OpenScheduledAsync(TrackingScheduledJobOption job) => RunAsync(async () =>
+    {
+        selectedLogId = await Service.OpenOrCreateSortLogAsync(selectedMachineId!.Value, job.InspectionId, job.SegmentId);
+    });
+
+    private Task OpenUnscheduledAsync() => RunAsync(async () =>
+    {
+        selectedLogId = await Service.OpenOrCreateSortLogAsync(selectedMachineId!.Value, selectedInspectionId!.Value, null);
+    });
+
+    private Task OpenExistingAsync(long id) => RunAsync(() => { selectedLogId = id; return Task.CompletedTask; });
+
+    private async Task StartRunAsync()
+    {
+        startMessage = null;
+        await RunAsync(() => Service.StartRunAsync(selectedLogId!.Value,
+            new(startBoundaryRan, startBoundaryPassed, startBoxCount, startProductionInitials, startQualityInitials, startNotes)),
+            () => { startBoundaryRan = startBoundaryPassed = 0; startBoxCount = null; startProductionInitials = startQualityInitials = startNotes = null; });
+        if (message is not null)
+        {
+            startMessage = message;
+            message = null;
+        }
+    }
+
+    private async Task StopRunAsync()
+    {
+        long? stoppedLineId = null;
+        await RunAsync(async () => stoppedLineId = await Service.StopRunAsync(selectedLogId!.Value));
+        if (message is null && stoppedLineId is not null)
+        {
+            var stopped = data!.CurrentLog!.Lines.Single(x => x.Id == stoppedLineId);
+            EditLine(stopped, showStartFields: false);
+        }
+    }
+
+    private Task ResumeRunAsync() => RunAsync(() => Service.ResumeRunAsync(selectedLogId!.Value));
+
+    private Task SaveCommentsAsync() => RunAsync(() => Service.SaveCommentsAsync(selectedLogId!.Value, comments));
+
+    private void EditLine(SortLogLineItem line, bool showStartFields = true)
+    {
+        lineEditorMessage = null;
+        lineEditor = LineEditor.From(line, Clock.LocalTimeZone, showStartFields);
+    }
+
+    private void CloseLineEditor()
+    {
+        lineEditorMessage = null;
+        lineEditor = null;
+    }
+
+    private async Task SaveLineAsync()
+    {
+        if (lineEditor is null) return;
+        var editor = lineEditor;
+        lineEditorMessage = null;
+        await RunAsync(() => Service.UpdateLineAsync(editor.Id,
+            editor.ToInput(data!.CurrentLog!.ProductionDate, Clock.LocalTimeZone)));
+        if (message is null)
+            CloseLineEditor();
+        else
+        {
+            lineEditorMessage = message;
+            message = null;
+        }
+    }
+
+    private IEnumerable<SortLogDowntimeCause> AvailableCauses(long selectedId) =>
+        data!.DowntimeCauses.Where(x => x.IsActive || x.Id == selectedId);
+
+    private async Task RunAsync(Func<Task> action, Action? onSuccess = null)
+    {
+        if (busy) return;
+        busy = true;
+        message = null;
+        try
+        {
+            await action();
+            onSuccess?.Invoke();
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is ProductionTrackingException or UnauthorizedAccessException)
+        {
+            message = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Production Tracking operation failed");
+            message = "Production Tracking could not save the change. Reload and try again.";
+        }
+        finally { busy = false; }
+    }
+
+    private async Task ReloadAsync()
+    {
+        data = await Service.GetDashboardAsync(selectedMachineId, selectedLogId);
+        comments = data.CurrentLog?.Comments;
+        if (startBoxCount is null)
+            startBoxCount = data.CurrentLog?.Lines.Where(x => x.StopTimeUtc is not null)
+                .OrderByDescending(x => x.Sequence).Select(x => x.EndBoxCount).FirstOrDefault();
+    }
+
+    private DateTimeOffset Local(DateTimeOffset value) => TimeZoneInfo.ConvertTime(value, Clock.LocalTimeZone);
+    private static string? InputInitials(object? value) => value?.ToString()?.ToUpperInvariant();
+    private string Elapsed(DateTimeOffset start) => Duration(clockNow: Clock.GetUtcNow() - start);
+    private static string Duration(TimeSpan clockNow) => clockNow.TotalHours >= 1
+        ? $"{(int)clockNow.TotalHours}h {clockNow.Minutes:D2}m"
+        : $"{clockNow.Minutes}m {clockNow.Seconds:D2}s";
+
+    private static RenderFragment Metric(string label, string value) => @<div class="metric-card">
+        <span>@label</span>
+        <strong>@value</strong>
+    </div>;
+
+    public ValueTask DisposeAsync()
+    {
+        timerCancellation.Cancel();
+        timerCancellation.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private sealed class LineEditor
+    {
+        public long Id { get; init; }
+        public int Sequence { get; init; }
+        public TimeOnly StartTime { get; set; }
+        public TimeOnly StopTime { get; set; }
+        public long DowntimeCauseId { get; set; }
+        public long PassQuantity { get; set; }
+        public long FailQuantity { get; set; }
+        public long BoundarySamplesRanQuantity { get; set; }
+        public long BoundarySamplesPassedQuantity { get; set; }
+        public long? StartBoxCount { get; set; }
+        public long? EndBoxCount { get; set; }
+        public bool ShowStartFields { get; init; }
+        public string? ProductionInitials { get; set; }
+        public string? QualityInitials { get; set; }
+        public string? Notes { get; set; }
+
+        public static LineEditor From(SortLogLineItem line, TimeZoneInfo timeZone, bool showStartFields) => new()
+        {
+            Id = line.Id, Sequence = line.Sequence, ShowStartFields = showStartFields,
+            StartTime = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(line.StartTimeUtc, timeZone).DateTime),
+            StopTime = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(line.StopTimeUtc!.Value, timeZone).DateTime),
+            DowntimeCauseId = line.DowntimeCauseId ?? 0,
+            PassQuantity = line.PassQuantity, FailQuantity = line.FailQuantity,
+            BoundarySamplesRanQuantity = line.BoundarySamplesRanQuantity,
+            BoundarySamplesPassedQuantity = line.BoundarySamplesPassedQuantity,
+            StartBoxCount = line.StartBoxCount, EndBoxCount = line.EndBoxCount,
+            ProductionInitials = line.ProductionInitials, QualityInitials = line.QualityInitials, Notes = line.Notes
+        };
+
+        public UpdateSortLogLineInput ToInput(DateOnly productionDate, TimeZoneInfo timeZone) => new(
+            ToUtc(productionDate, StartTime, timeZone), ToUtc(productionDate, StopTime, timeZone), DowntimeCauseId,
+            PassQuantity, FailQuantity, BoundarySamplesRanQuantity, BoundarySamplesPassedQuantity,
+            StartBoxCount, EndBoxCount, ProductionInitials, QualityInitials, Notes);
+
+        private static DateTimeOffset ToUtc(DateOnly date, TimeOnly time, TimeZoneInfo timeZone)
+        {
+            var unspecified = DateTime.SpecifyKind(date.ToDateTime(time), DateTimeKind.Unspecified);
+            return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecified, timeZone), TimeSpan.Zero);
+        }
+    }
+}

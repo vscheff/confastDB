@@ -1,5 +1,6 @@
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Parts;
+using Confast.Web.Features.ProductionScheduling;
 using Confast.Web.Features.Suppliers;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -75,6 +76,25 @@ public sealed class PlantTests(PostgresTestDatabase database) : IAsyncLifetime
             BoxQuantity = 250.5m
         });
         Assert.Equal(SavePartStatus.ValidationFailed, fractional.Status);
+    }
+
+    [Fact]
+    public async Task EligibleMachineIndicatorUsesPartMachineMappings()
+    {
+        var customerId = await CreateCustomerAsync("Acme");
+        var result = await partService.CreatePartAsync(new PartEditModel { CustomerId = customerId, PartNumber = "ELIGIBLE" });
+        var partId = result.Id!.Value;
+
+        Assert.False(await partService.HasEligibleMachineAsync(partId));
+
+        await using var db = database.CreateDbContext();
+        var inactiveMachine = new SortingMachine { Name = "Inactive sorter", IsActive = false };
+        db.Add(inactiveMachine);
+        await db.SaveChangesAsync();
+        db.Set<PartMachine>().Add(new PartMachine { PartId = partId, MachineId = inactiveMachine.Id, TargetPph = 1000 });
+        await db.SaveChangesAsync();
+
+        Assert.True(await partService.HasEligibleMachineAsync(partId));
     }
 
     [Fact]

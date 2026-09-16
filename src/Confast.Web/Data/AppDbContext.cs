@@ -6,6 +6,7 @@ using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
+using Confast.Web.Features.ProductionTracking;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -99,6 +100,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     {
         base.OnModelCreating(modelBuilder);
         Confast.Web.Features.ProductionScheduling.ProductionMapping.Configure(modelBuilder);
+        ProductionTrackingMapping.Configure(modelBuilder);
         modelBuilder.Entity<Part>().Property(x => x.BoxQuantity).HasColumnName("box_quantity").HasPrecision(18, 3);
         ConfigureIdentity(modelBuilder);
         ContainerTrackingConfiguration.Configure(modelBuilder);

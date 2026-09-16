@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916144117_AddProductionTracking")]
+    partial class AddProductionTracking
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2752,6 +2755,10 @@ namespace Confast.Web.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
@@ -2775,12 +2782,16 @@ namespace Confast.Web.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_sort_log_downtime_causes_normalized_name");
 
-                    b.ToTable("sort_log_downtime_causes", (string)null);
+                    b.ToTable("sort_log_downtime_causes", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_sort_log_downtime_causes_display_order", "display_order >= 0");
+                        });
 
                     b.HasData(
                         new
                         {
                             Id = -1L,
+                            DisplayOrder = 1000,
                             IsActive = true,
                             Name = "End of Day",
                             NormalizedName = "END OF DAY"
@@ -2826,8 +2837,8 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("pass_quantity");
 
                     b.Property<string>("ProductionInitials")
-                        .HasMaxLength(2)
-                        .HasColumnType("character varying(2)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("production_initials");
 
                     b.Property<string>("ProductionUserId")
@@ -2835,8 +2846,8 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnName("production_user_id");
 
                     b.Property<string>("QualityInitials")
-                        .HasMaxLength(2)
-                        .HasColumnType("character varying(2)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("quality_initials");
 
                     b.Property<string>("QualityUserId")
@@ -2892,8 +2903,6 @@ namespace Confast.Web.Data.Migrations
 
                     b.ToTable("sort_log_lines", null, t =>
                         {
-                            t.HasCheckConstraint("CK_sort_log_lines_initials", "(production_initials IS NOT NULL OR quality_initials IS NOT NULL) AND (production_initials IS NULL OR char_length(production_initials) = 2) AND (quality_initials IS NULL OR char_length(quality_initials) = 2)");
-
                             t.HasCheckConstraint("CK_sort_log_lines_notes", "notes IS NULL OR char_length(notes) <= 4000");
 
                             t.HasCheckConstraint("CK_sort_log_lines_quantities", "pass_quantity >= 0 AND fail_quantity >= 0 AND boundary_samples_ran_quantity >= 0 AND boundary_samples_passed_quantity >= 0 AND boundary_samples_passed_quantity <= boundary_samples_ran_quantity");

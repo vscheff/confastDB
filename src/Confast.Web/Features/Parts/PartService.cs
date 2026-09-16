@@ -1,4 +1,5 @@
 using Confast.Web.Data;
+using Confast.Web.Features.ProductionScheduling;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -92,6 +93,17 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
                 PlantIds = x.PartPlants.Select(pp => pp.PlantId).ToList()
             })
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<bool> HasEligibleMachineAsync(
+        long partId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await db.Set<PartMachine>()
+            .AsNoTracking()
+            .AnyAsync(x => x.PartId == partId, cancellationToken);
     }
 
     public async Task<PartDeleteModel?> GetPartForDeleteAsync(

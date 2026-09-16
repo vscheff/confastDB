@@ -7,7 +7,6 @@
 @using System.ComponentModel.DataAnnotations
 @inject ContainerTrackingService Tracking
 @inject ReceivedPartsService ReceivedParts
-@inject ProductionService Production
 @inject TrackingAccess Access
 @inject NavigationManager Navigation
 @inject ILogger<Detail> Logger
@@ -111,7 +110,7 @@ else
             {
                 <fieldset class="tracking-fields" disabled="@(!permissions.CanEdit || busy)">
                     <div class="form-field container-received-field"><label>Received date</label><output>@(metadata.ReceivedDate?.ToString("MMM d, yyyy") ?? "Not received")</output></div>
-                    <div class="form-field container-schedule-field"><label>Production schedule</label><output>@(metadata.AddedToProductionSchedule ? "Added automatically" : "Waiting for departure")</output></div>
+                    <div class="form-field container-schedule-field"><label>Production schedule</label><output>@(metadata.HasMissingScheduleEligibility ? "Missing Eligibility" : metadata.AddedToProductionSchedule ? "Yes" : "No")</output></div>
                 </fieldset>
             }
         </div>
@@ -164,7 +163,7 @@ else
                                                         <td>@(part.PurchaseOrderNumber ?? "—")</td>
                                                         <td>@(part.Quantity?.ToString("N0") ?? "—")</td>
                                                         <td>@(choice?.CustomerName ?? "—")</td>
-                                                        <td>@if (part.ScheduleState == ContainerPartScheduleState.MissingEligibility) { <span class="production-risk">Missing eligibility</span><br /> } @if (CanAttemptSchedule(part)) { <button type="button" class="button button-secondary" disabled="@busy" @onclick="() => AppendToScheduleAsync(part)">Add to schedule</button> } else { @(part.ScheduleState == ContainerPartScheduleState.Scheduled ? "Scheduled" : part.ScheduleState == ContainerPartScheduleState.MissingEligibility ? "" : "—") }</td>
+                                                        <td>@if (part.ScheduleState == ContainerPartScheduleState.MissingEligibility) { <span class="production-risk">Missing eligibility</span><br /> } @if (NeedsScheduleEligibility(part)) { <a class="button button-secondary" href="@($"/parts/{part.PartId}/edit?tab=production")" target="_blank" rel="noopener" data-enhance-nav="false">View Eligibility</a> } else { @(part.ScheduleState == ContainerPartScheduleState.Scheduled ? "Scheduled" : part.ScheduleState == ContainerPartScheduleState.MissingEligibility ? "" : "—") }</td>
                                                     </tr>
                                                 }
                                             }
@@ -224,7 +223,7 @@ else
                                             </InputSelect><ValidationMessage For="@(() => part.PartId)" /></td>
                                             <td><InputText @bind-Value="part.PurchaseOrderNumber" aria-label="PO number" maxlength="100" /><ValidationMessage For="@(() => part.PurchaseOrderNumber)" /></td>
                                             <td><ThousandsSeparatedIntegerInput @bind-Value="part.Quantity" aria-label="Quantity" /><ValidationMessage For="@(() => part.Quantity)" /></td>
-                                            <td>@if (part.ScheduleState == ContainerPartScheduleState.MissingEligibility) { <span class="production-risk">Missing eligibility</span> } @if (CanAttemptSchedule(part)) { <button type="button" class="button button-secondary" disabled="@busy" @onclick="() => AppendToScheduleAsync(part)">Add to schedule</button> } @if (CanEditContents) { <button type="button" class="button button-danger-outline" @onclick="() => group.Parts.Remove(part)">Remove</button> }</td>
+                                            <td>@if (part.ScheduleState == ContainerPartScheduleState.MissingEligibility) { <span class="production-risk">Missing eligibility</span> } @if (NeedsScheduleEligibility(part)) { <a class="button button-secondary" href="@($"/parts/{part.PartId}/edit?tab=production")" target="_blank" rel="noopener" data-enhance-nav="false">View Eligibility</a> } @if (CanEditContents) { <button type="button" class="button button-danger-outline" @onclick="() => group.Parts.Remove(part)">Remove</button> }</td>
                                         </tr>
                                     }
                                 </tbody></table>
@@ -336,21 +335,7 @@ else
         catch (Exception ex) { Logger.LogError(ex, "Failed to receive container {ContainerId}", Id); message = "Container receipt could not be saved."; isError = true; }
         finally { busy = false; }
     }
-    private async Task AppendToScheduleAsync(ContainerPartEditModel part)
-    {
-        if (busy || part.Id == 0) return;
-        busy = true;
-        try
-        {
-            await Production.AppendContainerPartAsync(part.Id);
-            await ReloadAsync();
-            message = "Part added to the production schedule."; isError = false;
-        }
-        catch (SchedulingException ex) { message = ex.Message; isError = true; }
-        catch (Exception ex) { Logger.LogError(ex, "Failed to add container part {ContainerPartId} to production schedule", part.Id); message = "Part could not be added to the production schedule."; isError = true; }
-        finally { busy = false; }
-    }
-    private static bool CanAttemptSchedule(ContainerPartEditModel part) =>
+    private static bool NeedsScheduleEligibility(ContainerPartEditModel part) =>
         !part.IsOnProductionSchedule &&
         part.ScheduleState is ContainerPartScheduleState.MissingEligibility or ContainerPartScheduleState.ReadyToAdd;
     private string PartLabel(long partId) => parts.FirstOrDefault(x => x.Id == partId)?.Label ?? "—";

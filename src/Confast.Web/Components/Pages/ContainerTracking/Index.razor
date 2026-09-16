@@ -82,7 +82,7 @@
                     @if (ContainerEditPolicy.HasDeparted(container.Etd, Tracking.Today)) { <small class="tracking-lock">Departed / Locked</small> }</td>
                     <td>@(container.CbpNumber ?? "—")</td>
                     <td>@Date(container.Etd)</td><td>@Date(container.Eta)</td><td>@(container.ReceivedDate is null ? "Not received" : Date(container.ReceivedDate))</td>
-                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.HasMissingScheduleEligibility ? "Missing eligibility" : container.AddedToProductionSchedule ? "Yes" : "No")</td>
+                    <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.HasMissingScheduleEligibility ? "Missing Eligibility" : container.AddedToProductionSchedule ? "Yes" : "No")</td>
                     <td class="table-action"><div class="tracking-receipt-cell">
                         @if (permissions.CanEdit)
                         {

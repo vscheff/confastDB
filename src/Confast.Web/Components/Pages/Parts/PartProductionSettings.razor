@@ -58,6 +58,9 @@
     [Parameter, EditorRequired]
     public long PartId { get; set; }
 
+    [Parameter]
+    public EventCallback<bool> OnEligibilityChanged { get; set; }
+
     private ProductionSnapshot? data;
     private List<RateEditor> rateEditors = [];
     private long? newMachineId;
@@ -91,6 +94,7 @@
                 var rate = machine.Parts.Single(rate => rate.PartId == PartId);
                 return new RateEditor(machine.Id, decimal.ToInt64(rate.TargetPph), rate.IsPreferred);
             }).ToList();
+            await OnEligibilityChanged.InvokeAsync(EligibleMachines.Count > 0);
         }
         catch (UnauthorizedAccessException)
         {

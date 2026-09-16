@@ -153,6 +153,7 @@ public sealed record ProductionSnapshot(ProductionSettings Settings, List<Sortin
     public IEnumerable<ProductionSegment> Segments => Jobs.SelectMany(x => x.Segments);
     public HashSet<long> MaterialEnRouteJobIds { get; init; } = [];
     public Dictionary<long, DateOnly> ContainerArrivalDatesByJobId { get; init; } = [];
+    public Dictionary<long, DateOnly> ContainerEstimatedArrivalDatesByJobId { get; init; } = [];
 }
 
 public enum ProductionStartBlocker

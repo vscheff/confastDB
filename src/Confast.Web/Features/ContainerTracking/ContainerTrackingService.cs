@@ -125,7 +125,10 @@ public sealed class ContainerTrackingService(
                 CanUnreceive = c.ReceivedDate != null && !c.Groups.SelectMany(g => g.Parts).Any(p => p.ReceiptAllocations.Any()),
                 QuotedRate = c.QuotedRate, DrayageCharge = c.DrayageCharge,
                 EstimatedDepartureDate = c.EstimatedDepartureDate, EstimatedArrivalDate = c.EstimatedArrivalDate,
-                AddedToProductionSchedule = c.AddedToProductionSchedule
+                AddedToProductionSchedule = c.AddedToProductionSchedule,
+                HasMissingScheduleEligibility = c.EstimatedDepartureDate < Today && c.EstimatedArrivalDate != null && c.Groups.SelectMany(g => g.Parts).Any(p =>
+                    !db.Set<ProductionJob>().Any(job => job.ContainerGroupPartId == p.Id) &&
+                    !db.Set<SortingMachine>().Any(machine => machine.IsActive && machine.Parts.Any(rate => rate.PartId == p.PartId && rate.IsPreferred)))
             }, new ContainerContentsEditModel
             {
                 ContainerId = c.Id, Version = c.Version,

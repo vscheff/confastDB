@@ -1,0 +1,12 @@
+.tracking-settings-panel { padding: 1rem; border: 1px solid #ccd7de; border-radius: .7rem; background: #fff; }
+.settings-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.settings-heading h2, .settings-heading p { margin-top: 0; }
+.cause-editor { display: grid; grid-template-columns: minmax(14rem, 2fr) minmax(8rem, 1fr) auto auto; align-items: end; gap: .75rem; margin: 1rem 0; padding: 1rem; border-radius: .6rem; background: #eef5f8; }
+.cause-editor label { display: grid; gap: .3rem; font-weight: 700; }
+.cause-editor .active-field { display: flex; align-items: center; min-height: 2.75rem; }
+.editor-actions, .row-actions { display: flex; gap: .5rem; }
+.cause-list { display: grid; gap: .55rem; margin-top: 1rem; }
+.cause-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 4rem; padding: .65rem .8rem; border: 1px solid #d4dde2; border-radius: .5rem; }
+.cause-row > div:first-child { display: grid; gap: .15rem; }
+.cause-row span { color: #5b6d77; }
+@media (max-width: 760px) { .cause-editor { grid-template-columns: 1fr; } .cause-row, .settings-heading { align-items: stretch; flex-direction: column; } }

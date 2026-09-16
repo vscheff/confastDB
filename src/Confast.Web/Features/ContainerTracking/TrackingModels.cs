@@ -43,6 +43,7 @@ public sealed class ContainerEditModel
     public DateOnly? EstimatedDepartureDate { get; set; }
     public DateOnly? EstimatedArrivalDate { get; set; }
     public bool AddedToProductionSchedule { get; set; }
+    public bool HasMissingScheduleEligibility { get; set; }
 }
 
 public sealed class BillOfLadingEditModel
