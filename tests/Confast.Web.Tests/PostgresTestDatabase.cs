@@ -12,6 +12,7 @@ public sealed class PostgresCollection : ICollectionFixture<PostgresTestDatabase
 public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<AppDbContext>
 {
     private DbContextOptions<AppDbContext> options = null!;
+    private Npgsql.NpgsqlConnection? suiteLockConnection;
 
     public string ConnectionString { get; private set; } = null!;
 
@@ -33,11 +34,36 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
             .UseNpgsql(ConnectionString)
             .Options;
 
-        await using var db = CreateDbContext();
-        await db.Database.MigrateAsync();
+        suiteLockConnection = new Npgsql.NpgsqlConnection(ConnectionString);
+        try
+        {
+            await suiteLockConnection.OpenAsync();
+            await using var command = suiteLockConnection.CreateCommand();
+            command.CommandText = "SELECT pg_try_advisory_lock(hashtext('confast_integration_test_suite'))";
+            if (await command.ExecuteScalarAsync() is not bool acquired || !acquired)
+            {
+                throw new InvalidOperationException(
+                    "Another Confast integration-test runner is already using this PostgreSQL test database. " +
+                    "Wait for that run to finish; do not start a second dotnet test process.");
+            }
+
+            await using var db = CreateDbContext();
+            await db.Database.MigrateAsync();
+        }
+        catch
+        {
+            await DisposeAsync();
+            throw;
+        }
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public async Task DisposeAsync()
+    {
+        if (suiteLockConnection is not { } connection) return;
+
+        suiteLockConnection = null;
+        await connection.DisposeAsync();
+    }
 
     public AppDbContext CreateDbContext() => new(options);
 

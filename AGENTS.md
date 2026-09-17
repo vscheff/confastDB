@@ -309,7 +309,17 @@ in Release so Windows does not lock the test build's referenced application DLL:
 dotnet test --configuration Release
 ```
 
-The running app and the disposable test database are intended to coexist.
+The running app and the disposable test database are intended to coexist. The test
+database is shared by the entire suite, not by individual test processes. Start only one
+full-suite `dotnet test` process at a time and poll that same process to completion; a
+quiet interval of roughly 30 seconds is expected and is not evidence of a hang. A normal
+full run can take about a minute. Do not launch a replacement run merely because the
+console has not printed a final result yet.
+
+The fixture holds a PostgreSQL advisory lock for the lifetime of the suite. If it reports
+that another runner is using the test database, let that known runner finish or diagnose a
+stale test runner before retrying. Never start concurrent runs against the disposable
+database: each class resets it, and overlapping resets can deadlock PostgreSQL.
 
 Prioritize tests for:
 

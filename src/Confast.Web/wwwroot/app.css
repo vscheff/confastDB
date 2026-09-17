@@ -53,7 +53,7 @@ h1:focus { outline: none; }
 .sort-button-active { color: #10577f; background: #e5f2f8; border-color: #70a8c5; }
 .heading-actions, .row-actions { display: flex; gap: .65rem; }
 .button { display: inline-flex; align-items: center; justify-content: center; padding: .65rem 1rem; border: 1px solid transparent; border-radius: .4rem; cursor: pointer; font-weight: 650; line-height: 1.1; text-decoration: none; }
-.button:disabled { cursor: wait; opacity: .65; }
+.button:disabled { cursor: default; opacity: .65; }
 .certification-package-button:disabled { cursor: default; }
 .button-primary { color: #fff; background: #176b9c; }
 .button-primary:hover:not(:disabled) { background: #10577f; }

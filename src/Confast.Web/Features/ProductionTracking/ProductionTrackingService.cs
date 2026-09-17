@@ -14,10 +14,14 @@ public sealed class ProductionTrackingService(
 {
     private DateOnly Today => DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
-    public async Task<ProductionTrackingDashboard> GetDashboardAsync(long? machineId = null, long? sortLogId = null)
+    public async Task<ProductionTrackingDashboard> GetDashboardAsync(long? machineId = null, long? sortLogId = null,
+        DateOnly? productionDate = null)
     {
         await using var db = await factory.CreateDbContextAsync();
         await RequireAccessAsync(db);
+        var selectedDate = productionDate ?? Today;
+        if (selectedDate > Today)
+            throw new ProductionTrackingException("Production Tracking cannot open future Sort Logs.");
         var machines = await db.Set<SortingMachine>().AsNoTracking()
             .Where(x => x.IsActive).OrderBy(x => x.Name)
             .Select(x => new TrackingMachineOption(x.Id, x.Name)).ToListAsync();
@@ -57,7 +61,7 @@ public sealed class ProductionTrackingService(
             .Select(x => x.First()).ToList();
 
         var todayEntities = await db.Set<SortLog>().AsNoTracking()
-            .Where(x => x.ProductionDate == Today && (machineId == null || x.MachineId == machineId))
+            .Where(x => x.ProductionDate == selectedDate && (machineId == null || x.MachineId == machineId))
             .Include(x => x.Part).ThenInclude(x => x.Customer)
             .Include(x => x.Inspection).Include(x => x.Lines)
             .OrderByDescending(x => x.CreatedAtUtc).ToListAsync();
@@ -66,15 +70,23 @@ public sealed class ProductionTrackingService(
             x.Lines.Where(line => line.StopTimeUtc != null).Sum(line => line.PassQuantity),
             x.Lines.Any(line => line.StopTimeUtc == null))).ToList();
 
+        var logDates = db.Set<SortLog>().AsNoTracking()
+            .Where(x => machineId == null || x.MachineId == machineId);
+        var previousLogDate = await logDates.Where(x => x.ProductionDate < selectedDate)
+            .MaxAsync(x => (DateOnly?)x.ProductionDate);
+        var nextLogDate = await logDates.Where(x => x.ProductionDate > selectedDate && x.ProductionDate <= Today)
+            .MinAsync(x => (DateOnly?)x.ProductionDate);
+
         var current = sortLogId is null ? null : await LoadDetailAsync(db, sortLogId.Value);
-        if (current is not null && current.ProductionDate != Today)
-            throw new ProductionTrackingException("Production Tracking opens Sort Logs for the current production date.");
+        if (current is not null && current.ProductionDate != selectedDate)
+            throw new ProductionTrackingException("The selected Sort Log belongs to a different production date.");
         if (current is not null && machineId is not null && current.MachineId != machineId)
             throw new ProductionTrackingException("The selected Sort Log belongs to a different machine.");
 
         var causes = await OrderedDowntimeCauses(db).ToListAsync();
 
-        return new(Today, machines, scheduledJobs, eligibleParts, lots, todayLogs, causes, current);
+        return new(selectedDate, previousLogDate, nextLogDate, machines, scheduledJobs, eligibleParts, lots,
+            todayLogs, causes, current);
     }
 
     public async Task<IReadOnlyList<SortLogDowntimeCause>> GetDowntimeCausesAsync()
@@ -199,6 +211,8 @@ public sealed class ProductionTrackingService(
         await using var transaction = await db.Database.BeginTransactionAsync();
         await RequireAccessAsync(db);
         var log = await LoadLockedLogAsync(db, sortLogId);
+        if (log.ProductionDate != Today)
+            throw new ProductionTrackingException("Runs can only be started on today's Sort Logs.");
         if (log.Lines.Any(x => x.StopTimeUtc == null))
             throw new ProductionTrackingException("This Sort Log already has a running interval.");
         if (log.Lines.Any(x => x.StopTimeUtc != null && x.DowntimeCauseId == null))

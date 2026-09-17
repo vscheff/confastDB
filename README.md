@@ -268,6 +268,14 @@ Then run:
 dotnet test
 ```
 
-The test fixture applies the EF Core migrations automatically. Its database-name check
-is only a guardrail, not magic; `confast_prod_test` technically passes it and is still a
-terrible place to run destructive tests.
+The test fixture applies the EF Core migrations automatically and holds a PostgreSQL
+advisory lock for the entire suite. The lock prevents two `dotnet test` processes from
+concurrently truncating the same database. If a run reports that another test runner is
+using the database, wait for that run to finish instead of launching a replacement.
+
+A full suite can take about a minute and may be quiet when using minimal console logging.
+Quiet output is not a hang: keep polling the original process. Starting a second run while
+the first is still active used to cause PostgreSQL deadlocks during fixture resets.
+
+The database-name check is only a guardrail, not magic; `confast_prod_test` technically
+passes it and is still a terrible place to run destructive tests.

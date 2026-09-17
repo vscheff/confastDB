@@ -132,6 +132,40 @@ public sealed class ProductionTrackingServiceTests(PostgresTestDatabase database
     }
 
     [Fact]
+    public async Task HistoricalLogsCanBeOpenedButCannotStartRuns()
+    {
+        var todayLogId = await service.OpenOrCreateSortLogAsync(machineId, inspectionId, null);
+        await using var db = database.CreateDbContext();
+        var historical = new SortLog
+        {
+            ProductionDate = clock.Today.AddDays(-1),
+            MachineId = machineId,
+            PartId = partId,
+            InspectionId = inspectionId,
+            TargetPphSnapshot = 10000,
+            CreatedAtUtc = clock.GetUtcNow().AddDays(-1),
+            CreatedByUserId = "operator"
+        };
+        db.Add(historical);
+        await db.SaveChangesAsync();
+
+        var dashboard = await service.GetDashboardAsync(machineId, historical.Id, clock.Today.AddDays(-1));
+
+        Assert.Equal(clock.Today.AddDays(-1), dashboard.ProductionDate);
+        Assert.Equal(historical.Id, Assert.Single(dashboard.TodayLogs).Id);
+        Assert.Equal(historical.Id, dashboard.CurrentLog!.Id);
+        Assert.Null(dashboard.PreviousLogDate);
+        Assert.Equal(clock.Today, dashboard.NextLogDate);
+        var currentDashboard = await service.GetDashboardAsync(machineId);
+        Assert.Equal(clock.Today.AddDays(-1), currentDashboard.PreviousLogDate);
+        Assert.Null(currentDashboard.NextLogDate);
+        Assert.Equal(todayLogId, Assert.Single(currentDashboard.TodayLogs).Id);
+        var exception = await Assert.ThrowsAsync<ProductionTrackingException>(() => service.StartRunAsync(historical.Id,
+            new(0, 0, null, "PO", null, null)));
+        Assert.Contains("today", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task StartStopAndEditEnforceSingleActiveLineSamplesAndNoOverlap()
     {
         var logId = await service.OpenOrCreateSortLogAsync(machineId, inspectionId, null);

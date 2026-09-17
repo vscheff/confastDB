@@ -2,6 +2,8 @@
 .tracking-page-heading h1, .card-heading h2, .current-job h2 { margin: 0; }
 .tracking-page-heading > span { color: #526674; font-weight: 700; }
 .tracking-heading-actions { display: flex; align-items: center; gap: .75rem; color: #526674; font-weight: 700; }
+.production-date-navigation { display: flex; align-items: center; gap: .45rem; }
+.production-date-navigation .button { min-width: 2.7rem; min-height: 2.7rem; padding: .25rem .65rem; font-size: 1.6rem; line-height: 1; }
 .eyebrow { margin: 0 0 .2rem; color: #58717f; font-size: .76rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .tracking-workspace { margin: 0; padding: 0; border: 0; min-width: 0; }
 .tracking-card { padding: 1rem; border: 1px solid #ccd7de; border-radius: .8rem; background: #fff; box-shadow: 0 2px 8px rgb(26 55 70 / 7%); }
@@ -10,6 +12,7 @@
 .machine-picker select { min-height: 3.25rem; font-size: 1.08rem; }
 .tracking-columns { display: grid; grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .tracking-sidebar, .tracking-main { display: grid; gap: 1rem; min-width: 0; }
+.tracking-sidebar { max-height: calc(100vh - 11rem); overflow-y: auto; padding-right: .25rem; scrollbar-gutter: stable; align-content: start; }
 .card-heading, .current-job-heading, .run-card-time { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .touch-list { display: grid; gap: .55rem; margin-top: .8rem; }
 .touch-list-item { display: grid; gap: .15rem; width: 100%; min-height: 4.6rem; padding: .75rem .85rem; border: 1px solid #bdcbd3; border-radius: .6rem; color: #18394c; background: #f8fbfc; text-align: left; cursor: pointer; }
@@ -54,6 +57,7 @@
 .start-run-error { margin: 0; }
 .start-run { background: #087941; }
 .stop-run { background: #bc2c2c; }
+.historical-log-notice { margin: 1rem 0 0; padding: .9rem; border-radius: .5rem; background: #edf2f5; color: #455c69; font-weight: 700; }
 .stop-details-needed { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; padding: .8rem; border-radius: .5rem; background: #fff4df; }
 .stop-details-needed p { margin: 0; }
 .stop-details-actions { display: flex; flex: 0 0 auto; gap: .6rem; }
@@ -87,7 +91,8 @@
 }
 .log-comments textarea { width: 100%; margin-top: .75rem; resize: vertical; }
 .run-history { min-width: 0; }
-.run-card-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
+.full-width-run-history { margin-top: 1rem; }
+.run-card-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
 .run-card { display: grid; gap: .7rem; padding: 1rem; border: 1px solid #ccd7de; border-radius: .75rem; background: #fff; }
 .run-card-numbers { display: grid; grid-template-columns: 1.1fr .8fr 1.25fr 1.35fr; gap: .55rem; }
 .run-card-numbers span { display: grid; }
@@ -95,6 +100,18 @@
 .run-card-numbers strong { font-size: 1.35rem; }
 .run-card-detail { display: flex; flex-wrap: wrap; gap: .35rem 1rem; color: #455c69; }
 .run-card p { margin: 0; }
+.run-view-toggle { flex: 0 0 auto; }
+.run-table-scroll { margin-top: .75rem; overflow-x: auto; border: 1px solid #ccd7de; border-radius: .75rem; }
+.run-table { width: 100%; min-width: 55rem; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.run-table th, .run-table td { padding: .65rem .7rem; border-bottom: 1px solid #d8e1e6; text-align: left; vertical-align: top; white-space: nowrap; }
+.run-table thead { background: #173f56; color: #fff; }
+.run-table thead tr:first-child th { padding-bottom: .2rem; border-bottom: 0; color: #dbeaf1; font-size: .76rem; letter-spacing: .06em; text-transform: uppercase; }
+.run-table thead tr:first-child th[colspan] { text-align: center; }
+.run-table thead tr:first-child .boundary-samples-heading > span { display: block; width: 50%; text-align: right; }
+.run-table thead tr:last-child th { padding-top: .2rem; }
+.run-table tbody tr:nth-child(even) { background: #f5f8fa; }
+.run-table tbody tr:last-child td { border-bottom: 0; }
+.run-table-edit { min-height: 2.2rem; padding: .3rem .65rem; }
 .tracking-modal-backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 1rem; background: rgb(12 32 43 / 62%); }
 .tracking-modal { width: min(43rem, 100%); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.15rem; border-radius: .8rem; background: #fff; box-shadow: 0 1rem 4rem rgb(0 0 0 / 30%); }
 .tracking-modal > .card-heading { padding-bottom: .8rem; border-bottom: 1px solid #d8e1e6; }
@@ -105,7 +122,7 @@
 
 @media (max-width: 900px) {
     .tracking-columns { grid-template-columns: 1fr; }
-    .tracking-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tracking-sidebar { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; overflow-y: visible; padding-right: 0; scrollbar-gutter: auto; }
 }
 
 @media (max-width: 700px) {

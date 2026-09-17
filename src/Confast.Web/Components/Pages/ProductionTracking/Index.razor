@@ -11,7 +11,17 @@
 
 <div class="tracking-page-heading">
     <div><h1>Production Tracking</h1></div>
-    <div class="tracking-heading-actions">@if (data is not null) { <span>@data.ProductionDate.ToString("dddd, MMMM d")</span> }<AuthorizeView Roles="@AppRoles.Administrator"><a class="button button-secondary" href="/production-tracking/settings">Tracking Settings</a></AuthorizeView></div>
+    <div class="tracking-heading-actions">
+        @if (data is not null)
+        {
+            <div class="production-date-navigation" aria-label="Production date">
+                <button type="button" class="button button-secondary" @onclick="PreviousDayAsync" disabled="@(data.PreviousLogDate is null)" aria-label="Previous day with Sort Logs">‹</button>
+                <span>@data.ProductionDate.ToString("dddd, MMMM d")</span>
+                <button type="button" class="button button-secondary" @onclick="NextDayAsync" disabled="@(data.NextLogDate is null)" aria-label="Next day with Sort Logs">›</button>
+            </div>
+        }
+        <AuthorizeView Roles="@AppRoles.Administrator"><a class="button button-secondary" href="/production-tracking/settings">Settings</a></AuthorizeView>
+    </div>
 </div>
 
 @if (message is not null) { <div class="alert alert-error" role="alert">@message</div> }
@@ -35,6 +45,8 @@ else
         {
             <div class="tracking-columns">
                 <aside class="tracking-sidebar">
+                    @if (!ViewingHistoricalLogs)
+                    {
                     <section class="tracking-card job-picker">
                         <div class="card-heading"><div><p class="eyebrow">Scheduled work</p><h2>Select Job</h2></div></div>
                         @if (data.ScheduledJobs.Count == 0)
@@ -72,10 +84,11 @@ else
                             </div>
                         }
                     </section>
+                    }
 
                     <section class="tracking-card todays-logs">
-                        <div class="card-heading"><div><p class="eyebrow">This machine</p><h2>Today's Logs</h2></div></div>
-                        @if (data.TodayLogs.Count == 0) { <p>No Sort Logs have been created today.</p> }
+                        <div class="card-heading"><div><p class="eyebrow">This machine</p><h2>@(ViewingHistoricalLogs ? "Sort Logs" : "Today's Logs")</h2></div></div>
+                        @if (data.TodayLogs.Count == 0) { <p>No Sort Logs were created on this date.</p> }
                         else
                         {
                             <div class="touch-list">
@@ -103,7 +116,7 @@ else
                         var unfinishedLine = log.Lines.FirstOrDefault(x => x.StopTimeUtc is not null && x.DowntimeCauseId is null);
                         <section class="current-job tracking-card">
                             <div class="current-job-heading">
-                                <div><p class="eyebrow">Current Job</p><h2>@log.PartNumber</h2><p>Lot @log.LotNumber · @log.CustomerName</p></div>
+                                <div><p class="eyebrow">@(ViewingHistoricalLogs ? "Sort Log" : "Current Job")</p><h2>@log.PartNumber</h2><p>Lot @log.LotNumber · @log.CustomerName</p></div>
                                 <div class="current-job-meta">
                                     <span class="current-log-date">@log.ProductionDate.ToString("dddd, MMMM d")</span>
                                     @if (activeLine is not null)
@@ -119,6 +132,10 @@ else
                             else if (unfinishedLine is not null)
                             {
                                 <div class="stop-details-needed"><p>Run @unfinishedLine.Sequence stopped at @Local(unfinishedLine.StopTimeUtc!.Value).ToString("h:mm tt"). Finish its stop details before starting another run.</p><div class="stop-details-actions"><button type="button" class="button button-primary" @onclick="() => EditLine(unfinishedLine, showStartFields: false)">Finish Stop Details</button><button type="button" class="button button-secondary" @onclick="ResumeRunAsync">Resume Run</button></div></div>
+                            }
+                            else if (ViewingHistoricalLogs)
+                            {
+                                <p class="historical-log-notice">This is a historical Sort Log. Runs can only be started on today’s logs.</p>
                             }
                             else
                             {
@@ -160,26 +177,86 @@ else
                             <textarea @bind="comments" rows="3" maxlength="4000"></textarea>
                         </section>
 
-                        <section class="run-history">
-                            <div class="card-heading"><div><p class="eyebrow">Production intervals</p><h2>Completed Runs</h2></div></div>
-                            @if (log.Lines.All(x => x.StopTimeUtc is null)) { <p>No completed runs yet.</p> }
-                                <div class="run-card-list">
-                                    @foreach (var line in log.Lines.Where(x => x.StopTimeUtc is not null).OrderByDescending(x => x.Sequence))
-                                    {
-                                        var metrics = SortLogMetricsCalculator.Calculate([line], log.TargetPphSnapshot);
-                                        <article class="run-card">
-                                        <div class="run-card-time"><strong>@Local(line.StartTimeUtc).ToString("h:mm tt") – @Local(line.StopTimeUtc!.Value).ToString("h:mm tt")</strong><span>@Duration(line.StopTimeUtc.Value - line.StartTimeUtc)</span></div>
-                                        <div class="run-card-numbers"><span><small>Passed</small><strong>@line.PassQuantity.ToString("N0")</strong></span><span><small>Failed</small><strong>@line.FailQuantity.ToString("N0")</strong></span><span><small>Efficiency</small><strong>@metrics.Efficiency.ToString("P1")</strong></span><span><small>Reject Rate</small><strong>@metrics.FailureRate.ToString("P2")</strong></span></div>
-                                        <div class="run-card-detail"><span>Stopped: <strong>@(line.DowntimeCause ?? "Details required")</strong></span></div>
-                                        @if (!string.IsNullOrWhiteSpace(line.Notes)) { <p>@line.Notes</p> }
-                                        <button type="button" class="button button-secondary" @onclick="() => EditLine(line)">Edit</button>
-                                    </article>
-                                }
-                            </div>
-                        </section>
                     }
                 </main>
             </div>
+            @if (data.CurrentLog is not null)
+            {
+                var log = data.CurrentLog;
+                <section class="run-history full-width-run-history">
+                    <div class="card-heading">
+                        <div><h2>Completed Runs</h2></div>
+                        <button type="button" class="button button-secondary run-view-toggle" @onclick="ToggleRunView" aria-pressed="@showRunTable">@(showRunTable ? "Card View" : "Table View")</button>
+                    </div>
+                    @if (log.Lines.All(x => x.StopTimeUtc is null)) { <p>No completed runs yet.</p> }
+                    else if (showRunTable)
+                    {
+                        <div class="run-table-scroll">
+                            <table class="run-table">
+                                <thead>
+                                    <tr>
+                                        <th colspan="2" scope="colgroup">Run Time</th>
+                                        <th aria-hidden="true"></th>
+                                        <th colspan="2" scope="colgroup">Quantity</th>
+                                        <th class="boundary-samples-heading" colspan="2" scope="colgroup"><span>Boundary Samples</span></th>
+                                        <th colspan="2" scope="colgroup">Box Count</th>
+                                        <th colspan="2" scope="colgroup">Initials</th>
+                                        <th rowspan="2" scope="col"><span class="visually-hidden">Actions</span></th>
+                                    </tr>
+                                    <tr>
+                                        <th scope="col">Start</th>
+                                        <th scope="col">Stop</th>
+                                        <th scope="col">Cause of Downtime</th>
+                                        <th scope="col">Pass</th>
+                                        <th scope="col">Fail</th>
+                                        <th scope="col">Ran</th>
+                                        <th scope="col">Passed</th>
+                                        <th scope="col">Start</th>
+                                        <th scope="col">End</th>
+                                        <th scope="col">Prod</th>
+                                        <th scope="col">QC</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in log.Lines.Where(x => x.StopTimeUtc is not null).OrderBy(x => x.Sequence))
+                                    {
+                                        <tr>
+                                            <td>@Local(line.StartTimeUtc).ToString("h:mm tt")</td>
+                                            <td>@Local(line.StopTimeUtc!.Value).ToString("h:mm tt")</td>
+                                            <td>@(line.DowntimeCause ?? "Details required")</td>
+                                            <td>@line.PassQuantity.ToString("N0")</td>
+                                            <td>@line.FailQuantity.ToString("N0")</td>
+                                            <td>@line.BoundarySamplesRanQuantity.ToString("N0")</td>
+                                            <td>@line.BoundarySamplesPassedQuantity.ToString("N0")</td>
+                                            <td>@(line.StartBoxCount?.ToString("N0") ?? "—")</td>
+                                            <td>@(line.EndBoxCount?.ToString("N0") ?? "—")</td>
+                                            <td>@(line.ProductionInitials ?? "—")</td>
+                                            <td>@(line.QualityInitials ?? "—")</td>
+                                            <td><button type="button" class="button button-secondary run-table-edit" @onclick="() => EditLine(line)">Edit</button></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="run-card-list">
+                            @foreach (var line in log.Lines.Where(x => x.StopTimeUtc is not null).OrderByDescending(x => x.Sequence))
+                            {
+                                var metrics = SortLogMetricsCalculator.Calculate([line], log.TargetPphSnapshot);
+                                <article class="run-card">
+                                <div class="run-card-time"><strong>@Local(line.StartTimeUtc).ToString("h:mm tt") – @Local(line.StopTimeUtc!.Value).ToString("h:mm tt")</strong><span>@Duration(line.StopTimeUtc.Value - line.StartTimeUtc)</span></div>
+                                <div class="run-card-numbers"><span><small>Passed</small><strong>@line.PassQuantity.ToString("N0")</strong></span><span><small>Failed</small><strong>@line.FailQuantity.ToString("N0")</strong></span><span><small>Efficiency</small><strong>@metrics.Efficiency.ToString("P1")</strong></span><span><small>Reject Rate</small><strong>@metrics.FailureRate.ToString("P2")</strong></span></div>
+                                <div class="run-card-detail"><span>Stopped: <strong>@(line.DowntimeCause ?? "Details required")</strong></span></div>
+                                @if (!string.IsNullOrWhiteSpace(line.Notes)) { <p>@line.Notes</p> }
+                                <button type="button" class="button button-secondary" @onclick="() => EditLine(line)">Edit</button>
+                            </article>
+                        }
+                    </div>
+                    }
+                </section>
+            }
         }
     </fieldset>
 }
@@ -241,7 +318,8 @@ else
 @code {
     private ProductionTrackingDashboard? data;
     private long? selectedMachineId, selectedPartId, selectedInspectionId, selectedLogId;
-    private bool busy, showUnscheduled;
+    private DateOnly? selectedProductionDate;
+    private bool busy, showUnscheduled, showRunTable;
     private string? message, startMessage, lineEditorMessage, startProductionInitials, startQualityInitials, startNotes, comments;
     private long startBoundaryRan, startBoundaryPassed;
     private long? startBoxCount;
@@ -249,6 +327,8 @@ else
     private readonly CancellationTokenSource timerCancellation = new();
 
     private IEnumerable<TrackingLotOption> AvailableLots => data?.Lots.Where(x => x.PartId == selectedPartId) ?? [];
+    private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
+    private bool ViewingHistoricalLogs => data is not null && data.ProductionDate < Today;
 
     protected override async Task OnInitializedAsync()
     {
@@ -274,6 +354,29 @@ else
         showUnscheduled = false;
         await ReloadAsync();
         selectedLogId = data!.TodayLogs.FirstOrDefault()?.Id;
+        if (selectedLogId is not null)
+            await ReloadAsync();
+    }
+
+    private Task PreviousDayAsync() => ChangeProductionDateAsync(data?.PreviousLogDate);
+
+    private Task NextDayAsync() => ChangeProductionDateAsync(data?.NextLogDate);
+
+    private void ToggleRunView() => showRunTable = !showRunTable;
+
+    private async Task ChangeProductionDateAsync(DateOnly? nextDate)
+    {
+        if (nextDate is null) return;
+        await RunAsync(() =>
+        {
+            selectedProductionDate = nextDate;
+            selectedLogId = selectedPartId = selectedInspectionId = null;
+            showUnscheduled = false;
+            CloseLineEditor();
+            return Task.CompletedTask;
+        });
+        if (message is not null || data is null) return;
+        selectedLogId = data.TodayLogs.FirstOrDefault()?.Id;
         if (selectedLogId is not null)
             await ReloadAsync();
     }
@@ -380,7 +483,7 @@ else
 
     private async Task ReloadAsync()
     {
-        data = await Service.GetDashboardAsync(selectedMachineId, selectedLogId);
+        data = await Service.GetDashboardAsync(selectedMachineId, selectedLogId, selectedProductionDate);
         comments = data.CurrentLog?.Comments;
         if (startBoxCount is null)
             startBoxCount = data.CurrentLog?.Lines.Where(x => x.StopTimeUtc is not null)

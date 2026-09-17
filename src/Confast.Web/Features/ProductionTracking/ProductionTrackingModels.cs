@@ -83,6 +83,7 @@ public sealed record SortLogDetail(long Id, DateOnly ProductionDate, long Machin
 }
 
 public sealed record ProductionTrackingDashboard(DateOnly ProductionDate,
+    DateOnly? PreviousLogDate, DateOnly? NextLogDate,
     IReadOnlyList<TrackingMachineOption> Machines,
     IReadOnlyList<TrackingScheduledJobOption> ScheduledJobs,
     IReadOnlyList<TrackingPartOption> EligibleParts,
