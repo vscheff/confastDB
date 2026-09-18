@@ -1,0 +1,257 @@
+@page "/morning-production-review"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Production + "," + AppRoles.Administrator)]
+@using Confast.Web.Features.MorningProductionReview
+@using Confast.Web.Time
+@inject MorningProductionReviewService Service
+@inject TimeProvider Clock
+@inject BusinessDateProvider BusinessDate
+@inject ILogger<Index> Logger
+
+<PageTitle>Production Review</PageTitle>
+
+<div class="morning-review-page">
+    <div class="morning-review-heading">
+        <div>
+            <h1>Production Review</h1>
+        </div>
+        @if (data is not null)
+        {
+            <div class="morning-date-navigation" aria-label="Historical Production Date Navigation">
+                <label>
+                    <span>Production Date</span>
+                    <input type="date" value="@IsoDate(data.ProductionDate)" max="@IsoDate(Today)" @onchange="DateChanged" />
+                </label>
+                <button class="button button-secondary" disabled="@(busy || data.PreviousProductionDate is null)" @onclick="PreviousDay">Previous Day</button>
+                <button class="button button-secondary" disabled="@(busy || data.NextProductionDate is null)" @onclick="NextDay">Next Day</button>
+                <button class="button button-secondary" disabled="@(busy || data.LatestPriorProductionDate is null || data.ProductionDate == data.LatestPriorProductionDate)" @onclick="LatestProductionDay">Latest Production Day</button>
+            </div>
+        }
+    </div>
+
+    @if (message is not null)
+    {
+        <div class="alert alert-error" role="alert">@message</div>
+    }
+    @if (data is null)
+    {
+        <p>Loading production review…</p>
+    }
+    else
+    {
+        <section class="morning-section" aria-labelledby="selected-day-summary-heading">
+            <div class="morning-section-heading">
+                <div>
+                    <h2 id="selected-day-summary-heading">Production Summary</h2>
+                    <p>@data.ProductionDate.ToString("dddd, MMMM d, yyyy")</p>
+                </div>
+            </div>
+            <dl class="production-summary-strip">
+                <div><dt>Good Parts</dt><dd>@N(data.Summary.GoodQuantity)</dd></div>
+                <div><dt>Failed Parts</dt><dd class="@(data.Summary.FailedQuantity > 0 ? "review-failure" : null)">@N(data.Summary.FailedQuantity)</dd></div>
+                <div><dt>Feed Quantity</dt><dd>@N(data.Summary.FeedQuantity)</dd></div>
+                <div><dt>Average Efficiency</dt><dd class="@EfficiencyClass(data.Summary.Efficiency, data.Summary.ProductionTime)">@Percent(data.Summary.Efficiency)</dd></div>
+                <div><dt>Production Hours</dt><dd>@Hours(data.Summary.ProductionTime)</dd></div>
+                <div><dt>Downtime</dt><dd>@Duration(data.Summary.Downtime)</dd></div>
+            </dl>
+        </section>
+
+        <section class="morning-section" aria-labelledby="machine-performance-heading">
+            <div class="morning-section-heading">
+                <div>
+                    <h2 id="machine-performance-heading">Machine Performance</h2>
+                </div>
+            </div>
+            <div class="table-shell morning-table-shell">
+                <table class="data-table morning-table">
+                    <thead><tr><th>Machine</th><th>Jobs / Runs</th><th>Good Quantity</th><th>Failed Quantity</th><th>Actual PPH</th><th>Target PPH</th><th>Efficiency</th><th>Schedule Efficiency</th><th>Downtime</th></tr></thead>
+                    <tbody>
+                    @foreach (var machine in data.MachineResults)
+                    {
+                        <tr>
+                            <td><strong>@machine.MachineName</strong></td>
+                            <td>@N(machine.RunCount)</td>
+                            <td>@N(machine.GoodQuantity)</td>
+                            <td class="@(machine.FailedQuantity > 0 ? "review-failure" : null)">@N(machine.FailedQuantity)</td>
+                            <td>@Rate(machine.ActualPph)</td>
+                            <td>@Rate(machine.TargetPph)</td>
+                            <td class="@EfficiencyClass(machine.Efficiency, machine.ProductionTime)">@Percent(machine.Efficiency)</td>
+                            <td class="@ScheduleEfficiencyClass(machine.ScheduleEfficiency)">@SchedulePercent(machine.ScheduleEfficiency)</td>
+                            <td>@Duration(machine.Downtime)</td>
+                        </tr>
+                        @if (machine.Runs.Count > 0)
+                        {
+                            <tr class="machine-run-detail-row">
+                                <td colspan="9">
+                                    <details>
+                                        <summary>View @machine.RunCount Run@(machine.RunCount == 1 ? "" : "s")</summary>
+                                        <div class="nested-table-shell">
+                                            <table class="data-table nested-run-table">
+                                                <thead><tr><th>Part Number</th><th>MO / Job</th><th>Lot Number</th><th>Good Quantity</th><th>Failed Quantity</th><th>Actual PPH</th><th>Target PPH</th><th>Efficiency</th><th>Runtime</th></tr></thead>
+                                                <tbody>@foreach (var run in machine.Runs)
+                                                {
+                                                    <tr><td>@run.PartNumber</td><td>@JobReference(run.MoNumber, run.PoNumber, run.SortLogId)</td><td>@run.LotNumber</td><td>@N(run.GoodQuantity)</td><td class="@(run.FailedQuantity > 0 ? "review-failure" : null)">@N(run.FailedQuantity)</td><td>@Rate(run.ActualPph)</td><td>@Rate(run.TargetPph)</td><td class="@EfficiencyClass(run.Efficiency, run.Runtime)">@Percent(run.Efficiency)</td><td>@Duration(run.Runtime)</td></tr>
+                                                }</tbody>
+                                            </table>
+                                        </div>
+                                    </details>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="morning-section" aria-labelledby="downtime-heading">
+            <div class="morning-section-heading">
+                <div><h2 id="downtime-heading">Downtime</h2><p>Measured gaps between recorded Production Tracking intervals.</p></div>
+            </div>
+            @if (data.Downtime.Count == 0)
+            {
+                <div class="empty-state compact-empty-state">No measured downtime was recorded for the selected date.</div>
+            }
+            else
+            {
+                <div class="table-shell morning-table-shell">
+                    <table class="data-table morning-table"><thead><tr><th>Start</th><th>Machine</th><th>Duration</th><th>Downtime Reason</th><th>Related Run</th></tr></thead><tbody>
+                    @foreach (var downtime in data.Downtime)
+                    {
+                        <tr><td>@LocalTime(downtime.StartTimeUtc)</td><td>@downtime.MachineName</td><td>@Duration(downtime.Duration)</td><td>@downtime.Reason</td><td>@downtime.PartNumber · @downtime.LotNumber</td></tr>
+                    }
+                    </tbody></table>
+                </div>
+            }
+        </section>
+
+        <section class="morning-section current-section" aria-labelledby="current-status-heading">
+            <div class="morning-section-heading">
+                <div><h2 id="current-status-heading">Today’s Machine Status</h2><p>@Today.ToString("dddd, MMMM d, yyyy")</p></div>
+            </div>
+            <div class="table-shell morning-table-shell">
+                <table class="data-table morning-table current-machine-table"><thead><tr><th>Machine</th><th>Status</th><th>Current Job</th><th>Part Number</th><th>Lot / MO</th><th>Run Start</th><th>Current Run Progress</th><th>Next Scheduled Job</th><th>Expected Start</th></tr></thead><tbody>
+                @foreach (var machine in data.CurrentMachines)
+                {
+                    <tr>
+                        <td><strong>@machine.MachineName</strong></td>
+                        <td><span class="status-pill @(machine.IsIdle ? "status-inactive" : "status-active")">@(machine.IsIdle ? "Idle" : "Running")</span></td>
+                        <td>@CurrentJobReference(machine)</td>
+                        <td>@(machine.PartNumber ?? "—")</td>
+                        <td>@LotAndMo(machine.LotNumber, machine.MoNumber)</td>
+                        <td>@(machine.RunStartTimeUtc is null ? "—" : LocalTime(machine.RunStartTimeUtc.Value))</td>
+                        <td>@Progress(machine)</td>
+                        <td>@ScheduledJobReference(machine.NextJob)</td>
+                        <td>@ScheduleDate(machine.NextJob?.ExpectedStart)</td>
+                    </tr>
+                }
+                </tbody></table>
+            </div>
+        </section>
+
+        <section class="morning-section current-section" aria-labelledby="changeovers-heading">
+            <div class="morning-section-heading">
+                <div><h2 id="changeovers-heading">Today’s Planned Changeovers</h2></div>
+            </div>
+            @if (data.Changeovers.Count == 0)
+            {
+                <div class="empty-state compact-empty-state">No planned job-to-job changeovers are forecast for today.</div>
+            }
+            else
+            {
+                <div class="table-shell morning-table-shell">
+                    <table class="data-table morning-table"><thead><tr><th>Planned Time</th><th>Machine</th><th>Current / Previous Job</th><th>Next Job</th><th>Part Number(s)</th></tr></thead><tbody>
+                    @foreach (var changeover in data.Changeovers)
+                    {
+                        <tr><td>@ScheduleDate(changeover.PlannedDate) <span class="muted"></span></td><td>@changeover.MachineName</td><td>@JobReference(changeover.PreviousMoNumber, changeover.PreviousPoNumber, changeover.PreviousJobId)</td><td>@JobReference(changeover.NextMoNumber, changeover.NextPoNumber, changeover.NextJobId)</td><td>@changeover.PreviousPartNumber → @changeover.NextPartNumber</td></tr>
+                    }
+                    </tbody></table>
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private MorningProductionReview? data;
+    private bool busy;
+    private string? message;
+    private DateOnly Today => BusinessDate.Today;
+
+    protected override Task OnInitializedAsync() => Load(null);
+
+    private Task PreviousDay() => data?.PreviousProductionDate is { } date ? Load(date) : Task.CompletedTask;
+    private Task NextDay() => data?.NextProductionDate is { } date ? Load(date) : Task.CompletedTask;
+    private Task LatestProductionDay() => data?.LatestPriorProductionDate is { } date ? Load(date) : Task.CompletedTask;
+
+    private Task DateChanged(ChangeEventArgs args)
+    {
+        return DateOnly.TryParseExact(args.Value?.ToString(), "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var date)
+            ? Load(date)
+            : Task.CompletedTask;
+    }
+
+    private async Task Load(DateOnly? date)
+    {
+        if (busy) return;
+        busy = true;
+        message = null;
+        try
+        {
+            data = await Service.GetAsync(date);
+        }
+        catch (Exception exception) when (exception is MorningProductionReviewException or UnauthorizedAccessException)
+        {
+            message = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Production Review could not be loaded");
+            message = "Production Review could not be loaded. Reload and try again.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static string IsoDate(DateOnly date) => date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    private static string N(long value) => value.ToString("N0");
+    private static string Rate(decimal value) => value.ToString("N0");
+    private static string Percent(decimal value) => $"{value:P1}";
+    private static string SchedulePercent(decimal? value) => value is null ? "—" : $"{value.Value:P1}";
+    private static string Hours(TimeSpan value) => value.TotalHours.ToString("N1");
+    private static string Duration(TimeSpan value) => value.TotalHours >= 1
+        ? $"{(int)value.TotalHours:N0}h {value.Minutes:N0}m"
+        : $"{Math.Max(0, (int)Math.Round(value.TotalMinutes)):N0}m";
+    private static string EfficiencyClass(decimal efficiency, TimeSpan runtime) =>
+        runtime > TimeSpan.Zero && efficiency < .8m ? "review-exception" : "";
+    private static string ScheduleEfficiencyClass(decimal? efficiency) =>
+        efficiency is not null && efficiency < .8m ? "review-exception" : "";
+    private string LocalTime(DateTimeOffset value) => TimeZoneInfo.ConvertTime(value, Clock.LocalTimeZone).ToString("t");
+    private static string ScheduleDate(DateOnly? value) => value?.ToString("MM/dd/yyyy") ?? "—";
+    private static string JobReference(string? mo, string? po, long? fallbackId) => !string.IsNullOrWhiteSpace(mo)
+        ? PrefixReference("MO", mo)
+        : !string.IsNullOrWhiteSpace(po) ? PrefixReference("PO", po) : fallbackId is null ? "Unscheduled Run" : $"Job {fallbackId}";
+    private static string PrefixReference(string prefix, string value) => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        ? value
+        : $"{prefix} {value}";
+    private static string CurrentJobReference(MachineCurrentStatus machine) => machine.IsIdle
+        ? "—"
+        : JobReference(machine.MoNumber, machine.PoNumber, machine.SortLogId);
+    private static string LotAndMo(string? lot, string? mo)
+    {
+        var value = string.Join(" · ", new[]
+            { string.IsNullOrWhiteSpace(lot) ? null : $"Lot {lot}", string.IsNullOrWhiteSpace(mo) ? null : PrefixReference("MO", mo) }.Where(x => x is not null));
+        return value.Length == 0 ? "—" : value;
+    }
+    private static string Progress(MachineCurrentStatus machine) => machine.IsIdle
+        ? "—"
+        : machine.ScheduledQuantity is not null && machine.ProgressPercent is not null
+            ? $"{N(machine.GoodQuantity)} Good / {machine.ScheduledQuantity.Value:N0} ({machine.ProgressPercent.Value:N1}%)"
+            : $"{N(machine.GoodQuantity)} Good";
+    private static string ScheduledJobReference(ScheduledJobSummary? job) => job is null
+        ? "—"
+        : $"{job.PartNumber} · {JobReference(job.MoNumber, job.PoNumber, job.JobId)}";
+}

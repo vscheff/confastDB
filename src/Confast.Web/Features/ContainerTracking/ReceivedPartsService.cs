@@ -2,6 +2,7 @@ using System.Data;
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
@@ -13,9 +14,11 @@ public sealed class ReceivedPartsService(
     TrackingAccess trackingAccess,
     InspectionService inspectionService,
     ICurrentUser currentUser,
-    TimeProvider clock)
+    TimeProvider clock,
+    BusinessDateProvider? businessDate = null)
 {
-    public DateOnly Today => DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
+    public DateOnly Today => businessDate?.Today
+        ?? DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
     public async Task<ReceiptOperationResult> ReceiveContainerAsync(
         long containerId,

@@ -29,7 +29,13 @@ h1:focus { outline: none; }
 .main-menu-panel a.active { color: #10577f; background: #d5ebf6; font-weight: 700; }
 .header-brand-divider { align-self: stretch; width: 1px; background: #6d8496; }
 .brand { margin-left: .85rem; color: #fff; font-family: 'Avengeance Heroic Avenger', fantasy; font-size: 1.4rem; font-weight: 400; letter-spacing: .04em; line-height: 1; text-decoration: none; }
+.development-date-control { display: flex; align-items: center; gap: .35rem; margin-left: auto; color: #d8e5ef; font-size: .78rem; }
+.development-date-control label { white-space: nowrap; }
+.development-date-control input { min-height: 34px; padding: .2rem .35rem; color: #17324a; background: #fff; border: 1px solid #6d8496; border-radius: .25rem; }
+.development-date-control button { min-height: 34px; padding: .2rem .45rem; color: #fff; background: transparent; border: 1px solid #6d8496; border-radius: .25rem; cursor: pointer; font-size: .78rem; white-space: nowrap; }
+.development-date-control button:hover { background: rgb(255 255 255 / 10%); }
 .user-menu { display: flex; align-items: center; gap: .75rem; margin-left: auto; padding-right: .85rem; color: #d8e5ef; font-size: .9rem; }
+.development-date-control + .user-menu { margin-left: .75rem; }
 .user-menu form { margin: 0; }
 .header-link { display: inline-flex; align-items: center; min-height: 36px; padding: .3rem .55rem; color: #fff; background: transparent; border: 1px solid #6d8496; border-radius: .35rem; cursor: pointer; text-decoration: none; }
 .header-link:hover { background: rgb(255 255 255 / 10%); }
@@ -707,7 +713,9 @@ body:has(.tracking-modal-backdrop) { overflow: hidden; }
 }
 
 @media (max-width: 680px) {
-    .app-header { gap: .5rem; }
+    .app-header { flex-wrap: wrap; gap: .5rem; padding-block: .35rem; }
+    .header-brand-group { min-height: 56px; }
+    .development-date-control { order: 3; width: 100%; margin-left: 0; padding-inline: .85rem; }
     .user-menu { margin-left: auto; }
     .app-main { width: min(100% - 1rem, 1100px); padding-top: 1.25rem; }
     .parts-list-page {

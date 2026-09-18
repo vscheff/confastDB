@@ -1,10 +1,12 @@
 @page "/inspections/create"
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.Identity
+@using Confast.Web.Time
 @using System.Globalization
 @inject InspectionService InspectionService
 @inject UserAdministrationService UserAdministrationService
 @inject ICurrentUser CurrentUser
+@inject BusinessDateProvider BusinessDate
 @inject NavigationManager Navigation
 @inject ILogger<Create> Logger
 @inject IJSRuntime Js
@@ -153,7 +155,9 @@ else
     private IJSObjectReference? dateInputNavigationModule;
     private bool isDateInputNavigationConfigured;
 
-    private string Today => DateOnly.FromDateTime(DateTime.Today)
+    private DateOnly TodayDate => BusinessDate.Today;
+
+    private string Today => TodayDate
         .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private string? DateReceived => inspection.DateReceived?
@@ -162,6 +166,11 @@ else
     private void UpdateQuantityInspected() =>
         inspection.QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(
             inspection.QuantityReceived);
+
+    protected override void OnInitialized()
+    {
+        inspection.InspectionDate = TodayDate;
+    }
 
     protected override async Task OnParametersSetAsync()
     {

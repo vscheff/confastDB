@@ -3,14 +3,20 @@ using Confast.Web.Data;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.ContainerTracking;
+using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Confast.Web.Features.ProductionScheduling;
 
-public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, ICurrentUser currentUser, TimeProvider clock)
+public sealed class ProductionService(
+    IDbContextFactory<AppDbContext> factory,
+    ICurrentUser currentUser,
+    TimeProvider clock,
+    BusinessDateProvider? businessDate = null)
 {
-    private DateOnly Today => DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
+    private DateOnly Today => businessDate?.Today
+        ?? DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
     private async Task<(string User, bool Edit, bool Admin)> Access(AppDbContext db)
     {
@@ -33,8 +39,9 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         var settings = await db.Set<ProductionSettings>().FromSqlRaw("SELECT *, xmin FROM production_settings WHERE id = 1 FOR UPDATE").SingleAsync();
         var result = await Load(db, access.Edit, access.Admin);
         var clearedLegacyConstraints = ClearLegacyContainerArrivalConstraints(result);
+        var initializedRunningForecasts = InitializeRunningForecasts(result);
         var appendedContainerParts = await AppendDepartedContainerPartsAsync(db, result);
-        if (clearedLegacyConstraints || appendedContainerParts)
+        if (clearedLegacyConstraints || appendedContainerParts || initializedRunningForecasts)
         {
             settings.Revision++;
             db.Set<ProductionAudit>().Add(new()
@@ -42,13 +49,47 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
                 Revision = settings.Revision,
                 RecordedAt = clock.GetUtcNow().UtcDateTime,
                 RecordedBy = "System",
-                Description = appendedContainerParts
+                Description = initializedRunningForecasts
+                    ? "Captured the planned dates for running production work"
+                    : appendedContainerParts
                     ? "Appended departed container parts to the production schedule"
                     : "Replaced legacy container arrival constraints with the source material gate"
             });
             await db.SaveChangesAsync();
             result = await Load(db, access.Edit, access.Admin);
         }
+        await transaction.CommitAsync();
+        return result;
+    }
+
+    private static bool InitializeRunningForecasts(ProductionSnapshot data)
+    {
+        var forecasts = ProductionScheduler.Forecast(data);
+        var changed = false;
+        foreach (var segment in data.Segments.Where(x => x.State == ProductionState.Running &&
+                     (x.StartedForecastStart == null || x.StartedForecastFinish == null)))
+        {
+            var forecast = forecasts.Single(x => x.SegmentId == segment.Id);
+            if (segment.StartedForecastStart == null && forecast.Start is { } start)
+            {
+                segment.StartedForecastStart = start;
+                changed = true;
+            }
+            if (segment.StartedForecastFinish == null && forecast.Finish is { } finish)
+            {
+                segment.StartedForecastFinish = finish;
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    public async Task<ProductionSnapshot> GetReadOnlyAsync()
+    {
+        await using var db = await factory.CreateDbContextAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
+        var access = await Access(db);
+        var result = await Load(db, access.Edit, access.Admin);
         await transaction.CommitAsync();
         return result;
     }
@@ -464,6 +505,9 @@ public sealed class ProductionService(IDbContextFactory<AppDbContext> factory, I
         _ = Rate(data, s.MachineId, data.Jobs.Single(x => x.Id == s.JobId).PartId);
         if (ProductionScheduler.Capacity(data, data.Machines.Single(x => x.Id == s.MachineId), Today) <= 0)
             throw new SchedulingException("Today has no production capacity. Review the machine calendar, holidays, and downtime.");
+        var forecast = ProductionScheduler.Forecast(data).Single(x => x.SegmentId == s.Id);
+        s.StartedForecastStart = forecast.Start;
+        s.StartedForecastFinish = forecast.Finish;
         s.State = ProductionState.Running; s.ActualStart = Today;
         return Task.CompletedTask;
     });

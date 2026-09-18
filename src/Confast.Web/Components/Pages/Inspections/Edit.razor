@@ -3,6 +3,7 @@
 @using Confast.Web.Features.ContainerTracking
 @using Confast.Web.Features.Customers
 @using Confast.Web.Features.Identity
+@using Confast.Web.Time
 @using System.Globalization
 @inject InspectionService InspectionService
 @inject ReceivedPartsService ReceivedParts
@@ -11,6 +12,7 @@
 @inject ICertificationPackageService CertificationPackageService
 @inject ICertificationEmailService CertificationEmailService
 @inject ICurrentEmailSender CurrentEmailSender
+@inject BusinessDateProvider BusinessDate
 @inject ICertificationEmailTemplateResolver EmailTemplateResolver
 @inject CertificationEmailTemplateRenderer EmailTemplateRenderer
 @inject CertificationEmailHtmlSanitizer EmailHtmlSanitizer
@@ -1010,7 +1012,9 @@ else
     private bool IsViewingSearchResult => SearchNavigation.CurrentInspectionId == InspectionId
         && SearchNavigation.CurrentIndex >= 0;
 
-    private string Today => DateOnly.FromDateTime(DateTime.Today)
+    private DateOnly TodayDate => BusinessDate.Today;
+
+    private string Today => TodayDate
         .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private string? DateReceived => inspection?.DateReceived?
@@ -1594,7 +1598,7 @@ else
         {
             selectedPackageLotIds.Add(inspection.Id);
         }
-        packageShipDate = ShipDateCalculator.NextWorkDay(DateOnly.FromDateTime(DateTime.Today));
+        packageShipDate = ShipDateCalculator.NextWorkDay(TodayDate);
         generatedPackage = null;
         packageMessage = null;
         packageSucceeded = false;

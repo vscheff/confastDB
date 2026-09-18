@@ -2,8 +2,10 @@
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Production + "," + AppRoles.Administrator)]
 @using Confast.Web.Features.ProductionTracking
 @using Confast.Web.Features.ProductionScheduling
+@using Confast.Web.Time
 @inject ProductionTrackingService Service
 @inject TimeProvider Clock
+@inject BusinessDateProvider BusinessDate
 @inject ILogger<Index> Logger
 @implements IAsyncDisposable
 
@@ -327,7 +329,7 @@ else
     private readonly CancellationTokenSource timerCancellation = new();
 
     private IEnumerable<TrackingLotOption> AvailableLots => data?.Lots.Where(x => x.PartId == selectedPartId) ?? [];
-    private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
+    private DateOnly Today => BusinessDate.Today;
     private bool ViewingHistoricalLogs => data is not null && data.ProductionDate < Today;
 
     protected override async Task OnInitializedAsync()

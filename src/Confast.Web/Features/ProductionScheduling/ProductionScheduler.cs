@@ -85,7 +85,13 @@ public static class ProductionScheduler
                     if (remaining == 0) start = finish = segment.ProgressAsOf ?? date;
                 }
                 if (error != null) { blocked = "Earlier work cannot be forecast: " + error; start = finish = null; slices.Clear(); }
-                result.Add(new(segment.Id, start, finish, rate, effective, required, remaining, average,
+                var displayedStart = segment.State == ProductionState.Running
+                    ? segment.StartedForecastStart ?? start
+                    : start;
+                var displayedFinish = segment.State == ProductionState.Running
+                    ? segment.StartedForecastFinish ?? finish
+                    : finish;
+                result.Add(new(segment.Id, displayedStart, displayedFinish, rate, effective, required, remaining, average,
                     Elapsed(data, machine, segment), segment.State == ProductionState.Running &&
                     (segment.ProgressAsOf ?? segment.ActualStart) < data.Horizon.AddDays(-1), error, slices));
             }

@@ -4,6 +4,7 @@ using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
+using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -16,6 +17,7 @@ public sealed class InspectionService
     private readonly IDbContextFactory<AppDbContext> contextFactory;
     private readonly CertificationPreviewRenderer? certificationPreviewRenderer;
     private readonly ICurrentUser? currentUser;
+    private readonly BusinessDateProvider? businessDate;
 
     public InspectionService(IDbContextFactory<AppDbContext> contextFactory)
     {
@@ -33,10 +35,12 @@ public sealed class InspectionService
     public InspectionService(
         IDbContextFactory<AppDbContext> contextFactory,
         CertificationPreviewRenderer certificationPreviewRenderer,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        BusinessDateProvider businessDate)
         : this(contextFactory, certificationPreviewRenderer)
     {
         this.currentUser = currentUser;
+        this.businessDate = businessDate;
     }
 
     public const long MaximumCertificationDocumentBytes = 25 * 1024 * 1024;
@@ -1861,7 +1865,7 @@ public sealed class InspectionService
         }
     }
 
-    private static string? Validate(CreateInspectionModel model)
+    private string? Validate(CreateInspectionModel model)
     {
         if (model.PartId <= 0)
         {
@@ -1875,7 +1879,8 @@ public sealed class InspectionService
 
         var dateError = InspectionDateValidator.GetError(
             model.DateReceived,
-            model.InspectionDate);
+            model.InspectionDate,
+            businessDate);
         if (dateError is not null)
         {
             return dateError;
@@ -1891,7 +1896,7 @@ public sealed class InspectionService
             : null;
     }
 
-    private static string? Validate(InspectionEditModel model)
+    private string? Validate(InspectionEditModel model)
     {
         if (model.InspectionDate is null)
         {
@@ -1900,7 +1905,8 @@ public sealed class InspectionService
 
         var dateError = InspectionDateValidator.GetError(
             model.DateReceived,
-            model.InspectionDate);
+            model.InspectionDate,
+            businessDate);
         if (dateError is not null)
         {
             return dateError;

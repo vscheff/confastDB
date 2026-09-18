@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Confast.Web.Time;
 
 namespace Confast.Web.Features.Inspections;
 
@@ -108,16 +109,21 @@ public sealed class CreateInspectionModel : IValidatableObject
     public DateOnly? InspectionDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
-        InspectionDateValidator.Validate(DateReceived, InspectionDate);
+        InspectionDateValidator.Validate(
+            DateReceived,
+            InspectionDate,
+            validationContext.GetService(typeof(BusinessDateProvider)) as BusinessDateProvider);
 }
 
 internal static class InspectionDateValidator
 {
     public static IEnumerable<ValidationResult> Validate(
         DateOnly? dateReceived,
-        DateOnly? inspectionDate)
+        DateOnly? inspectionDate,
+        BusinessDateProvider? businessDate = null)
     {
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var today = businessDate?.Today
+            ?? DateOnly.FromDateTime(TimeProvider.System.GetLocalNow().DateTime);
 
         if (dateReceived > today)
         {
@@ -143,8 +149,11 @@ internal static class InspectionDateValidator
         }
     }
 
-    public static string? GetError(DateOnly? dateReceived, DateOnly? inspectionDate) =>
-        Validate(dateReceived, inspectionDate).FirstOrDefault()?.ErrorMessage;
+    public static string? GetError(
+        DateOnly? dateReceived,
+        DateOnly? inspectionDate,
+        BusinessDateProvider? businessDate = null) =>
+        Validate(dateReceived, inspectionDate, businessDate).FirstOrDefault()?.ErrorMessage;
 }
 
 public sealed class InspectionEditModel : IValidatableObject
@@ -210,7 +219,10 @@ public sealed class InspectionEditModel : IValidatableObject
     public DateOnly? InspectionDate { get; set; }
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext) =>
-        InspectionDateValidator.Validate(DateReceived, InspectionDate);
+        InspectionDateValidator.Validate(
+            DateReceived,
+            InspectionDate,
+            validationContext.GetService(typeof(BusinessDateProvider)) as BusinessDateProvider);
 
     public DateTimeOffset CreatedAtUtc { get; set; }
 

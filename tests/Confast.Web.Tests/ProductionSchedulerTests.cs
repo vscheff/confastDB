@@ -161,6 +161,23 @@ public sealed class ProductionSchedulerTests
         var f = ProductionScheduler.Forecast(data)[0]; Assert.True(f.StaleProgress); Assert.Equal(Monday, f.Start);
     }
 
+    [Fact]
+    public void RunningSegmentRetainsItsStartedForecastDatesWhenTheHorizonAdvances()
+    {
+        var data = Sample(364000);
+        var segment = data.Segments.Single();
+        segment.State = ProductionState.Running;
+        segment.ActualStart = Monday;
+        segment.StartedForecastStart = Monday;
+        segment.StartedForecastFinish = Monday.AddDays(4);
+
+        var forecast = Assert.Single(ProductionScheduler.Forecast(data with { Horizon = Monday.AddDays(7) }));
+
+        Assert.Equal(segment.StartedForecastStart, forecast.Start);
+        Assert.Equal(segment.StartedForecastFinish, forecast.Finish);
+        Assert.True(forecast.StaleProgress);
+    }
+
     private static void AssignPart(ProductionSnapshot data, ProductionJob job, long partId)
     {
         var part = new Part { Id = partId, PartNumber = $"SORT-{partId}", BoxQuantity = 3000 };

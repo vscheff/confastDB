@@ -111,6 +111,10 @@ public sealed class ProductionSegment
     public long? PredecessorId { get; set; }
     public DateOnly? ActualStart { get; set; }
     public DateOnly? ActualCompletion { get; set; }
+    // Capture the displayed schedule when work starts. It is a planning baseline,
+    // not an actual-production record, so advancing the business date cannot move it.
+    public DateOnly? StartedForecastStart { get; set; }
+    public DateOnly? StartedForecastFinish { get; set; }
     public decimal? ActualElapsedWorkingDays { get; set; }
     public DateOnly? ProgressAsOf { get; set; }
     public decimal OriginalHours { get; set; }

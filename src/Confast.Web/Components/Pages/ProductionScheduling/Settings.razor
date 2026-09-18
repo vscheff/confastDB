@@ -1,7 +1,9 @@
 @page "/production-scheduling/settings"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
 @using Confast.Web.Features.ProductionScheduling
+@using Confast.Web.Time
 @inject ProductionService Service
+@inject BusinessDateProvider BusinessDate
 @inject ILogger<Settings> Logger
 @inject IJSRuntime Js
 @implements IAsyncDisposable
@@ -106,7 +108,10 @@ else
     private Task SaveHolidayAsync(HolidayEditor holiday) => holiday.OriginalDate is null
         ? Run(() => Service.SaveHolidayAsync(data!.Settings.Revision, holiday.Date, holiday.Name, false))
         : Run(() => Service.UpdateHolidayAsync(data!.Settings.Revision, holiday.OriginalDate.Value, holiday.Date, holiday.Name));
-    private void AddHoliday() => holidayEditors.Add(new());
+    private void AddHoliday() => holidayEditors.Add(new()
+    {
+        Date = BusinessDate.Today
+    });
     private Task RemoveHolidayAsync(HolidayEditor holiday)
     {
         if (holiday.OriginalDate is null)
@@ -164,7 +169,7 @@ else
         public Guid Id { get; } = Guid.NewGuid();
         public string FormId => $"holiday-{Id}";
         public DateOnly? OriginalDate { get; init; }
-        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateOnly Date { get; set; }
         public string Name { get; set; } = "";
         public ElementReference DateField { get; set; }
 

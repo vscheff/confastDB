@@ -1,15 +1,20 @@
 using System.Data;
 using Confast.Web.Data;
 using Confast.Web.Features.ProductionScheduling;
+using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Confast.Web.Features.ContainerTracking;
 
 public sealed class ContainerTrackingService(
-    IDbContextFactory<AppDbContext> contextFactory, TrackingAccess access, TimeProvider clock)
+    IDbContextFactory<AppDbContext> contextFactory,
+    TrackingAccess access,
+    TimeProvider clock,
+    BusinessDateProvider? businessDate = null)
 {
-    public DateOnly Today => DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
+    public DateOnly Today => businessDate?.Today
+        ?? DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
     public async Task<List<ShipmentSummary>> SearchAsync(string? search = null, CancellationToken cancellationToken = default)
     {

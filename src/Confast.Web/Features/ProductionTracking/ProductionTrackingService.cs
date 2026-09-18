@@ -2,6 +2,7 @@ using System.Data;
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.ProductionScheduling;
+using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -10,9 +11,11 @@ namespace Confast.Web.Features.ProductionTracking;
 public sealed class ProductionTrackingService(
     IDbContextFactory<AppDbContext> factory,
     ICurrentUser currentUser,
-    TimeProvider clock)
+    TimeProvider clock,
+    BusinessDateProvider? businessDate = null)
 {
-    private DateOnly Today => DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
+    private DateOnly Today => businessDate?.Today
+        ?? DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
     public async Task<ProductionTrackingDashboard> GetDashboardAsync(long? machineId = null, long? sortLogId = null,
         DateOnly? productionDate = null)

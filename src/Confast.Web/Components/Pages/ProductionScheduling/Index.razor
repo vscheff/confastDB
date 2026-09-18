@@ -1,9 +1,11 @@
 @page "/production-scheduling"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Confast.Web.Features.ProductionScheduling
+@using Confast.Web.Time
 @inject ProductionService Service
 @inject ILogger<Index> Logger
 @inject TimeProvider Clock
+@inject BusinessDateProvider BusinessDate
 
 <PageTitle>Production Scheduling</PageTitle>
 <div class="production-schedule-envelope">
@@ -192,7 +194,7 @@ else
     private DateOnly? optionalDate;
     private ProductionSegment? selected;
     private ProductionJob? selectedJob;
-    private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
+    private DateOnly Today => BusinessDate.Today;
     private IEnumerable<ProductionSegment> Queue => data!.Segments.Where(x => x.MachineId == machineId && (showCompleted || x.State != ProductionState.Completed)).OrderBy(x => x.State == ProductionState.Completed ? 2 : x.State == ProductionState.Running ? 0 : 1).ThenBy(x => x.Sequence);
     private IEnumerable<ScheduleEntry> ScheduleEntries => Queue.Select(s => new ScheduleEntry(s, null, Forecast(s).Start))
         .Concat(data!.Downtime.Where(x => x.MachineId == machineId).Select(d => new ScheduleEntry(null, d, d.Start)))

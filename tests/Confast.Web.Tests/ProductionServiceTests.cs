@@ -352,6 +352,39 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     }
 
     [Fact]
+    public async Task StartingASegmentCapturesItsForecastDates()
+    {
+        var segment = await AddJob(364000);
+        var beforeStarting = Assert.Single(ProductionScheduler.Forecast(await service.GetAsync()));
+
+        await service.StartAsync(await Revision(), segment.Id);
+
+        var started = Assert.Single((await service.GetAsync()).Segments);
+        Assert.Equal(beforeStarting.Start, started.StartedForecastStart);
+        Assert.Equal(beforeStarting.Finish, started.StartedForecastFinish);
+    }
+
+    [Fact]
+    public async Task ExistingRunningSegmentIsInitializedWithItsCurrentForecastDates()
+    {
+        var segment = await AddJob(364000);
+        await service.StartAsync(await Revision(), segment.Id);
+        await using (var db = database.CreateDbContext())
+        {
+            var persisted = await db.Set<ProductionSegment>().SingleAsync(x => x.Id == segment.Id);
+            persisted.StartedForecastStart = null;
+            persisted.StartedForecastFinish = null;
+            await db.SaveChangesAsync();
+        }
+
+        var expected = Assert.Single(ProductionScheduler.Forecast(await service.GetReadOnlyAsync()));
+        var initialized = Assert.Single((await service.GetAsync()).Segments);
+
+        Assert.Equal(expected.Start, initialized.StartedForecastStart);
+        Assert.Equal(expected.Finish, initialized.StartedForecastFinish);
+    }
+
+    [Fact]
     public async Task MachineRatesDoNotChangeThePartBoxQuantity()
     {
         await service.SaveRateAsync(await Revision(), machineId, partId, 9000);

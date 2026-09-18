@@ -1,5 +1,10 @@
 ﻿@inherits LayoutComponentBase
 
+@using Confast.Web.Time
+@inject IWebHostEnvironment HostEnvironment
+@inject DevelopmentDateOverrideTimeProvider DevelopmentClock
+@inject NavigationManager Navigation
+
 <header class="app-header">
     <div class="header-brand-group">
         <AuthorizeView Context="navigationAuthenticationState">
@@ -20,6 +25,7 @@
                         <NavLink href="/production-scheduling" Match="NavLinkMatch.Prefix">Production Scheduling</NavLink>
                         <AuthorizeView Roles="@(AppRoles.Production + "," + AppRoles.Administrator)" Context="productionTrackingAuthenticationState">
                             <NavLink href="/production-tracking" Match="NavLinkMatch.Prefix">Production Tracking</NavLink>
+                            <NavLink href="/morning-production-review">Production Review</NavLink>
                         </AuthorizeView>
                         <NavLink href="/suppliers" Match="NavLinkMatch.Prefix">Suppliers</NavLink>
                         <AuthorizeView Roles="@AppRoles.Administrator" Context="administratorAuthenticationState">
@@ -34,6 +40,18 @@
         </AuthorizeView>
         <a class="brand" href="/">ConFastDB</a>
     </div>
+    @if (HostEnvironment.IsDevelopment())
+    {
+        <form class="development-date-control" @onsubmit="SetDevelopmentDateAsync" @onsubmit:preventDefault>
+            <label for="development-date">Development date</label>
+            <input id="development-date" type="date" @bind="developmentDate" />
+            <button type="submit">Set</button>
+            @if (DevelopmentClock.HasOverride)
+            {
+                <button type="button" @onclick="UseSystemDateAsync">Use system date</button>
+            }
+        </form>
+    }
     <AuthorizeView>
         <Authorized Context="authenticationState">
             <div class="user-menu">
@@ -55,6 +73,31 @@
 </div>
 
 @code {
+    private DateOnly developmentDate;
+
+    protected override void OnInitialized()
+    {
+        developmentDate = DevelopmentClock.CurrentDate;
+    }
+
+    private Task SetDevelopmentDateAsync()
+    {
+        DevelopmentClock.SetDate(developmentDate);
+        return ReloadCurrentPageAsync();
+    }
+
+    private Task UseSystemDateAsync()
+    {
+        DevelopmentClock.UseSystemDate();
+        return ReloadCurrentPageAsync();
+    }
+
+    private Task ReloadCurrentPageAsync()
+    {
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+        return Task.CompletedTask;
+    }
+
     private static string GetDisplayName(System.Security.Claims.ClaimsPrincipal principal) =>
         principal.FindFirst("display_name")?.Value
         ?? principal.Identity?.Name

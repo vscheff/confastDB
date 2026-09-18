@@ -9,6 +9,7 @@ using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
+using Confast.Web.Time;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -111,6 +112,8 @@ builder.Services.AddScoped<ICertificationEmailTemplateResolver, CertificationEma
 builder.Services.AddScoped<ICertificationEmailTemplateService, CertificationEmailTemplateService>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<DevelopmentDateOverrideTimeProvider>();
+builder.Services.AddSingleton<BusinessDateProvider>();
 builder.Services.AddScoped<TrackingAccess>();
 builder.Services.AddScoped<ContainerTrackingService>();
 builder.Services.AddScoped<ReceivedPartsService>();
@@ -139,6 +142,7 @@ builder.Services.AddScoped<InspectionSearchNavigationContext>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionScheduling.ProductionService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionTracking.ProductionTrackingService>();
+builder.Services.AddScoped<Confast.Web.Features.MorningProductionReview.MorningProductionReviewService>();
 builder.Services.AddScoped<PartFlipService>();
 
 if (builder.Environment.IsDevelopment())
