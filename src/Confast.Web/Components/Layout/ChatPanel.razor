@@ -1,0 +1,574 @@
+@using Confast.Web.Features.Chat
+@inject ChatService Chat
+@inject ChatNotifications Notifications
+@inject IJSRuntime JS
+@inject ILogger<ChatPanel> Logger
+@implements IDisposable
+
+<button class="chat-launcher" type="button" @onclick="TogglePanel" aria-label="Open chat" aria-expanded="@isOpen">
+    <span aria-hidden="true">✉</span> Chat
+    @if (unreadTotal > 0)
+    {
+        <span class="chat-launcher-count">@(unreadTotal > 99 ? "99+" : unreadTotal.ToString())</span>
+    }
+</button>
+
+@if (isOpen)
+{
+    <section class="chat-panel" aria-label="Chat">
+        <header class="chat-panel-header">
+            <strong>Messages</strong>
+            <button type="button" class="chat-icon-button" @onclick="ClosePanel" aria-label="Close chat">×</button>
+        </header>
+        @if (error is not null)
+        {
+            <p class="chat-error" role="alert">@error</p>
+        }
+        <div class="chat-panel-body @(selectedId is not null ? "chat-has-thread" : "")">
+            <aside class="chat-sidebar">
+                <div class="chat-tabs" aria-label="Chat views">
+                    <button type="button" class="@(view == ChatView.Conversations ? "active" : "")" @onclick="() => ChangeView(ChatView.Conversations)">Conversations</button>
+                    <button type="button" class="@(view == ChatView.Discover ? "active" : "")" @onclick="() => ChangeView(ChatView.Discover)">Discover</button>
+                </div>
+                @if (view == ChatView.Conversations)
+                {
+                    <div class="chat-create-actions">
+                        <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewDirect)">New Message</button>
+                        <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewChannel)">New Channel</button>
+                    </div>
+                    @if (conversations.Count == 0)
+                    {
+                        <p class="chat-empty">No conversations yet.</p>
+                    }
+                    @foreach (var row in conversations)
+                    {
+                        <button @key="row.Id" type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
+                            <span class="chat-conversation-top"><strong>@(row.Kind == ConversationKind.Channel ? "# " : "")@row.Name</strong><time>@GetActivityDate(row)</time></span>
+                            <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
+                        </button>
+                    }
+                }
+                else if (view == ChatView.Discover)
+                {
+                    <h3>Public Channels</h3>
+                    @if (discovered.Count == 0) { <p class="chat-empty">No other public channels.</p> }
+                    @foreach (var row in discovered)
+                    {
+                        <div class="chat-discovery-row"><span># @row.Name</span><button type="button" class="button button-secondary" @onclick="() => JoinAsync(row.Id)">Join</button></div>
+                    }
+                }
+                else if (view == ChatView.NewDirect)
+                {
+                    <h3>New Message</h3>
+                    <label for="chat-direct-user">User</label>
+                    <select id="chat-direct-user" @bind="directUserId">
+                        <option value="">Select a user</option>
+                        @foreach (var user in users) { <option value="@user.Id">@user.Name</option> }
+                    </select>
+                    <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(directUserId)" @onclick="StartDirectAsync">Open Conversation</button>
+                }
+                else if (view == ChatView.NewChannel)
+                {
+                    <h3>New Channel</h3>
+                    <label for="chat-channel-name">Name</label>
+                    <input id="chat-channel-name" maxlength="120" @bind="channelName" @bind:event="oninput" />
+                    <label for="chat-channel-visibility">Visibility</label>
+                    <select id="chat-channel-visibility" @bind="channelVisibility">
+                        <option value="@ChannelVisibility.Public">Public</option>
+                        <option value="@ChannelVisibility.Private">Private</option>
+                    </select>
+                    <fieldset class="chat-member-choices">
+                        <legend>Initial Members</legend>
+                        @foreach (var user in users)
+                        {
+                            <label><input type="checkbox" checked="@initialMembers.Contains(user.Id)" @onchange="e => ToggleInitialMember(user.Id, e.Value is true)" /> @user.Name</label>
+                        }
+                    </fieldset>
+                    <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(channelName)" @onclick="CreateChannelAsync">Create Channel</button>
+                }
+            </aside>
+            <div class="chat-thread">
+                @if (thread is null)
+                {
+                    <p class="chat-empty">Select a conversation to see its messages.</p>
+                }
+                else
+                {
+                    <div class="chat-thread-header">
+                        <button type="button" class="chat-back" @onclick="BackToList" aria-label="Back to conversations">←</button>
+                        <strong>@(thread.Conversation.Kind == ConversationKind.Channel ? "# " : "")@thread.Conversation.Name</strong>
+                        @if (thread.Conversation.Kind == ConversationKind.Channel)
+                        {
+                            <button type="button" class="chat-icon-button" @onclick="() => showMembers = !showMembers">Members (@thread.Members.Count)</button>
+                        }
+                    </div>
+                    @if (showMembers && thread.Conversation.Kind == ConversationKind.Channel)
+                    {
+                        <div class="chat-members">
+                            @foreach (var member in thread.Members)
+                            {
+                                <div><span>@member.Name</span>
+                                    @if (thread.Conversation.IsOwner && thread.Conversation.Visibility == ChannelVisibility.Private && member.Id != currentUserId)
+                                    {
+                                        <button type="button" @onclick="() => RemoveMemberAsync(member.Id)">Remove</button>
+                                    }
+                                </div>
+                            }
+                            @if (thread.Conversation.IsOwner && thread.Conversation.Visibility == ChannelVisibility.Private)
+                            {
+                                <label for="chat-add-member">Add Member</label>
+                                <select id="chat-add-member" @bind="addMemberId"><option value="">Select a user</option>
+                                    @foreach (var user in users.Where(x => thread.Members.All(m => m.Id != x.Id))) { <option value="@user.Id">@user.Name</option> }
+                                </select>
+                                <button type="button" disabled="@string.IsNullOrEmpty(addMemberId)" @onclick="AddMemberAsync">Add</button>
+                            }
+                            @if (thread.Conversation.Visibility == ChannelVisibility.Public)
+                            {
+                                <button type="button" @onclick="LeaveChannelAsync">Leave Channel</button>
+                            }
+                        </div>
+                    }
+                    <div id="chat-message-history" class="chat-messages" data-conversation-id="@thread.Conversation.Id" role="log" aria-label="Message history"
+                         @onclick="MarkCurrentConversationReadAsync" @onscroll="MarkCurrentConversationReadAsync">
+                        @if (thread.Messages.Count == 100) { <p class="chat-history-limit">Showing the latest 100 messages.</p> }
+                        @foreach (var message in thread.Messages)
+                        {
+                            <article class="chat-message @(message.SenderUserId == currentUserId ? "mine" : "")">
+                                <div class="chat-message-meta">
+                                    <strong>@message.SenderName</strong>
+                                    <time>
+                                        @GetMessageTime(message)
+                                        @if (message.EditedAtUtc is not null)
+                                        {
+                                            <span> (edited)</span>
+                                        }
+                                    </time>
+                                </div>
+                                @if (editingMessageId == message.Id)
+                                {
+                                    <form class="chat-edit-form" @onsubmit="SaveEditAsync" @onsubmit:preventDefault>
+                                        <label class="sr-only" for="chat-edit-body">Edit message</label>
+                                        <textarea id="chat-edit-body" rows="3" maxlength="4000" @bind="editDraft" @bind:event="oninput"></textarea>
+                                        <div><button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(editDraft)">Save</button><button type="button" class="button button-secondary" @onclick="CancelEdit">Cancel</button></div>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <p>@(message.IsDeleted ? "Message deleted" : message.Body)</p>
+                                }
+                                @if (message.SenderUserId == currentUserId && !message.IsDeleted)
+                                {
+                                    @if (editingMessageId != message.Id)
+                                    {
+                                        <button type="button" class="chat-message-action" @onclick="() => StartEdit(message)">Edit</button>
+                                        <button type="button" class="chat-message-action chat-delete" @onclick="() => DeleteMessageAsync(message.Id)">Delete</button>
+                                    }
+                                }
+                            </article>
+                        }
+                    </div>
+                    <form class="chat-compose" @onsubmit="SendAsync" @onsubmit:preventDefault>
+                        <label class="sr-only" for="chat-message-body">Message</label>
+                        <textarea id="chat-message-body" rows="2" maxlength="4000" placeholder="Write a message" @bind="draft" @bind:event="oninput"
+                                  @onfocus="MarkCurrentConversationReadAsync" @onclick="MarkCurrentConversationReadAsync"></textarea>
+                        <button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(draft)">Send</button>
+                    </form>
+                }
+            </div>
+        </div>
+    </section>
+}
+
+@code {
+    private enum ChatView { Conversations, Discover, NewDirect, NewChannel }
+    private IDisposable? subscription;
+    private string? currentUserId;
+    private bool isOpen;
+    private bool disposed;
+    private bool showMembers;
+    private int unreadTotal;
+    private long? selectedId;
+    private string? error;
+    private string directUserId = string.Empty;
+    private string channelName = string.Empty;
+    private ChannelVisibility channelVisibility = ChannelVisibility.Public;
+    private readonly HashSet<string> initialMembers = [];
+    private readonly CancellationTokenSource refreshLifetime = new();
+    private string addMemberId = string.Empty;
+    private string draft = string.Empty;
+    private long? editingMessageId;
+    private string editDraft = string.Empty;
+    private bool activityDatesNeedFormatting;
+    private bool messageTimesNeedFormatting;
+    private bool composeKeyHandlerAttached;
+    private bool scrollToLatestAfterRender;
+    private bool restoreThreadScrollAfterRender;
+    private bool markingCurrentConversationRead;
+    private long conversationRefreshVersion;
+    private Dictionary<long, string> localActivityDates = [];
+    private Dictionary<long, string> localMessageTimes = [];
+    private ChatView view;
+    private ChatThread? thread;
+    private IReadOnlyList<ChatConversationRow> conversations = [];
+    private IReadOnlyList<ChatConversationRow> discovered = [];
+    private IReadOnlyList<ChatUser> users = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (restoreThreadScrollAfterRender)
+        {
+            restoreThreadScrollAfterRender = false;
+            try
+            {
+                await JS.InvokeVoidAsync("confastChatTime.restoreConversationScrollPosition");
+            }
+            catch (JSDisconnectedException)
+            {
+                restoreThreadScrollAfterRender = true;
+                return;
+            }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Could not restore the chat history scroll position.");
+            }
+        }
+
+        if (scrollToLatestAfterRender)
+        {
+            scrollToLatestAfterRender = false;
+            try
+            {
+                await JS.InvokeVoidAsync("confastChatTime.scrollToLatestMessage");
+            }
+            catch (JSDisconnectedException)
+            {
+                scrollToLatestAfterRender = true;
+                return;
+            }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Could not scroll chat history to the latest message.");
+            }
+        }
+
+        if (isOpen && selectedId is not null && !composeKeyHandlerAttached)
+        {
+            try
+            {
+                composeKeyHandlerAttached = await JS.InvokeAsync<bool>("confastChatTime.enableEnterToSend");
+            }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Could not enable Enter-to-send for the chat compose box.");
+                return;
+            }
+        }
+
+        if (!activityDatesNeedFormatting && !messageTimesNeedFormatting) return;
+
+        try
+        {
+            if (activityDatesNeedFormatting)
+            {
+                activityDatesNeedFormatting = false;
+                var utcValues = conversations.Select(x => x.ActivityAtUtc.ToString("O", System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var formatted = await JS.InvokeAsync<string[]>("confastChatTime.formatActivityDates", new object?[] { utcValues });
+                localActivityDates = conversations.Select((row, index) => (row.Id, formatted[index]))
+                    .ToDictionary(x => x.Id, x => x.Item2);
+            }
+            if (messageTimesNeedFormatting && thread is not null)
+            {
+                messageTimesNeedFormatting = false;
+                var utcValues = thread.Messages.Select(x => x.SentAtUtc.ToString("O", System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                var formatted = await JS.InvokeAsync<string[]>("confastChatTime.formatMessageTimes", new object?[] { utcValues });
+                localMessageTimes = thread.Messages.Select((message, index) => (message.Id, formatted[index]))
+                    .ToDictionary(x => x.Id, x => x.Item2);
+            }
+            StateHasChanged();
+        }
+        catch (JSDisconnectedException)
+        {
+            activityDatesNeedFormatting = true;
+            messageTimesNeedFormatting = thread is not null;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await EnsureCurrentUserContextAsync();
+            await RefreshAsync();
+            _ = RefreshUnreadCountPeriodicallyAsync();
+        }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private async Task EnsureCurrentUserContextAsync()
+    {
+        var resolvedUserId = await Chat.GetCurrentUserIdAsync();
+        if (currentUserId == resolvedUserId) return;
+
+        subscription?.Dispose();
+        currentUserId = resolvedUserId;
+        subscription = Notifications.Subscribe(resolvedUserId, () => _ = InvokeAsync(RefreshFromNotificationAsync));
+        selectedId = null;
+        thread = null;
+        conversations = [];
+        discovered = [];
+        unreadTotal = 0;
+        conversationRefreshVersion++;
+    }
+
+    private async Task RefreshFromNotificationAsync()
+    {
+        if (disposed) return;
+        try
+        {
+            await RefreshAsync();
+            if (isOpen && selectedId is long id) await LoadThreadAsync(id);
+            StateHasChanged();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            selectedId = null;
+            thread = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        await EnsureCurrentUserContextAsync();
+        var version = ++conversationRefreshVersion;
+        var userId = currentUserId;
+        var refreshedConversations = await Chat.GetConversationsAsync();
+        if (disposed || version != conversationRefreshVersion || userId != currentUserId) return;
+
+        conversations = refreshedConversations;
+        unreadTotal = conversations.Sum(x => x.UnreadCount);
+        activityDatesNeedFormatting = true;
+        if (isOpen && view == ChatView.Discover) discovered = await Chat.DiscoverPublicChannelsAsync();
+    }
+
+    private async Task RefreshUnreadCountPeriodicallyAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(refreshLifetime.Token))
+            {
+                if (disposed) continue;
+                await InvokeAsync(async () =>
+                {
+                    if (disposed) return;
+                    if (isOpen)
+                        await RefreshAsync();
+                    else
+                    {
+                        await EnsureCurrentUserContextAsync();
+                        var version = ++conversationRefreshVersion;
+                        var userId = currentUserId;
+                        var total = await Chat.GetTotalUnreadCountAsync(refreshLifetime.Token);
+                        if (version == conversationRefreshVersion && userId == currentUserId) unreadTotal = total;
+                    }
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (refreshLifetime.IsCancellationRequested) { }
+        catch (ObjectDisposedException) when (disposed) { }
+    }
+
+    private async Task TogglePanel()
+    {
+        if (isOpen)
+        {
+            ClosePanel();
+            return;
+        }
+
+        isOpen = true;
+        selectedId = null;
+        thread = null;
+        users = await Chat.GetActiveUsersAsync();
+        await RefreshAsync();
+    }
+
+    private void ClosePanel()
+    {
+        isOpen = false;
+        BackToList();
+    }
+    private void BackToList()
+    {
+        selectedId = null;
+        thread = null;
+        showMembers = false;
+        composeKeyHandlerAttached = false;
+    }
+
+    private async Task ChangeView(ChatView next)
+    {
+        view = next;
+        error = null;
+        if (next == ChatView.Discover) discovered = await Chat.DiscoverPublicChannelsAsync();
+    }
+
+    private async Task OpenThreadAsync(long id)
+    {
+        error = null;
+        selectedId = id;
+        showMembers = false;
+        await LoadThreadAsync(id);
+    }
+
+    private async Task LoadThreadAsync(long id)
+    {
+        try
+        {
+            thread = await Chat.GetThreadAsync(id);
+            messageTimesNeedFormatting = true;
+            restoreThreadScrollAfterRender = true;
+            if (thread.Messages.Count > 0)
+                await Chat.MarkConversationReadAsync(id);
+            await RefreshAsync();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            selectedId = null;
+            thread = null;
+            error = "You no longer have access to that conversation.";
+            await RefreshAsync();
+        }
+    }
+
+    private async Task MarkCurrentConversationReadAsync()
+    {
+        if (!isOpen || selectedId is not long id || thread?.Conversation.Id != id || markingCurrentConversationRead)
+            return;
+        if (!conversations.Any(x => x.Id == id && x.UnreadCount > 0)) return;
+
+        markingCurrentConversationRead = true;
+        try
+        {
+            await Chat.MarkConversationReadAsync(id);
+            await RefreshAsync();
+            StateHasChanged();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            selectedId = null;
+            thread = null;
+            await RefreshAsync();
+        }
+        finally
+        {
+            markingCurrentConversationRead = false;
+        }
+    }
+
+    private async Task RunAsync(Func<Task> operation)
+    {
+        try { error = null; await operation(); await RefreshAsync(); }
+        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException or Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+        { error = ex.Message; }
+    }
+
+    private Task StartDirectAsync() => RunAsync(async () =>
+    {
+        var id = await Chat.OpenDirectAsync(directUserId);
+        view = ChatView.Conversations;
+        await OpenThreadAsync(id);
+    });
+
+    private Task CreateChannelAsync() => RunAsync(async () =>
+    {
+        var id = await Chat.CreateChannelAsync(channelName, channelVisibility, initialMembers);
+        channelName = string.Empty;
+        initialMembers.Clear();
+        view = ChatView.Conversations;
+        await OpenThreadAsync(id);
+    });
+
+    private Task JoinAsync(long id) => RunAsync(async () =>
+    {
+        await Chat.JoinPublicAsync(id);
+        view = ChatView.Conversations;
+        await OpenThreadAsync(id);
+    });
+
+    private Task LeaveChannelAsync() => RunAsync(async () =>
+    {
+        await Chat.LeavePublicAsync(selectedId!.Value);
+        BackToList();
+    });
+
+    private Task AddMemberAsync() => RunAsync(async () =>
+    {
+        await Chat.AddPrivateMemberAsync(selectedId!.Value, addMemberId);
+        addMemberId = string.Empty;
+        await LoadThreadAsync(selectedId.Value);
+    });
+
+    private Task RemoveMemberAsync(string userId) => RunAsync(async () =>
+    {
+        await Chat.RemovePrivateMemberAsync(selectedId!.Value, userId);
+        await LoadThreadAsync(selectedId.Value);
+    });
+
+    private Task SendAsync() => RunAsync(async () =>
+    {
+        await Chat.SendAsync(selectedId!.Value, draft);
+        draft = string.Empty;
+        scrollToLatestAfterRender = true;
+        await LoadThreadAsync(selectedId.Value);
+    });
+
+    private Task DeleteMessageAsync(long id) => RunAsync(async () =>
+    {
+        await Chat.DeleteOwnMessageAsync(id);
+        await LoadThreadAsync(selectedId!.Value);
+    });
+
+    private void StartEdit(ChatMessageRow message)
+    {
+        editingMessageId = message.Id;
+        editDraft = message.Body ?? string.Empty;
+    }
+
+    private void CancelEdit()
+    {
+        editingMessageId = null;
+        editDraft = string.Empty;
+    }
+
+    private Task SaveEditAsync() => RunAsync(async () =>
+    {
+        await Chat.EditOwnMessageAsync(editingMessageId!.Value, editDraft);
+        CancelEdit();
+        await LoadThreadAsync(selectedId!.Value);
+    });
+
+    private void ToggleInitialMember(string id, bool selected)
+    {
+        if (selected) initialMembers.Add(id);
+        else initialMembers.Remove(id);
+    }
+
+    private string GetActivityDate(ChatConversationRow row) =>
+        localActivityDates.GetValueOrDefault(row.Id, row.ActivityAtUtc.ToString("MMM d"));
+
+    private string GetMessageTime(ChatMessageRow message) =>
+        localMessageTimes.GetValueOrDefault(message.Id,
+            message.SentAtUtc.ToString("MMM d, h:mm tt") + " UTC");
+
+    public void Dispose()
+    {
+        disposed = true;
+        refreshLifetime.Cancel();
+        refreshLifetime.Dispose();
+        subscription?.Dispose();
+    }
+}

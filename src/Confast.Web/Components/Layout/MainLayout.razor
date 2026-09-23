@@ -66,6 +66,12 @@
     @Body
 </main>
 
+<AuthorizeView Context="chatAuthenticationState">
+    <Authorized>
+        <ChatPanel @key="chatAuthenticationState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value" />
+    </Authorized>
+</AuthorizeView>
+
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>

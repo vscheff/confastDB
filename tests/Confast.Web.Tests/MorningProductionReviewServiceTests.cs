@@ -161,6 +161,26 @@ public sealed class MorningProductionReviewServiceTests(PostgresTestDatabase dat
     }
 
     [Fact]
+    public async Task CurrentRunProgressIncludesGoodPartsFromEverySortLogForTheActiveLot()
+    {
+        await using (var db = database.CreateDbContext())
+        {
+            var priorLog = Log(clock.Today.AddDays(-1));
+            priorLog.Lines.Add(Line(1, clock.TodayAt(6), clock.TodayAt(7), null, 70, 0));
+            var activeLog = Log(clock.Today);
+            activeLog.Lines.Add(Line(1, clock.TodayAt(7), clock.TodayAt(8), null, 30, 0));
+            activeLog.Lines.Add(Line(2, clock.TodayAt(8), null, null, 0, 0));
+            db.AddRange(priorLog, activeLog);
+            await db.SaveChangesAsync();
+        }
+
+        var review = await service.GetAsync();
+
+        var running = Assert.Single(review.CurrentMachines, x => x.MachineId == machineId);
+        Assert.Equal(100, running.GoodQuantity);
+    }
+
+    [Fact]
     public async Task SamePartDifferentScheduledJobsAreSeparateChangeovers()
     {
         await using (var db = database.CreateDbContext())

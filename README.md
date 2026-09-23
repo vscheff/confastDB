@@ -15,8 +15,13 @@ Core, and PostgreSQL.
    ```sql
    CREATE ROLE confast_app LOGIN;
    \password confast_app
-   CREATE DATABASE confast_dev OWNER confast_app;
+   CREATE DATABASE confast_dev OWNER confast_app TEMPLATE template0 ENCODING 'UTF8';
    ```
+
+   PostgreSQL fixes a database's encoding when it is created. To move an existing
+   non-UTF-8 database, use `pg_dump` and restore into a new database created with
+   `TEMPLATE template0 ENCODING 'UTF8'`; keep the original until the restored database
+   has been verified.
 
 2. Store the complete development connection string outside source control:
 
@@ -221,6 +226,27 @@ If the renderer is unavailable, uploads and original downloads continue to work,
 the embedded viewer falls back to the original PDF and may still fail for PDFs that
 PDF.js cannot decode.
 
+## Internal chat
+
+Chat uses one conversation model for direct messages and channels. Direct messages
+have exactly two members in this slice. Their sorted Identity user IDs form a
+unique `direct_pair_key`, so concurrent attempts to open the same pair resolve
+to one conversation. A future multi-user private conversation can use the same
+conversation/member tables without a pair key.
+
+Public channels are discoverable without membership, but users must join before
+reading or sending. Private channels and direct messages require membership for
+all reads and writes. Private channel owners manage membership. Unread counts
+use one `last_read_message_id` per member; a composite foreign key keeps the
+marker inside its conversation. Messages are soft-deleted and retain their
+stored body and deletion audit fields while the UI hides deleted text.
+
+Live updates use the application's existing Blazor Interactive Server SignalR
+connection. A process-local publisher prompts connected chat panels to reload
+committed state from PostgreSQL. Opening the panel also reloads state after a
+disconnect. If the application is deployed on multiple server instances, this
+publisher will need a distributed backplane to reach circuits on other instances.
+
 ## Integration tests
 
 The integration tests use PostgreSQL because they exercise PostgreSQL-specific
@@ -237,7 +263,7 @@ a password, then create a dedicated test database owned by that login:
 ```sql
 CREATE ROLE confast_app LOGIN; -- only if the role does not already exist
 \password confast_app
-CREATE DATABASE confast_test OWNER confast_app;
+   CREATE DATABASE confast_test OWNER confast_app TEMPLATE template0 ENCODING 'UTF8';
 ```
 
 `\password confast_app` prompts for the password and executes the equivalent of

@@ -100,6 +100,7 @@ public sealed class ProductionService(
             .Where(x => x.EstimatedDepartureDate < Today && x.EstimatedArrivalDate != null &&
                 (containerGroupPartId == null || x.Groups.Any(group => group.Parts.Any(part => part.Id == containerGroupPartId))) )
             .Include(x => x.Groups).ThenInclude(x => x.Parts)
+            .AsSplitQuery()
             .OrderBy(x => x.EstimatedDepartureDate).ThenBy(x => x.Id)
             .ToListAsync();
         var changed = false;

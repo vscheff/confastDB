@@ -66,7 +66,21 @@ public sealed class MorningProductionReviewService(
                 .OrderByDescending(log => log.Lines.Where(line => line.StopTimeUtc == null)
                     .Max(line => line.StartTimeUtc))
                 .First());
-        var currentMachines = BuildCurrentMachines(schedule, forecastBySegmentId, activeLogs);
+        var activeInspectionIds = activeLogs.Values.Select(x => x.InspectionId).Distinct().ToList();
+        var goodQuantityByInspectionId = activeInspectionIds.Count == 0
+            ? new Dictionary<long, long>()
+            : await db.Set<SortLog>().AsNoTracking()
+                .Where(x => activeInspectionIds.Contains(x.InspectionId))
+                .Select(x => new
+                {
+                    x.InspectionId,
+                    GoodQuantity = x.Lines.Where(line => line.StopTimeUtc != null)
+                        .Sum(line => (long?)line.PassQuantity) ?? 0
+                })
+                .GroupBy(x => x.InspectionId)
+                .ToDictionaryAsync(group => group.Key, group => group.Sum(x => x.GoodQuantity));
+        var currentMachines = BuildCurrentMachines(schedule, forecastBySegmentId, activeLogs,
+            goodQuantityByInspectionId);
         var changeovers = BuildChangeovers(schedule, forecastBySegmentId, activeLogs);
 
         return new(selectedDate, latestPriorProductionDate, previousProductionDate, nextProductionDate,
@@ -173,7 +187,8 @@ public sealed class MorningProductionReviewService(
     private static IReadOnlyList<MachineCurrentStatus> BuildCurrentMachines(
         ProductionSnapshot schedule,
         IReadOnlyDictionary<long, SegmentForecast> forecastBySegmentId,
-        IReadOnlyDictionary<long, SortLog> activeLogs)
+        IReadOnlyDictionary<long, SortLog> activeLogs,
+        IReadOnlyDictionary<long, long> goodQuantityByInspectionId)
     {
         return schedule.Machines.Where(x => x.IsActive).OrderBy(x => x.Name).Select(machine =>
         {
@@ -204,7 +219,7 @@ public sealed class MorningProductionReviewService(
                 return new MachineCurrentStatus(machine.Id, machine.Name, true, null, null, null, null,
                     null, null, 0, null, null, next);
 
-            var good = activeLog.Lines.Where(x => x.StopTimeUtc != null).Sum(x => x.PassQuantity);
+            var good = goodQuantityByInspectionId.GetValueOrDefault(activeLog.InspectionId);
             var scheduledQuantity = activeSegment?.Quantity;
             decimal? progress = scheduledQuantity > 0 ? good / scheduledQuantity.Value * 100m : null;
             return new MachineCurrentStatus(machine.Id, machine.Name, false, activeLog.Id,

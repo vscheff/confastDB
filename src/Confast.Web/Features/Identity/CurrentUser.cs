@@ -14,13 +14,19 @@ public sealed class CurrentUser(
 {
     public async ValueTask<string?> GetUserIdAsync()
     {
-        var httpPrincipal = httpContextAccessor.HttpContext?.User;
-        if (httpPrincipal?.Identity?.IsAuthenticated == true)
+        var state = await authenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
         {
-            return httpPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var circuitUserId = state.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (circuitUserId is not null) return circuitUserId;
         }
 
-        var state = await authenticationStateProvider.GetAuthenticationStateAsync();
-        return state.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        // Circuit callbacks can inherit another request's ambient HttpContext when a shared
+        // notification service schedules work on a different circuit. Prefer the circuit's
+        // AuthenticationState above; use HttpContext only for ordinary HTTP request callers.
+        var httpPrincipal = httpContextAccessor.HttpContext?.User;
+        return httpPrincipal?.Identity?.IsAuthenticated == true
+            ? httpPrincipal.FindFirstValue(ClaimTypes.NameIdentifier)
+            : null;
     }
 }

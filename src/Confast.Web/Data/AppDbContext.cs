@@ -1,4 +1,5 @@
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.Chat;
 using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.Suppliers;
 using Confast.Web.Features.Gages;
@@ -16,6 +17,9 @@ namespace Confast.Web.Data;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
+    public DbSet<Conversation> ChatConversations => Set<Conversation>();
+    public DbSet<ConversationMember> ChatConversationMembers => Set<ConversationMember>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<ShipmentBillNumber> ShipmentBillNumbers => Set<ShipmentBillNumber>();
@@ -99,6 +103,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ChatMapping.Configure(modelBuilder);
         Confast.Web.Features.ProductionScheduling.ProductionMapping.Configure(modelBuilder);
         ProductionTrackingMapping.Configure(modelBuilder);
         modelBuilder.Entity<Part>().Property(x => x.BoxQuantity).HasColumnName("box_quantity").HasPrecision(18, 3);

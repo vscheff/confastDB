@@ -24,6 +24,7 @@
                 <button class="button button-secondary" disabled="@(busy || data.PreviousProductionDate is null)" @onclick="PreviousDay">Previous Day</button>
                 <button class="button button-secondary" disabled="@(busy || data.NextProductionDate is null)" @onclick="NextDay">Next Day</button>
                 <button class="button button-secondary" disabled="@(busy || data.LatestPriorProductionDate is null || data.ProductionDate == data.LatestPriorProductionDate)" @onclick="LatestProductionDay">Latest Production Day</button>
+                <button class="button button-secondary" disabled="@(busy || data.ProductionDate == Today)" @onclick="GoToToday">Today</button>
             </div>
         }
     </div>
@@ -129,15 +130,14 @@
                 <div><h2 id="current-status-heading">Today’s Machine Status</h2><p>@Today.ToString("dddd, MMMM d, yyyy")</p></div>
             </div>
             <div class="table-shell morning-table-shell">
-                <table class="data-table morning-table current-machine-table"><thead><tr><th>Machine</th><th>Status</th><th>Current Job</th><th>Part Number</th><th>Lot / MO</th><th>Run Start</th><th>Current Run Progress</th><th>Next Scheduled Job</th><th>Expected Start</th></tr></thead><tbody>
+                <table class="data-table morning-table current-machine-table"><thead><tr><th>Machine</th><th>Status</th><th>Part Number</th><th>Lot#</th><th>Run Start</th><th>Current Run Progress</th><th>Next Scheduled Job</th><th>Expected Start</th></tr></thead><tbody>
                 @foreach (var machine in data.CurrentMachines)
                 {
                     <tr>
                         <td><strong>@machine.MachineName</strong></td>
                         <td><span class="status-pill @(machine.IsIdle ? "status-inactive" : "status-active")">@(machine.IsIdle ? "Idle" : "Running")</span></td>
-                        <td>@CurrentJobReference(machine)</td>
                         <td>@(machine.PartNumber ?? "—")</td>
-                        <td>@LotAndMo(machine.LotNumber, machine.MoNumber)</td>
+                        <td>@(machine.LotNumber ?? "—")</td>
                         <td>@(machine.RunStartTimeUtc is null ? "—" : LocalTime(machine.RunStartTimeUtc.Value))</td>
                         <td>@Progress(machine)</td>
                         <td>@ScheduledJobReference(machine.NextJob)</td>
@@ -182,6 +182,7 @@
     private Task PreviousDay() => data?.PreviousProductionDate is { } date ? Load(date) : Task.CompletedTask;
     private Task NextDay() => data?.NextProductionDate is { } date ? Load(date) : Task.CompletedTask;
     private Task LatestProductionDay() => data?.LatestPriorProductionDate is { } date ? Load(date) : Task.CompletedTask;
+    private Task GoToToday() => Load(Today);
 
     private Task DateChanged(ChangeEventArgs args)
     {
@@ -237,20 +238,11 @@
     private static string PrefixReference(string prefix, string value) => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
         ? value
         : $"{prefix} {value}";
-    private static string CurrentJobReference(MachineCurrentStatus machine) => machine.IsIdle
-        ? "—"
-        : JobReference(machine.MoNumber, machine.PoNumber, machine.SortLogId);
-    private static string LotAndMo(string? lot, string? mo)
-    {
-        var value = string.Join(" · ", new[]
-            { string.IsNullOrWhiteSpace(lot) ? null : $"Lot {lot}", string.IsNullOrWhiteSpace(mo) ? null : PrefixReference("MO", mo) }.Where(x => x is not null));
-        return value.Length == 0 ? "—" : value;
-    }
     private static string Progress(MachineCurrentStatus machine) => machine.IsIdle
         ? "—"
         : machine.ScheduledQuantity is not null && machine.ProgressPercent is not null
-            ? $"{N(machine.GoodQuantity)} Good / {machine.ScheduledQuantity.Value:N0} ({machine.ProgressPercent.Value:N1}%)"
-            : $"{N(machine.GoodQuantity)} Good";
+            ? $"{N(machine.GoodQuantity)} / {machine.ScheduledQuantity.Value:N0} ({machine.ProgressPercent.Value:N1}%)"
+            : N(machine.GoodQuantity);
     private static string ScheduledJobReference(ScheduledJobSummary? job) => job is null
         ? "—"
         : $"{job.PartNumber} · {JobReference(job.MoNumber, job.PoNumber, job.JobId)}";
