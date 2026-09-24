@@ -18,8 +18,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
 {
     public DbSet<Conversation> ChatConversations => Set<Conversation>();
+    public DbSet<ChatChannelGroup> ChatChannelGroups => Set<ChatChannelGroup>();
     public DbSet<ConversationMember> ChatConversationMembers => Set<ConversationMember>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<ChatMessageReaction> ChatMessageReactions => Set<ChatMessageReaction>();
+    public DbSet<ChatEmojiTonePreference> ChatEmojiTonePreferences => Set<ChatEmojiTonePreference>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<ShipmentBillNumber> ShipmentBillNumbers => Set<ShipmentBillNumber>();
@@ -1063,6 +1066,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         user.Property(x => x.JobTitle)
             .HasColumnName("job_title")
             .HasMaxLength(200);
+        user.Property(x => x.LastReactionEmoji)
+            .HasColumnName("last_reaction_emoji")
+            .HasMaxLength(32);
         user.Property(x => x.CaliperId)
             .HasColumnName("caliper_id");
         user.Property(x => x.IsActive)

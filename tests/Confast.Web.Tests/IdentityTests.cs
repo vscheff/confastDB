@@ -1,4 +1,5 @@
 using Confast.Web.Data;
+using Confast.Web.Features.Chat;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.Identity;
 using Microsoft.AspNetCore.Identity;
@@ -13,6 +14,45 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     public async Task InitializeAsync() => await database.ResetAsync();
 
     public Task DisposeAsync() => Task.CompletedTask;
+
+    [Fact]
+    public async Task CreatingAnActiveUser_AddsThemToExistingPublicChannels()
+    {
+        long channelId;
+        await using (var db = database.CreateDbContext())
+        {
+            var owner = new ApplicationUser
+            {
+                Id = Guid.NewGuid().ToString(), UserName = "channel.owner",
+                DisplayName = "Channel Owner", IsActive = true
+            };
+            db.Users.Add(owner);
+            await db.SaveChangesAsync();
+            var now = DateTime.UtcNow;
+            var channel = new Conversation
+            {
+                Kind = ConversationKind.Channel, Visibility = ChannelVisibility.Public,
+                Name = "Announcements", CreatedByUserId = owner.Id,
+                CreatedAtUtc = now, LastActivityAtUtc = now,
+                Members = [new ConversationMember { UserId = owner.Id, JoinedAtUtc = now, IsOwner = true }]
+            };
+            db.ChatConversations.Add(channel);
+            await db.SaveChangesAsync();
+            channelId = channel.Id;
+        }
+
+        await using var services = CreateServices();
+        var administration = services.GetRequiredService<UserAdministrationService>();
+        var result = await administration.CreateUserAsync(new CreateUserInput
+        {
+            Username = "new.colleague", DisplayName = "New Colleague", Email = "new@example.com"
+        });
+
+        Assert.True(result.Succeeded, string.Join(" ", result.Errors));
+        await using var verify = database.CreateDbContext();
+        Assert.True(await verify.ChatConversationMembers.AnyAsync(
+            x => x.ConversationId == channelId && x.UserId == result.UserId));
+    }
 
     [Fact]
     public async Task RoleAssignment_RoundTripsThroughUserAdministration()
@@ -291,6 +331,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
         services.AddOptions<BrowserTestUserOptions>().Configure(options =>
         {
             if (browserTestUser is null)

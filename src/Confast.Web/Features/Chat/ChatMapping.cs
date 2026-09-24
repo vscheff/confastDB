@@ -6,23 +6,40 @@ public static class ChatMapping
 {
     public static void Configure(ModelBuilder model)
     {
+        var group = model.Entity<ChatChannelGroup>();
+        group.ToTable("chat_channel_groups", t => t.HasCheckConstraint(
+            "CK_chat_channel_groups_name", "btrim(name) <> ''"));
+        group.HasKey(x => x.Id);
+        group.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        group.Property(x => x.Name).HasColumnName("name").HasMaxLength(120);
+        group.Property(x => x.SortOrder).HasColumnName("sort_order");
+        group.Property(x => x.CreatedByUserId).HasColumnName("created_by_user_id");
+        group.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        group.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        group.HasIndex(x => new { x.SortOrder, x.Id });
+        group.HasIndex(x => x.Name);
+
         var conversation = model.Entity<Conversation>();
         conversation.ToTable("chat_conversations", t => t.HasCheckConstraint(
             "CK_chat_conversations_shape",
-            "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL) OR " +
-            "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL)"));
+            "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL AND channel_group_id IS NULL AND channel_sort_order = 0) OR " +
+            "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0)"));
         conversation.HasKey(x => x.Id);
         conversation.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         conversation.Property(x => x.Kind).HasColumnName("kind");
         conversation.Property(x => x.Visibility).HasColumnName("visibility");
         conversation.Property(x => x.Name).HasColumnName("name").HasMaxLength(120);
+        conversation.Property(x => x.ChannelGroupId).HasColumnName("channel_group_id");
+        conversation.Property(x => x.ChannelSortOrder).HasColumnName("channel_sort_order");
         conversation.Property(x => x.DirectPairKey).HasColumnName("direct_pair_key").HasMaxLength(900);
         conversation.Property(x => x.CreatedByUserId).HasColumnName("created_by_user_id");
         conversation.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         conversation.Property(x => x.LastActivityAtUtc).HasColumnName("last_activity_at_utc");
         conversation.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        conversation.HasOne(x => x.ChannelGroup).WithMany(x => x.Channels).HasForeignKey(x => x.ChannelGroupId).OnDelete(DeleteBehavior.SetNull);
         conversation.HasIndex(x => x.DirectPairKey).IsUnique();
         conversation.HasIndex(x => x.LastActivityAtUtc);
+        conversation.HasIndex(x => new { x.ChannelGroupId, x.ChannelSortOrder, x.Id });
 
         var member = model.Entity<ConversationMember>();
         member.ToTable("chat_conversation_members");
@@ -58,5 +75,24 @@ public static class ChatMapping
         message.HasIndex(x => new { x.ConversationId, x.Id });
         message.HasIndex(x => x.SenderUserId);
         message.HasIndex(x => x.DeletedByUserId);
+
+        var reaction = model.Entity<ChatMessageReaction>();
+        reaction.ToTable("chat_message_reactions");
+        reaction.HasKey(x => new { x.MessageId, x.UserId, x.Emoji });
+        reaction.Property(x => x.MessageId).HasColumnName("message_id");
+        reaction.Property(x => x.UserId).HasColumnName("user_id");
+        reaction.Property(x => x.Emoji).HasColumnName("emoji").HasMaxLength(32);
+        reaction.Property(x => x.ReactedAtUtc).HasColumnName("reacted_at_utc");
+        reaction.HasOne(x => x.Message).WithMany().HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        reaction.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        reaction.HasIndex(x => x.UserId);
+
+        var tonePreference = model.Entity<ChatEmojiTonePreference>();
+        tonePreference.ToTable("chat_emoji_tone_preferences");
+        tonePreference.HasKey(x => new { x.UserId, x.DefaultEmoji });
+        tonePreference.Property(x => x.UserId).HasColumnName("user_id");
+        tonePreference.Property(x => x.DefaultEmoji).HasColumnName("default_emoji").HasMaxLength(32);
+        tonePreference.Property(x => x.PreferredEmoji).HasColumnName("preferred_emoji").HasMaxLength(32);
+        tonePreference.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
     }
 }

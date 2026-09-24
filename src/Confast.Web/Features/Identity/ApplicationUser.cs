@@ -18,4 +18,7 @@ public sealed class ApplicationUser : IdentityUser
     public Gage? Caliper { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    [MaxLength(32)]
+    public string? LastReactionEmoji { get; set; }
 }

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Confast.Web.Data;
+using Confast.Web.Features.Chat;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -73,7 +74,8 @@ public sealed record UserAdministrationResult(
 
 public sealed class UserAdministrationService(
     UserManager<ApplicationUser> userManager,
-    IDbContextFactory<AppDbContext> contextFactory)
+    IDbContextFactory<AppDbContext> contextFactory,
+    TimeProvider clock)
 {
     public async Task<IReadOnlyList<DigitalCaliperChoice>> GetDigitalCaliperChoicesAsync(
         long? includeGageId = null,
@@ -193,6 +195,7 @@ public sealed class UserAdministrationService(
             }
         }
 
+        await EnrollInPublicChannelsAsync(user.Id);
         return UserAdministrationResult.Success(user.Id);
     }
 
@@ -261,7 +264,14 @@ public sealed class UserAdministrationService(
         }
 
         await userManager.UpdateSecurityStampAsync(user);
+        if (user.IsActive) await EnrollInPublicChannelsAsync(user.Id);
         return UserAdministrationResult.Success(user.Id);
+    }
+
+    private async Task EnrollInPublicChannelsAsync(string userId)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync();
+        await ChatService.EnsurePublicChannelMembershipsAsync(db, userId, clock.GetUtcNow().UtcDateTime);
     }
 
     public async Task<(string? Token, IReadOnlyList<string> Errors)> GeneratePasswordResetTokenAsync(

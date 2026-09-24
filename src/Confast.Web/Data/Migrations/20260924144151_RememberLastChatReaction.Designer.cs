@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924144151_RememberLastChatReaction")]
+    partial class RememberLastChatReaction
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,48 +24,6 @@ namespace Confast.Web.Data.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelGroup", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<string>("CreatedByUserId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("name");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("sort_order");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("Name");
-
-                    b.HasIndex("SortOrder", "Id");
-
-                    b.ToTable("chat_channel_groups", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_chat_channel_groups_name", "btrim(name) <> ''");
-                        });
-                });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatEmojiTonePreference", b =>
                 {
@@ -178,14 +139,6 @@ namespace Confast.Web.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<long?>("ChannelGroupId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("channel_group_id");
-
-                    b.Property<int>("ChannelSortOrder")
-                        .HasColumnType("integer")
-                        .HasColumnName("channel_sort_order");
-
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
@@ -226,11 +179,9 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasIndex("LastActivityAtUtc");
 
-                    b.HasIndex("ChannelGroupId", "ChannelSortOrder", "Id");
-
                     b.ToTable("chat_conversations", null, t =>
                         {
-                            t.HasCheckConstraint("CK_chat_conversations_shape", "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL AND channel_group_id IS NULL AND channel_sort_order = 0) OR (kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0)");
+                            t.HasCheckConstraint("CK_chat_conversations_shape", "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL) OR (kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL)");
                         });
                 });
 
@@ -3383,17 +3334,6 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("identity_user_tokens", (string)null);
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelGroup", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("CreatedByUser");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatEmojiTonePreference", b =>
                 {
                     b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "User")
@@ -3451,18 +3391,11 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>
                 {
-                    b.HasOne("Confast.Web.Features.Chat.ChatChannelGroup", "ChannelGroup")
-                        .WithMany("Channels")
-                        .HasForeignKey("ChannelGroupId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("ChannelGroup");
 
                     b.Navigation("CreatedByUser");
                 });
@@ -4314,11 +4247,6 @@ namespace Confast.Web.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelGroup", b =>
-                {
-                    b.Navigation("Channels");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>

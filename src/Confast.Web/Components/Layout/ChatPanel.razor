@@ -3,7 +3,7 @@
 @inject ChatNotifications Notifications
 @inject IJSRuntime JS
 @inject ILogger<ChatPanel> Logger
-@implements IDisposable
+@implements IAsyncDisposable
 
 <button class="chat-launcher" type="button" @onclick="TogglePanel" aria-label="Open chat" aria-expanded="@isOpen">
     <span aria-hidden="true">✉</span> Chat
@@ -17,44 +17,144 @@
 {
     <section class="chat-panel" aria-label="Chat">
         <header class="chat-panel-header">
-            <strong>Messages</strong>
+            <div class="chat-panel-heading">
+                <button type="button" class="chat-sidebar-toggle" aria-label="@(sidebarCollapsed ? "Show conversations" : "Hide conversations")"
+                        title="@(sidebarCollapsed ? "Show conversations" : "Hide conversations")" aria-controls="chat-conversation-sidebar"
+                        aria-expanded="@(!sidebarCollapsed)" @onclick="ToggleSidebar">☰</button>
+                <strong>Messages</strong>
+            </div>
             <button type="button" class="chat-icon-button" @onclick="ClosePanel" aria-label="Close chat">×</button>
         </header>
         @if (error is not null)
         {
             <p class="chat-error" role="alert">@error</p>
         }
-        <div class="chat-panel-body @(selectedId is not null ? "chat-has-thread" : "")">
-            <aside class="chat-sidebar">
+        <div class="chat-panel-body @(selectedId is not null ? "chat-has-thread" : "") @(sidebarCollapsed ? "chat-sidebar-collapsed" : "")">
+            <aside id="chat-conversation-sidebar" class="chat-sidebar">
                 <div class="chat-tabs" aria-label="Chat views">
-                    <button type="button" class="@(view == ChatView.Conversations ? "active" : "")" @onclick="() => ChangeView(ChatView.Conversations)">Conversations</button>
-                    <button type="button" class="@(view == ChatView.Discover ? "active" : "")" @onclick="() => ChangeView(ChatView.Discover)">Discover</button>
+                    <button type="button" class="@(view is ChatView.Conversations or ChatView.NewDirect ? "active" : "")" @onclick="() => ChangeView(ChatView.Conversations)">Conversations</button>
+                    <button type="button" class="@(view is ChatView.Channels or ChatView.NewChannel ? "active" : "")" @onclick="() => ChangeView(ChatView.Channels)">Channels</button>
                 </div>
                 @if (view == ChatView.Conversations)
                 {
                     <div class="chat-create-actions">
                         <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewDirect)">New Message</button>
-                        <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewChannel)">New Channel</button>
                     </div>
-                    @if (conversations.Count == 0)
+                    @if (!conversations.Any(x => x.Kind == ConversationKind.Direct))
                     {
-                        <p class="chat-empty">No conversations yet.</p>
+                        <p class="chat-empty">No direct messages yet.</p>
                     }
-                    @foreach (var row in conversations)
+                    @foreach (var row in conversations.Where(x => x.Kind == ConversationKind.Direct))
                     {
                         <button @key="row.Id" type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                            <span class="chat-conversation-top"><strong>@(row.Kind == ConversationKind.Channel ? "# " : "")@row.Name</strong><time>@GetActivityDate(row)</time></span>
+                            <span class="chat-conversation-top"><strong>@row.Name</strong><time>@GetActivityDate(row)</time></span>
                             <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
                         </button>
                     }
                 }
-                else if (view == ChatView.Discover)
+                else if (view == ChatView.Channels)
                 {
-                    <h3>Public Channels</h3>
-                    @if (discovered.Count == 0) { <p class="chat-empty">No other public channels.</p> }
-                    @foreach (var row in discovered)
+                    <div class="chat-create-actions">
+                        <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewChannel)">New Channel</button>
+                        <button class="button button-secondary" type="button" aria-expanded="@addingFolder" @onclick="StartAddingFolder">Add folder</button>
+                    </div>
+                    @if (!conversations.Any(x => x.Kind == ConversationKind.Channel)) { <p class="chat-empty">No channels yet.</p> }
+                    @if (ChannelsInGroup(null).Count > 0 || channelGroups.Count > 0)
                     {
-                        <div class="chat-discovery-row"><span># @row.Name</span><button type="button" class="button button-secondary" @onclick="() => JoinAsync(row.Id)">Join</button></div>
+                        <div class="chat-channel-drop-zone" data-channel-drop-group="" data-channel-drop-before="">Ungrouped</div>
+                    }
+                    @foreach (var row in ChannelsInGroup(null))
+                    {
+                        <div @key="row.Id" class="chat-channel-row" data-chat-drag-channel="@row.Id" data-channel-drop-group="" data-channel-drop-before="@row.Id" title="Drag to reorder channel">
+                            <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
+                                <span class="chat-conversation-top"><strong># @row.Name</strong><time>@GetActivityDate(row)</time></span>
+                                <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
+                            </button>
+                            <button type="button" class="chat-channel-action-toggle" aria-label="Options for @row.Name" aria-expanded="@(channelActionsId == row.Id)" @onclick="() => ToggleChannelActions(row.Id)">⋯</button>
+                            @if (channelActionsId == row.Id)
+                            {
+                                <div class="chat-channel-controls">
+                                    <button type="button" disabled="@(!CanMoveChannel(row, -1))" aria-label="Move @row.Name up" @onclick="() => MoveChannelStepAsync(row, -1)">↑</button>
+                                    <button type="button" disabled="@(!CanMoveChannel(row, 1))" aria-label="Move @row.Name down" @onclick="() => MoveChannelStepAsync(row, 1)">↓</button>
+                                    <select aria-label="Move @row.Name to group" value="" @onchange="e => MoveChannelToGroupAsync(row.Id, e.Value?.ToString())">
+                                        <option value="">Move to group…</option>
+                                        @foreach (var group in channelGroups) { <option value="@group.Id">@group.Name</option> }
+                                    </select>
+                                </div>
+                            }
+                        </div>
+                    }
+                    @foreach (var group in channelGroups)
+                    {
+                        <section @key="group.Id" class="chat-channel-group">
+                            <div class="chat-channel-drop-zone chat-group-heading" data-channel-drop-group="@group.Id" data-channel-drop-before="">
+                                @if (editingGroupId == group.Id)
+                                {
+                                    <form class="chat-group-rename" @onsubmit="SaveGroupNameAsync" @onsubmit:preventDefault>
+                                        <input aria-label="Group name" maxlength="120" @bind="groupNameDraft" @bind:event="oninput" />
+                                        <button type="submit" aria-label="Save group name">✓</button>
+                                        <button type="button" aria-label="Cancel group rename" @onclick="CancelGroupRename">×</button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <strong>@group.Name</strong>
+                                    <span class="chat-group-controls">
+                                        <button type="button" disabled="@(!CanMoveGroup(group, -1))" aria-label="Move folder @group.Name up" @onclick="() => MoveGroupStepAsync(group, -1)">↑</button>
+                                        <button type="button" disabled="@(!CanMoveGroup(group, 1))" aria-label="Move folder @group.Name down" @onclick="() => MoveGroupStepAsync(group, 1)">↓</button>
+                                        @if (group.CanManage)
+                                        {
+                                            <button type="button" aria-label="Rename folder @group.Name" @onclick="() => StartGroupRename(group)">✎</button>
+                                            <button type="button" aria-label="Delete folder @group.Name" @onclick="() => confirmDeleteGroupId = group.Id">×</button>
+                                        }
+                                    </span>
+                                }
+                            </div>
+                            @if (confirmDeleteGroupId == group.Id)
+                            {
+                                <div class="chat-group-delete-confirm">
+                                    <span>Move this folder's channels to Ungrouped?</span>
+                                    <button type="button" @onclick="() => DeleteGroupAsync(group.Id)">Delete folder</button>
+                                    <button type="button" @onclick="() => confirmDeleteGroupId = null">Cancel</button>
+                                </div>
+                            }
+                            @if (ChannelsInGroup(group.Id).Count == 0)
+                            {
+                                <p class="chat-empty-folder">Drag a channel here.</p>
+                            }
+                            @foreach (var row in ChannelsInGroup(group.Id))
+                            {
+                                <div @key="row.Id" class="chat-channel-row" data-chat-drag-channel="@row.Id" data-channel-drop-group="@group.Id" data-channel-drop-before="@row.Id" title="Drag to reorder channel">
+                                    <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
+                                        <span class="chat-conversation-top"><strong># @row.Name</strong><time>@GetActivityDate(row)</time></span>
+                                        <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
+                                    </button>
+                                    <button type="button" class="chat-channel-action-toggle" aria-label="Options for @row.Name" aria-expanded="@(channelActionsId == row.Id)" @onclick="() => ToggleChannelActions(row.Id)">⋯</button>
+                                    @if (channelActionsId == row.Id)
+                                    {
+                                        <div class="chat-channel-controls">
+                                            <button type="button" disabled="@(!CanMoveChannel(row, -1))" aria-label="Move @row.Name up" @onclick="() => MoveChannelStepAsync(row, -1)">↑</button>
+                                            <button type="button" disabled="@(!CanMoveChannel(row, 1))" aria-label="Move @row.Name down" @onclick="() => MoveChannelStepAsync(row, 1)">↓</button>
+                                            <select aria-label="Move @row.Name to group" value="@group.Id" @onchange="e => MoveChannelToGroupAsync(row.Id, e.Value?.ToString())">
+                                                <option value="">Ungrouped</option>
+                                                @foreach (var destination in channelGroups) { <option value="@destination.Id">@destination.Name</option> }
+                                            </select>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </section>
+                    }
+                    @if (addingFolder)
+                    {
+                        <section class="chat-channel-group chat-folder-draft">
+                            <form class="chat-group-create" @onsubmit="CreateGroupAsync" @onsubmit:preventDefault @onkeydown="HandleNewFolderKeyDown">
+                                <label class="sr-only" for="chat-new-group-name">Folder name</label>
+                                <input id="chat-new-group-name" @ref="newGroupNameInput" maxlength="120" placeholder="Folder name" @bind="newGroupName" @bind:event="oninput" />
+                                <button type="submit" class="button button-secondary" disabled="@string.IsNullOrWhiteSpace(newGroupName)">Save</button>
+                                <button type="button" class="button button-secondary" @onclick="CancelAddingFolder">Cancel</button>
+                            </form>
+                        </section>
                     }
                 }
                 else if (view == ChatView.NewDirect)
@@ -65,7 +165,10 @@
                         <option value="">Select a user</option>
                         @foreach (var user in users) { <option value="@user.Id">@user.Name</option> }
                     </select>
-                    <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(directUserId)" @onclick="StartDirectAsync">Open Conversation</button>
+                    <div class="chat-form-actions">
+                        <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(directUserId)" @onclick="StartDirectAsync">Open Conversation</button>
+                        <button type="button" class="button button-secondary" @onclick="CancelNewDirect">Cancel</button>
+                    </div>
                 }
                 else if (view == ChatView.NewChannel)
                 {
@@ -77,14 +180,21 @@
                         <option value="@ChannelVisibility.Public">Public</option>
                         <option value="@ChannelVisibility.Private">Private</option>
                     </select>
-                    <fieldset class="chat-member-choices">
-                        <legend>Initial Members</legend>
-                        @foreach (var user in users)
-                        {
-                            <label><input type="checkbox" checked="@initialMembers.Contains(user.Id)" @onchange="e => ToggleInitialMember(user.Id, e.Value is true)" /> @user.Name</label>
-                        }
-                    </fieldset>
-                    <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(channelName)" @onclick="CreateChannelAsync">Create Channel</button>
+                    @if (channelVisibility == ChannelVisibility.Private)
+                    {
+                        <fieldset class="chat-member-choices">
+                            <legend>Initial Members</legend>
+                            @foreach (var user in users)
+                            {
+                                <label><input type="checkbox" checked="@initialMembers.Contains(user.Id)" @onchange="e => ToggleInitialMember(user.Id, e.Value is true)" /> @user.Name</label>
+                            }
+                        </fieldset>
+                    }
+                    else { <p>All active users are added to public channels.</p> }
+                    <div class="chat-form-actions">
+                        <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(channelName)" @onclick="CreateChannelAsync">Create Channel</button>
+                        <button type="button" class="button button-secondary" @onclick="CancelNewChannel">Cancel</button>
+                    </div>
                 }
             </aside>
             <div class="chat-thread">
@@ -122,20 +232,22 @@
                                 </select>
                                 <button type="button" disabled="@string.IsNullOrEmpty(addMemberId)" @onclick="AddMemberAsync">Add</button>
                             }
-                            @if (thread.Conversation.Visibility == ChannelVisibility.Public)
-                            {
-                                <button type="button" @onclick="LeaveChannelAsync">Leave Channel</button>
-                            }
                         </div>
                     }
+                    <div class="chat-history-container">
                     <div id="chat-message-history" class="chat-messages" data-conversation-id="@thread.Conversation.Id" role="log" aria-label="Message history"
                          @onclick="MarkCurrentConversationReadAsync" @onscroll="MarkCurrentConversationReadAsync">
                         @if (thread.Messages.Count == 100) { <p class="chat-history-limit">Showing the latest 100 messages.</p> }
                         @foreach (var message in thread.Messages)
                         {
-                            <article class="chat-message @(message.SenderUserId == currentUserId ? "mine" : "")">
+                            <article @key="message.Id" data-chat-message-id="@message.Id" tabindex="0" class="chat-message @(message.SenderUserId == currentUserId ? "mine" : "") @(reactionPickerMessageId == message.Id ? "picker-open" : "") @(tonePickerOpenedByTouch && tonePickerMessageId == message.Id ? "tone-picker-touch-open" : "")">
                                 <div class="chat-message-meta">
-                                    <strong>@message.SenderName</strong>
+                                    @if (message.SenderUserId is { } senderId && senderId != currentUserId)
+                                    {
+                                        <button type="button" class="chat-sender-link"
+                                                @onclick="() => OpenDirectFromMessageAsync(senderId)">@message.SenderName</button>
+                                    }
+                                    else { <strong>@message.SenderName</strong> }
                                     <time>
                                         @GetMessageTime(message)
                                         @if (message.EditedAtUtc is not null)
@@ -156,6 +268,92 @@
                                 {
                                     <p>@(message.IsDeleted ? "Message deleted" : message.Body)</p>
                                 }
+                                @if (!message.IsDeleted && editingMessageId != message.Id)
+                                {
+                                    <div class="chat-reaction-actions" aria-label="React to message">
+                                        @foreach (var reaction in QuickReactions)
+                                        {
+                                            <button type="button" data-tone-message="@message.Id" data-tone-base="@reaction.BaseEmoji" data-tone-source="actions"
+                                                    title="@GetToneTitle(reaction.BaseEmoji)" aria-label="React with @reaction.Emoji"
+                                                    @onpointerenter="args => StartToneHover(message.Id, reaction.BaseEmoji, 'a', args)"
+                                                    @onpointerleave="CancelToneDelay" @onpointerdown="args => StartTonePress(message.Id, reaction.BaseEmoji, 'a', args)"
+                                                    @onpointerup="EndTonePress" @onpointercancel="CancelToneDelay"
+                                                    @oncontextmenu:preventDefault
+                                                    @onkeydown="args => OpenToneWithKeyboard(message.Id, reaction.BaseEmoji, 'a', args)"
+                                                    @onclick="() => AddQuickReactionAsync(message.Id, reaction.BaseEmoji, reaction.Emoji)">@reaction.Emoji</button>
+                                        }
+                                        <button type="button" class="chat-reaction-more" aria-label="More reactions" aria-expanded="@(reactionPickerMessageId == message.Id)" @onclick="() => ToggleReactionPicker(message.Id)">＋</button>
+                                    </div>
+                                    @if (reactionPickerMessageId == message.Id)
+                                    {
+                                        <div class="chat-emoji-picker" role="dialog" aria-label="Choose a reaction" @onkeydown="HandleEmojiPickerKeyDown" @onclick:stopPropagation>
+                                            <label class="sr-only" for="chat-emoji-search-@message.Id">Find an Emoji</label>
+                                            <input id="chat-emoji-search-@message.Id" placeholder="Find an Emoji" @bind="emojiSearch" @bind:event="oninput" />
+                                            <svg class="chat-emoji-icon-definitions" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+                                                <symbol id="chat-emoji-icon-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M8 10h.01M16 10h.01M8 15c1 1.3 2.3 2 4 2s3-.7 4-2" /></symbol>
+                                                <symbol id="chat-emoji-icon-people" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M4.5 20c.5-4.2 3-6.5 7.5-6.5s7 2.3 7.5 6.5" /></symbol>
+                                                <symbol id="chat-emoji-icon-nature" viewBox="0 0 24 24"><path d="M20 4C10 4 4 8 4 15a5 5 0 0 0 5 5c7 0 11-6 11-16ZM5 19c2-4 6-7 12-10" /></symbol>
+                                                <symbol id="chat-emoji-icon-food" viewBox="0 0 24 24"><path d="M3 11h18c0 5-3.5 8-9 8s-9-3-9-8ZM7 21h10M9 3c-2 2 2 3 0 5M15 3c-2 2 2 3 0 5" /></symbol>
+                                                <symbol id="chat-emoji-icon-travel" viewBox="0 0 24 24"><circle cx="5" cy="17" r="3" /><circle cx="19" cy="17" r="3" /><path d="m5 17 4-8 4 8h6l-4-8H9m4 8 3-5M13 6h3" /></symbol>
+                                                <symbol id="chat-emoji-icon-activities" viewBox="0 0 24 24"><path d="M7 8h10c2 0 3.2 1.1 3.6 3l1 5c.4 2-1.4 3-2.8 2L16 16H8l-2.8 2c-1.4 1-3.2 0-2.8-2l1-5C3.8 9.1 5 8 7 8ZM7 12v4m-2-2h4M16 12h.01M19 14h.01" /></symbol>
+                                                <symbol id="chat-emoji-icon-objects" viewBox="0 0 24 24"><path d="M8 3h8l3 8H5l3-8ZM12 11v8M7 21h10" /></symbol>
+                                                <symbol id="chat-emoji-icon-symbols" viewBox="0 0 24 24"><path d="M12 20s-9-5.6-9-11a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 5.4-9 11-9 11Z" /></symbol>
+                                                <symbol id="chat-emoji-icon-flags" viewBox="0 0 24 24"><path d="M5 22V3m0 1c3-2 5 2 8 0s5 0 6 0v11c-3-2-5 2-8 0s-4-1-6 0" /></symbol>
+                                            </svg>
+                                            <div class="chat-emoji-groups" aria-label="Emoji categories">
+                                                @foreach (var group in ChatEmojiCatalog.Groups)
+                                                {
+                                                    <button type="button" class="@(emojiGroup == group ? "selected" : "")" title="@group" aria-label="@group" aria-pressed="@(emojiGroup == group)" @onclick="() => SelectEmojiGroup(group)">
+                                                        <svg aria-hidden="true" focusable="false"><use href="@GetEmojiGroupIcon(group)" /></svg>
+                                                    </button>
+                                                }
+                                            </div>
+                                            <div class="chat-emoji-grid">
+                                                @foreach (var family in VisibleEmojiFamilies)
+                                                {
+                                                    <button type="button" data-tone-message="@message.Id" data-tone-base="@family.Default.Emoji" data-tone-source="grid"
+                                                            title="@GetToneTitle(family.Default.Emoji)"
+                                                            aria-label="React with @GetToneTitle(family.Default.Emoji)"
+                                                            @onpointerenter="args => StartToneHover(message.Id, family.Default.Emoji, 'g', args)"
+                                                            @onpointerleave="CancelToneDelay" @onpointerdown="args => StartTonePress(message.Id, family.Default.Emoji, 'g', args)"
+                                                            @onpointerup="EndTonePress" @onpointercancel="CancelToneDelay"
+                                                            @oncontextmenu:preventDefault
+                                                            @onkeydown="args => OpenToneWithKeyboard(message.Id, family.Default.Emoji, 'g', args)"
+                                                            @onclick="() => AddPreferredReactionAsync(message.Id, family.Default.Emoji)">@PreferredEmoji(family.Default.Emoji)</button>
+                                                }
+                                            </div>
+                                            @if (!VisibleEmojiFamilies.Any()) { <p class="chat-emoji-empty">No emoji found.</p> }
+                                        </div>
+                                    }
+                                    @if (tonePickerMessageId == message.Id && ChatEmojiCatalog.FindFamily(tonePickerDefaultEmoji!) is { } toneFamily)
+                                    {
+                                        @if (tonePickerOpenedByTouch)
+                                        {
+                                            <div class="chat-tone-backdrop" @onclick="CloseTonePicker"></div>
+                                        }
+                                        <div class="chat-tone-picker" role="group" aria-label="Skin tones for @toneFamily.Default.Name" @onkeydown="HandleTonePickerKeyDown">
+                                            @foreach (var tone in toneFamily.Tones.Where(IsEmojiSupported))
+                                            {
+                                                <button type="button" title="@tone.Name" aria-label="React with @tone.Name"
+                                                        class="@(PreferredEmoji(toneFamily.Default.Emoji) == tone.Emoji ? "selected" : "")"
+                                                        @onclick="() => SelectToneAndReactAsync(message.Id, toneFamily.Default.Emoji, tone.Emoji)">@tone.Emoji</button>
+                                            }
+                                        </div>
+                                    }
+                                }
+                                @if (!message.IsDeleted && message.Reactions.Count > 0)
+                                {
+                                    <div class="chat-reactions" aria-label="Message reactions">
+                                        @foreach (var reaction in message.Reactions)
+                                        {
+                                            var names = string.Join(", ", reaction.Users.Select(x => x.Name));
+                                            var selected = reaction.Users.Any(x => x.Id == currentUserId);
+                                            <button type="button" class="chat-reaction @(selected ? "selected" : "")" aria-label="@reaction.Emoji reacted by @names. @(selected ? "Remove your reaction" : "Add your reaction")" aria-pressed="@selected" @onclick="() => ToggleReactionAsync(message.Id, reaction.Emoji)">
+                                                <span>@reaction.Emoji</span><span>@reaction.Users.Count</span><span class="chat-reaction-tooltip" role="tooltip">@names</span>
+                                            </button>
+                                        }
+                                    </div>
+                                }
                                 @if (message.SenderUserId == currentUserId && !message.IsDeleted)
                                 {
                                     @if (editingMessageId != message.Id)
@@ -166,6 +364,12 @@
                                 }
                             </article>
                         }
+                    </div>
+                    @if (NewMessageId is long latestNewMessageId)
+                    {
+                        <button type="button" class="chat-new-message-jump" data-new-message-id="@latestNewMessageId"
+                                @onclick="JumpToNewMessageAsync">New messages ↓</button>
+                    }
                     </div>
                     <form class="chat-compose" @onsubmit="SendAsync" @onsubmit:preventDefault>
                         <label class="sr-only" for="chat-message-body">Message</label>
@@ -180,13 +384,25 @@
 }
 
 @code {
-    private enum ChatView { Conversations, Discover, NewDirect, NewChannel }
+    private enum ChatView { Conversations, Channels, NewDirect, NewChannel }
+    private sealed record EmojiSupportResult(double MaxVersion, string[] UnsupportedEmoji);
     private IDisposable? subscription;
     private string? currentUserId;
     private bool isOpen;
     private bool disposed;
     private bool showMembers;
     private int unreadTotal;
+    private bool sidebarCollapsed;
+    private bool addingFolder;
+    private bool focusNewGroupNameAfterRender;
+    private ElementReference newGroupNameInput;
+    private string newGroupName = string.Empty;
+    private long? channelActionsId;
+    private long? editingGroupId;
+    private long? confirmDeleteGroupId;
+    private string groupNameDraft = string.Empty;
+    private DotNetObjectReference<ChatPanel>? channelDragReference;
+    private bool channelDragAttached;
     private long? selectedId;
     private string? error;
     private string directUserId = string.Empty;
@@ -198,11 +414,49 @@
     private string draft = string.Empty;
     private long? editingMessageId;
     private string editDraft = string.Empty;
+    private long? reactionPickerMessageId;
+    private DotNetObjectReference<ChatPanel>? reactionPickerReference;
+    private bool reactionPickerOutsideClickAttached;
+    private long? tonePickerMessageId;
+    private string? tonePickerDefaultEmoji;
+    private char tonePickerSource;
+    private bool tonePickerOpenedByTouch;
+    private (long MessageId, string DefaultEmoji, char Source)? suppressToneTriggerClick;
+    private bool focusTonePickerAfterRender;
+    private CancellationTokenSource? toneDelay;
+    private Dictionary<string, string> tonePreferences = [];
+    private string? lastReactionEmoji;
+    private bool emojiSupportChecked;
+    private bool emojiSupportLoading;
+    private double supportedEmojiVersion = 18;
+    private HashSet<string> unsupportedEmoji = [];
+    private string emojiSearch = string.Empty;
+    private IReadOnlyList<(string BaseEmoji, string Emoji)> QuickReactions
+    {
+        get
+        {
+            var recent = lastReactionEmoji ?? "❤️";
+            return [
+                ("👍", PreferredEmoji("👍")),
+                ("👎", PreferredEmoji("👎")),
+                (ChatEmojiCatalog.FindFamilyForEmoji(recent)?.Default.Emoji ?? recent, recent)
+            ];
+        }
+    }
+    private string emojiGroup = ChatEmojiCatalog.Groups[0];
+    private IEnumerable<ChatEmojiFamily> VisibleEmojiFamilies => ChatEmojiCatalog.Families
+        .Where(x => IsEmojiSupported(x.Default) &&
+            (string.IsNullOrWhiteSpace(emojiSearch)
+                ? x.Default.Group == emojiGroup
+                : x.Tones.Any(tone => tone.Name.Contains(emojiSearch, StringComparison.OrdinalIgnoreCase))));
     private bool activityDatesNeedFormatting;
     private bool messageTimesNeedFormatting;
     private bool composeKeyHandlerAttached;
     private bool scrollToLatestAfterRender;
     private bool restoreThreadScrollAfterRender;
+    private readonly Dictionary<long, long> pendingNewMessageIds = [];
+    private long? NewMessageId => selectedId is long id && pendingNewMessageIds.TryGetValue(id, out var messageId)
+        ? messageId : null;
     private bool markingCurrentConversationRead;
     private long conversationRefreshVersion;
     private Dictionary<long, string> localActivityDates = [];
@@ -210,11 +464,19 @@
     private ChatView view;
     private ChatThread? thread;
     private IReadOnlyList<ChatConversationRow> conversations = [];
-    private IReadOnlyList<ChatConversationRow> discovered = [];
+    private IReadOnlyList<ChatChannelGroupRow> channelGroups = [];
     private IReadOnlyList<ChatUser> users = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (focusNewGroupNameAfterRender)
+        {
+            focusNewGroupNameAfterRender = false;
+            try { await newGroupNameInput.FocusAsync(); }
+            catch (JSDisconnectedException) { focusNewGroupNameAfterRender = true; return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not focus the new folder name field."); }
+        }
+
         if (restoreThreadScrollAfterRender)
         {
             restoreThreadScrollAfterRender = false;
@@ -251,6 +513,24 @@
             }
         }
 
+        if (NewMessageId is not null)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.updateNewMessageJump"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not update the new-message jump control."); }
+        }
+
+        if (isOpen && selectedId is not null)
+            await MarkCurrentConversationReadAsync();
+
+        if (isOpen && view == ChatView.Channels && !channelDragAttached)
+        {
+            channelDragReference ??= DotNetObjectReference.Create(this);
+            try { channelDragAttached = await JS.InvokeAsync<bool>("confastChatTime.attachChannelDragAndDrop", channelDragReference); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not enable channel drag and drop."); }
+        }
+
         if (isOpen && selectedId is not null && !composeKeyHandlerAttached)
         {
             try
@@ -262,6 +542,45 @@
             {
                 Logger.LogWarning(ex, "Could not enable Enter-to-send for the chat compose box.");
                 return;
+            }
+        }
+
+        if (isOpen && reactionPickerMessageId is not null)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.positionReactionPicker"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not position the chat reaction picker."); }
+            if (!reactionPickerOutsideClickAttached)
+            {
+                reactionPickerReference ??= DotNetObjectReference.Create(this);
+                try
+                {
+                    await JS.InvokeVoidAsync("confastChatTime.watchReactionPickerOutsideClick", reactionPickerReference);
+                    reactionPickerOutsideClickAttached = true;
+                }
+                catch (JSDisconnectedException) { return; }
+                catch (JSException ex) { Logger.LogWarning(ex, "Could not watch for clicks outside the chat reaction picker."); }
+            }
+        }
+        else if (reactionPickerOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingReactionPickerOutsideClick"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not stop watching the chat reaction picker."); }
+            reactionPickerOutsideClickAttached = false;
+        }
+
+        if (isOpen && tonePickerMessageId is not null)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.positionTonePicker", tonePickerMessageId, tonePickerDefaultEmoji, tonePickerSource == 'a' ? "actions" : "grid"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not position the chat skin tone picker."); }
+            if (focusTonePickerAfterRender)
+            {
+                focusTonePickerAfterRender = false;
+                try { await JS.InvokeVoidAsync("confastChatTime.focusTonePicker"); }
+                catch (JSDisconnectedException) { return; }
+                catch (JSException ex) { Logger.LogWarning(ex, "Could not focus the chat skin tone picker."); }
             }
         }
 
@@ -312,11 +631,14 @@
 
         subscription?.Dispose();
         currentUserId = resolvedUserId;
+        tonePreferences = (await Chat.GetEmojiTonePreferencesAsync()).ToDictionary();
+        lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
         subscription = Notifications.Subscribe(resolvedUserId, () => _ = InvokeAsync(RefreshFromNotificationAsync));
         selectedId = null;
         thread = null;
+        pendingNewMessageIds.Clear();
+        channelGroups = [];
         conversations = [];
-        discovered = [];
         unreadTotal = 0;
         conversationRefreshVersion++;
     }
@@ -327,7 +649,29 @@
         try
         {
             await RefreshAsync();
-            if (isOpen && selectedId is long id) await LoadThreadAsync(id);
+            lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
+            if (isOpen && selectedId is long id)
+            {
+                var previousMessageId = thread?.Conversation.Id == id
+                    ? thread.Messages.LastOrDefault()?.Id ?? 0
+                    : 0;
+                var wasNearBottom = false;
+                try { wasNearBottom = await JS.InvokeAsync<bool>("confastChatTime.isNearLatestMessage"); }
+                catch (JSDisconnectedException) { return; }
+                catch (JSException ex) { Logger.LogWarning(ex, "Could not read the chat scroll position."); }
+
+                if (selectedId == id) await LoadThreadAsync(id);
+                if (selectedId == id && thread?.Conversation.Id == id &&
+                    thread.Messages.LastOrDefault()?.Id is long latestMessageId && latestMessageId > previousMessageId)
+                {
+                    if (wasNearBottom)
+                    {
+                        pendingNewMessageIds.Remove(id);
+                        scrollToLatestAfterRender = true;
+                    }
+                    else pendingNewMessageIds[id] = latestMessageId;
+                }
+            }
             StateHasChanged();
         }
         catch (UnauthorizedAccessException)
@@ -344,12 +688,13 @@
         var version = ++conversationRefreshVersion;
         var userId = currentUserId;
         var refreshedConversations = await Chat.GetConversationsAsync();
+        var refreshedGroups = await Chat.GetChannelGroupsAsync();
         if (disposed || version != conversationRefreshVersion || userId != currentUserId) return;
 
         conversations = refreshedConversations;
+        channelGroups = refreshedGroups;
         unreadTotal = conversations.Sum(x => x.UnreadCount);
         activityDatesNeedFormatting = true;
-        if (isOpen && view == ChatView.Discover) discovered = await Chat.DiscoverPublicChannelsAsync();
     }
 
     private async Task RefreshUnreadCountPeriodicallyAsync()
@@ -392,32 +737,165 @@
         isOpen = true;
         selectedId = null;
         thread = null;
+        await EnsureEmojiSupportAsync();
         users = await Chat.GetActiveUsersAsync();
+        tonePreferences = (await Chat.GetEmojiTonePreferencesAsync()).ToDictionary();
+        lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
         await RefreshAsync();
     }
 
     private void ClosePanel()
     {
         isOpen = false;
+        channelDragAttached = false;
+        sidebarCollapsed = false;
+        CloseTonePicker();
         BackToList();
+    }
+
+    private void ToggleSidebar()
+    {
+        sidebarCollapsed = !sidebarCollapsed;
+        reactionPickerMessageId = null;
+        CloseTonePicker();
     }
     private void BackToList()
     {
+        CloseTonePicker();
         selectedId = null;
         thread = null;
         showMembers = false;
         composeKeyHandlerAttached = false;
     }
 
-    private async Task ChangeView(ChatView next)
+    private void ChangeView(ChatView next)
     {
+        if (view != next && (next is ChatView.Conversations or ChatView.Channels)) BackToList();
         view = next;
         error = null;
-        if (next == ChatView.Discover) discovered = await Chat.DiscoverPublicChannelsAsync();
+    }
+
+    private IReadOnlyList<ChatConversationRow> ChannelsInGroup(long? groupId) => conversations
+        .Where(x => x.Kind == ConversationKind.Channel && x.ChannelGroupId == groupId)
+        .OrderBy(x => x.ChannelSortOrder).ThenBy(x => x.Id).ToArray();
+
+    private void StartAddingFolder()
+    {
+        addingFolder = true;
+        focusNewGroupNameAfterRender = true;
+    }
+
+    private void CancelAddingFolder()
+    {
+        addingFolder = false;
+        focusNewGroupNameAfterRender = false;
+        newGroupName = string.Empty;
+    }
+
+    private void HandleNewFolderKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CancelAddingFolder();
+    }
+
+    private Task CreateGroupAsync() => RunAsync(async () =>
+    {
+        await Chat.CreateChannelGroupAsync(newGroupName);
+        CancelAddingFolder();
+    });
+
+    private void ToggleChannelActions(long channelId) =>
+        channelActionsId = channelActionsId == channelId ? null : channelId;
+
+    private void StartGroupRename(ChatChannelGroupRow group)
+    {
+        editingGroupId = group.Id;
+        groupNameDraft = group.Name;
+    }
+
+    private void CancelGroupRename() => editingGroupId = null;
+
+    private Task SaveGroupNameAsync() => RunAsync(async () =>
+    {
+        if (editingGroupId is not long groupId) return;
+        await Chat.RenameChannelGroupAsync(groupId, groupNameDraft);
+        editingGroupId = null;
+    });
+
+    private Task DeleteGroupAsync(long groupId) => RunAsync(async () =>
+    {
+        await Chat.DeleteChannelGroupAsync(groupId);
+        confirmDeleteGroupId = null;
+    });
+
+    private bool CanMoveChannel(ChatConversationRow row, int direction)
+    {
+        var channels = ChannelsInGroup(row.ChannelGroupId);
+        var index = Array.FindIndex(channels.ToArray(), x => x.Id == row.Id);
+        return index + direction >= 0 && index + direction < channels.Count;
+    }
+
+    private Task MoveChannelStepAsync(ChatConversationRow row, int direction) => RunAsync(async () =>
+    {
+        var channels = ChannelsInGroup(row.ChannelGroupId);
+        var index = Array.FindIndex(channels.ToArray(), x => x.Id == row.Id);
+        if (index + direction < 0 || index + direction >= channels.Count) return;
+        var beforeId = direction < 0 ? channels[index - 1].Id
+            : index + 2 < channels.Count ? channels[index + 2].Id : (long?)null;
+        await Chat.MoveChannelAsync(row.Id, row.ChannelGroupId, beforeId);
+    });
+
+    private Task MoveChannelToGroupAsync(long channelId, string? value) => RunAsync(async () =>
+    {
+        long? groupId = null;
+        if (!string.IsNullOrEmpty(value))
+        {
+            if (!long.TryParse(value, out var parsedId))
+                throw new InvalidOperationException("Choose a valid channel group.");
+            groupId = parsedId;
+        }
+        await Chat.MoveChannelAsync(channelId, groupId, null);
+    });
+
+    private bool CanMoveGroup(ChatChannelGroupRow group, int direction)
+    {
+        var index = Array.FindIndex(channelGroups.ToArray(), x => x.Id == group.Id);
+        return index + direction >= 0 && index + direction < channelGroups.Count;
+    }
+
+    private Task MoveGroupStepAsync(ChatChannelGroupRow group, int direction) => RunAsync(async () =>
+    {
+        var index = Array.FindIndex(channelGroups.ToArray(), x => x.Id == group.Id);
+        if (index + direction < 0 || index + direction >= channelGroups.Count) return;
+        var beforeId = direction < 0 ? channelGroups[index - 1].Id
+            : index + 2 < channelGroups.Count ? channelGroups[index + 2].Id : (long?)null;
+        await Chat.MoveChannelGroupAsync(group.Id, beforeId);
+    });
+
+    [JSInvokable]
+    public Task MoveChannelFromDragAsync(long channelId, long? groupId, long? beforeChannelId) =>
+        InvokeAsync(async () =>
+        {
+            await RunAsync(() => Chat.MoveChannelAsync(channelId, groupId, beforeChannelId));
+            StateHasChanged();
+        });
+
+    private void CancelNewDirect()
+    {
+        directUserId = string.Empty;
+        ChangeView(ChatView.Conversations);
+    }
+
+    private void CancelNewChannel()
+    {
+        channelName = string.Empty;
+        channelVisibility = ChannelVisibility.Public;
+        initialMembers.Clear();
+        ChangeView(ChatView.Channels);
     }
 
     private async Task OpenThreadAsync(long id)
     {
+        CloseTonePicker();
         error = null;
         selectedId = id;
         showMembers = false;
@@ -431,8 +909,8 @@
             thread = await Chat.GetThreadAsync(id);
             messageTimesNeedFormatting = true;
             restoreThreadScrollAfterRender = true;
-            if (thread.Messages.Count > 0)
-                await Chat.MarkConversationReadAsync(id);
+            if (thread.Conversation.UnreadCount > 0 && thread.Messages.LastOrDefault()?.Id is long latestMessageId)
+                pendingNewMessageIds[id] = latestMessageId;
             await RefreshAsync();
         }
         catch (UnauthorizedAccessException)
@@ -448,15 +926,27 @@
     {
         if (!isOpen || selectedId is not long id || thread?.Conversation.Id != id || markingCurrentConversationRead)
             return;
-        if (!conversations.Any(x => x.Id == id && x.UnreadCount > 0)) return;
+        if (!pendingNewMessageIds.ContainsKey(id) && !conversations.Any(x => x.Id == id && x.UnreadCount > 0)) return;
 
         markingCurrentConversationRead = true;
         try
         {
-            await Chat.MarkConversationReadAsync(id);
-            await RefreshAsync();
+            if (!await JS.InvokeAsync<bool>("confastChatTime.isNearLatestMessage")) return;
+            if (selectedId != id || thread?.Conversation.Id != id) return;
+
+            var latestLoadedMessageId = thread.Messages.LastOrDefault()?.Id;
+            if (latestLoadedMessageId is long messageId && conversations.Any(x => x.Id == id && x.UnreadCount > 0))
+            {
+                await Chat.MarkReadAsync(id, messageId);
+                await RefreshAsync();
+            }
+            if (pendingNewMessageIds.TryGetValue(id, out var pendingMessageId) &&
+                latestLoadedMessageId is long loadedMessageId && pendingMessageId <= loadedMessageId)
+                pendingNewMessageIds.Remove(id);
             StateHasChanged();
         }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not read the chat scroll position."); }
         catch (UnauthorizedAccessException)
         {
             selectedId = null;
@@ -467,6 +957,14 @@
         {
             markingCurrentConversationRead = false;
         }
+    }
+
+    private async Task JumpToNewMessageAsync()
+    {
+        try { await JS.InvokeVoidAsync("confastChatTime.jumpToNewMessage"); }
+        catch (JSDisconnectedException) { return; }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not scroll to the new chat message."); return; }
+        await MarkCurrentConversationReadAsync();
     }
 
     private async Task RunAsync(Func<Task> operation)
@@ -483,26 +981,21 @@
         await OpenThreadAsync(id);
     });
 
+    private Task OpenDirectFromMessageAsync(string senderUserId) => RunAsync(async () =>
+    {
+        var id = await Chat.OpenDirectAsync(senderUserId);
+        reactionPickerMessageId = null;
+        view = ChatView.Conversations;
+        await OpenThreadAsync(id);
+    });
+
     private Task CreateChannelAsync() => RunAsync(async () =>
     {
         var id = await Chat.CreateChannelAsync(channelName, channelVisibility, initialMembers);
         channelName = string.Empty;
         initialMembers.Clear();
-        view = ChatView.Conversations;
+        view = ChatView.Channels;
         await OpenThreadAsync(id);
-    });
-
-    private Task JoinAsync(long id) => RunAsync(async () =>
-    {
-        await Chat.JoinPublicAsync(id);
-        view = ChatView.Conversations;
-        await OpenThreadAsync(id);
-    });
-
-    private Task LeaveChannelAsync() => RunAsync(async () =>
-    {
-        await Chat.LeavePublicAsync(selectedId!.Value);
-        BackToList();
     });
 
     private Task AddMemberAsync() => RunAsync(async () =>
@@ -529,6 +1022,242 @@
     private Task DeleteMessageAsync(long id) => RunAsync(async () =>
     {
         await Chat.DeleteOwnMessageAsync(id);
+        await LoadThreadAsync(selectedId!.Value);
+    });
+
+    private async Task ToggleReactionPicker(long messageId)
+    {
+        CloseTonePicker();
+        if (reactionPickerMessageId == messageId)
+        {
+            reactionPickerMessageId = null;
+            return;
+        }
+        await EnsureEmojiSupportAsync();
+        reactionPickerMessageId = messageId;
+        emojiSearch = string.Empty;
+    }
+
+    private async Task EnsureEmojiSupportAsync()
+    {
+        if (emojiSupportChecked || emojiSupportLoading) return;
+        emojiSupportLoading = true;
+        try
+        {
+            var support = await JS.InvokeAsync<EmojiSupportResult>(
+                "confastChatTime.detectEmojiSupport", ChatEmojiCatalog.CompositeCandidates);
+            supportedEmojiVersion = support.MaxVersion;
+            unsupportedEmoji = support.UnsupportedEmoji.ToHashSet(StringComparer.Ordinal);
+            emojiSupportChecked = true;
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Could not detect emoji support for this browser.");
+            emojiSupportChecked = true;
+        }
+        finally { emojiSupportLoading = false; }
+    }
+
+    private void HandleEmojiPickerKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            if (tonePickerMessageId is not null) CloseTonePicker();
+            else reactionPickerMessageId = null;
+        }
+    }
+
+    [JSInvokable]
+    public Task DismissReactionPickerAsync() => InvokeAsync(() =>
+    {
+        if (reactionPickerMessageId is null) return;
+        CloseTonePicker();
+        reactionPickerMessageId = null;
+        StateHasChanged();
+    });
+
+    private void SelectEmojiGroup(string group)
+    {
+        CloseTonePicker();
+        emojiGroup = group;
+        emojiSearch = string.Empty;
+    }
+
+    private static string GetEmojiGroupIcon(string group) => group switch
+    {
+        "Smileys & Emotion" => "#chat-emoji-icon-smile",
+        "People & Body" => "#chat-emoji-icon-people",
+        "Animals & Nature" => "#chat-emoji-icon-nature",
+        "Food & Drink" => "#chat-emoji-icon-food",
+        "Travel & Places" => "#chat-emoji-icon-travel",
+        "Activities" => "#chat-emoji-icon-activities",
+        "Objects" => "#chat-emoji-icon-objects",
+        "Flags" => "#chat-emoji-icon-flags",
+        _ => "#chat-emoji-icon-symbols"
+    };
+
+    private Task ToggleReactionAsync(long messageId, string emoji) => RunAsync(async () =>
+    {
+        await Chat.ToggleReactionAsync(messageId, emoji);
+        lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
+        reactionPickerMessageId = null;
+        await LoadThreadAsync(selectedId!.Value);
+    });
+
+    private bool IsEmojiSupported(ChatEmojiOption option) =>
+        option.Version <= supportedEmojiVersion && !unsupportedEmoji.Contains(option.Emoji);
+
+    private int AvailableToneCount(string defaultEmoji) =>
+        ChatEmojiCatalog.FindFamily(defaultEmoji)?.Tones.Count(IsEmojiSupported) ?? 0;
+
+    private string PreferredEmoji(string defaultEmoji)
+    {
+        if (tonePreferences.TryGetValue(defaultEmoji, out var preferred))
+        {
+            var option = ChatEmojiCatalog.FindFamily(defaultEmoji)?.Tones.FirstOrDefault(x => x.Emoji == preferred);
+            if (option is not null && IsEmojiSupported(option)) return preferred;
+        }
+        return defaultEmoji;
+    }
+
+    private string GetToneTitle(string defaultEmoji)
+    {
+        var family = ChatEmojiCatalog.FindFamily(defaultEmoji);
+        return family is null ? defaultEmoji : family.Default.Name;
+    }
+
+    private Task AddPreferredReactionAsync(long messageId, string defaultEmoji) =>
+        SuppressTouchReleaseClick(messageId, defaultEmoji, 'g')
+            ? Task.CompletedTask
+            : AddReactionAsync(messageId, PreferredEmoji(defaultEmoji));
+
+    private Task AddQuickReactionAsync(long messageId, string defaultEmoji, string emoji) =>
+        SuppressTouchReleaseClick(messageId, defaultEmoji, 'a')
+            ? Task.CompletedTask
+            : AddReactionAsync(messageId, emoji);
+
+    private bool SuppressTouchReleaseClick(long messageId, string defaultEmoji, char source)
+    {
+        var suppress = suppressToneTriggerClick == (messageId, defaultEmoji, source);
+        suppressToneTriggerClick = null;
+        return suppress;
+    }
+
+    private void StartToneHover(long messageId, string defaultEmoji, char source,
+        Microsoft.AspNetCore.Components.Web.PointerEventArgs args)
+    {
+        if (args.PointerType != "mouse") return;
+        if (tonePickerMessageId == messageId && tonePickerDefaultEmoji == defaultEmoji) return;
+        if (tonePickerMessageId is not null) CloseTonePicker();
+        StartToneDelay(messageId, defaultEmoji, source, 1000, openedByTouch: false);
+    }
+
+    private void StartTonePress(long messageId, string defaultEmoji, char source,
+        Microsoft.AspNetCore.Components.Web.PointerEventArgs args)
+    {
+        // A new press is deliberate; only the click from releasing the original long press is suppressed.
+        suppressToneTriggerClick = null;
+        if (args.PointerType != "mouse" &&
+            (tonePickerMessageId != messageId || tonePickerDefaultEmoji != defaultEmoji))
+            StartToneDelay(messageId, defaultEmoji, source, 500, openedByTouch: true);
+    }
+
+    private void EndTonePress(Microsoft.AspNetCore.Components.Web.PointerEventArgs args)
+    {
+        if (args.PointerType != "mouse") CancelToneDelay();
+    }
+
+    private void OpenToneWithKeyboard(long messageId, string defaultEmoji, char source,
+        Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key == "ArrowDown")
+        {
+            focusTonePickerAfterRender = true;
+            OpenTonePicker(messageId, defaultEmoji, source, openedByTouch: false);
+        }
+    }
+
+    private void HandleTonePickerKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseTonePicker();
+    }
+
+    private void StartToneDelay(long messageId, string defaultEmoji, char source, int milliseconds,
+        bool openedByTouch)
+    {
+        if (AvailableToneCount(defaultEmoji) <= 1) return;
+        CancelToneDelay();
+        var delay = new CancellationTokenSource();
+        toneDelay = delay;
+        _ = OpenToneAfterDelayAsync(messageId, defaultEmoji, source, milliseconds, openedByTouch, delay);
+    }
+
+    private async Task OpenToneAfterDelayAsync(long messageId, string defaultEmoji, char source,
+        int milliseconds, bool openedByTouch, CancellationTokenSource delay)
+    {
+        try
+        {
+            await Task.Delay(milliseconds, delay.Token);
+            await InvokeAsync(() =>
+            {
+                if (!disposed && !delay.IsCancellationRequested)
+                    OpenTonePicker(messageId, defaultEmoji, source, openedByTouch);
+            });
+        }
+        catch (OperationCanceledException) when (delay.IsCancellationRequested) { }
+        finally
+        {
+            if (toneDelay == delay) toneDelay = null;
+            delay.Dispose();
+        }
+    }
+
+    private void OpenTonePicker(long messageId, string defaultEmoji, char source, bool openedByTouch)
+    {
+        if (AvailableToneCount(defaultEmoji) <= 1) return;
+        tonePickerMessageId = messageId;
+        tonePickerDefaultEmoji = defaultEmoji;
+        tonePickerSource = source;
+        tonePickerOpenedByTouch = openedByTouch;
+        if (openedByTouch) suppressToneTriggerClick = (messageId, defaultEmoji, source);
+        StateHasChanged();
+    }
+
+    private void CancelToneDelay()
+    {
+        toneDelay?.Cancel();
+        toneDelay = null;
+    }
+
+    private void CloseTonePicker()
+    {
+        CancelToneDelay();
+        suppressToneTriggerClick = null;
+        focusTonePickerAfterRender = false;
+        tonePickerMessageId = null;
+        tonePickerDefaultEmoji = null;
+        tonePickerOpenedByTouch = false;
+    }
+
+    private Task SelectToneAndReactAsync(long messageId, string defaultEmoji, string emoji) => RunAsync(async () =>
+    {
+        await Chat.SetEmojiTonePreferenceAsync(defaultEmoji, emoji);
+        if (emoji == defaultEmoji) tonePreferences.Remove(defaultEmoji);
+        else tonePreferences[defaultEmoji] = emoji;
+        CloseTonePicker();
+        await Chat.AddReactionAsync(messageId, emoji);
+        lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
+        reactionPickerMessageId = null;
+        await LoadThreadAsync(selectedId!.Value);
+    });
+
+    private Task AddReactionAsync(long messageId, string emoji) => RunAsync(async () =>
+    {
+        CloseTonePicker();
+        await Chat.AddReactionAsync(messageId, emoji);
+        lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
+        reactionPickerMessageId = null;
         await LoadThreadAsync(selectedId!.Value);
     });
 
@@ -564,11 +1293,20 @@
         localMessageTimes.GetValueOrDefault(message.Id,
             message.SentAtUtc.ToString("MMM d, h:mm tt") + " UTC");
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         disposed = true;
+        CancelToneDelay();
         refreshLifetime.Cancel();
         refreshLifetime.Dispose();
         subscription?.Dispose();
+        if (reactionPickerOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingReactionPickerOutsideClick"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException) { }
+        }
+        reactionPickerReference?.Dispose();
+        channelDragReference?.Dispose();
     }
 }
