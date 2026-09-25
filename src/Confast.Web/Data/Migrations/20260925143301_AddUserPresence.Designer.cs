@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260925143301_AddUserPresence")]
+    partial class AddUserPresence
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1166,34 +1169,8 @@ namespace Confast.Web.Data.Migrations
 
                     b.ToTable("identity_users", null, t =>
                         {
-                            t.HasCheckConstraint("CK_identity_users_presence_preference", "presence_preference IN (0, 1, 2, 4)");
+                            t.HasCheckConstraint("CK_identity_users_presence_preference", "presence_preference IN (0, 2, 4)");
                         });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Identity.UserProfilePicture", b =>
-                {
-                    b.Property<string>("UserId")
-                        .HasColumnType("text")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("content_type");
-
-                    b.Property<byte[]>("Data")
-                        .IsRequired()
-                        .HasColumnType("bytea")
-                        .HasColumnName("data");
-
-                    b.Property<Guid>("Version")
-                        .HasColumnType("uuid")
-                        .HasColumnName("version");
-
-                    b.HasKey("UserId");
-
-                    b.ToTable("identity_user_profile_pictures", (string)null);
                 });
 
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.CertificationType", b =>
@@ -3764,17 +3741,6 @@ namespace Confast.Web.Data.Migrations
                         .HasConstraintName("FK_identity_users_caliper_id");
 
                     b.Navigation("Caliper");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Identity.UserProfilePicture", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "User")
-                        .WithOne()
-                        .HasForeignKey("Confast.Web.Features.Identity.UserProfilePicture", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.InspectionCriteria.InspectionCriteriaRevision", b =>

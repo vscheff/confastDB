@@ -22,7 +22,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<ConversationMember> ChatConversationMembers => Set<ConversationMember>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<ChatMessageReaction> ChatMessageReactions => Set<ChatMessageReaction>();
+    public DbSet<UserProfilePicture> UserProfilePictures => Set<UserProfilePicture>();
     public DbSet<ChatEmojiTonePreference> ChatEmojiTonePreferences => Set<ChatEmojiTonePreference>();
+    public DbSet<UserPresenceSession> UserPresenceSessions => Set<UserPresenceSession>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<Shipment> Shipments => Set<Shipment>();
     public DbSet<ShipmentBillNumber> ShipmentBillNumbers => Set<ShipmentBillNumber>();
@@ -1042,8 +1044,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 
     private static void ConfigureIdentity(ModelBuilder modelBuilder)
     {
+        var profilePicture = modelBuilder.Entity<UserProfilePicture>();
+        profilePicture.ToTable("identity_user_profile_pictures");
+        profilePicture.HasKey(x => x.UserId);
+        profilePicture.Property(x => x.UserId).HasColumnName("user_id");
+        profilePicture.Property(x => x.Data).HasColumnName("data").IsRequired();
+        profilePicture.Property(x => x.ContentType).HasColumnName("content_type").HasMaxLength(20).IsRequired();
+        profilePicture.Property(x => x.Version).HasColumnName("version");
+        profilePicture.HasOne(x => x.User).WithOne().HasForeignKey<UserProfilePicture>(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         var user = modelBuilder.Entity<ApplicationUser>();
-        user.ToTable("identity_users");
+        user.ToTable("identity_users", table => table.HasCheckConstraint(
+            "CK_identity_users_presence_preference", "presence_preference IN (0, 1, 2, 4)"));
         user.Property(x => x.Id).HasColumnName("id");
         user.Property(x => x.UserName).HasColumnName("user_name");
         user.Property(x => x.NormalizedUserName).HasColumnName("normalized_user_name");
@@ -1069,6 +1082,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         user.Property(x => x.LastReactionEmoji)
             .HasColumnName("last_reaction_emoji")
             .HasMaxLength(32);
+        user.Property(x => x.PresencePreference)
+            .HasColumnName("presence_preference")
+            .HasDefaultValue(UserPresencePreference.Online);
+        user.Property(x => x.StatusEmoji)
+            .HasColumnName("status_emoji")
+            .HasMaxLength(32);
+        user.Property(x => x.StatusMessage)
+            .HasColumnName("status_message")
+            .HasMaxLength(140);
         user.Property(x => x.CaliperId)
             .HasColumnName("caliper_id");
         user.Property(x => x.IsActive)

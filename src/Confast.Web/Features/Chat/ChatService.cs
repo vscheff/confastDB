@@ -12,7 +12,7 @@ namespace Confast.Web.Features.Chat;
 public sealed record ChatUser(string Id, string Name);
 public sealed record ChatConversationRow(long Id, ConversationKind Kind, ChannelVisibility? Visibility,
     string Name, string? Preview, DateTime ActivityAtUtc, int UnreadCount, bool IsOwner,
-    long? ChannelGroupId, int ChannelSortOrder);
+    long? ChannelGroupId, int ChannelSortOrder, string? OtherUserId);
 public sealed record ChatChannelGroupRow(long Id, string Name, int SortOrder, bool CanManage);
 public sealed record ChatMessageRow(long Id, string? SenderUserId, string SenderName, string? Body,
     DateTime SentAtUtc, DateTime? EditedAtUtc, bool IsDeleted,
@@ -266,7 +266,11 @@ public sealed class ChatService(
                 m.Conversation.LastActivityAtUtc,
                 db.ChatMessages.Count(x => x.ConversationId == m.ConversationId
                     && x.Id > (m.LastReadMessageId ?? 0) && x.SenderUserId != userId),
-                m.IsOwner, m.Conversation.ChannelGroupId, m.Conversation.ChannelSortOrder))
+                m.IsOwner, m.Conversation.ChannelGroupId, m.Conversation.ChannelSortOrder,
+                m.Conversation.Kind == ConversationKind.Direct
+                    ? m.Conversation.Members.Where(x => x.UserId != userId)
+                        .Select(x => x.UserId).FirstOrDefault()
+                    : null))
             .ToListAsync(cancellationToken);
     }
 

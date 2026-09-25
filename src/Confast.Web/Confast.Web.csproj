@@ -6,9 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>Confast.Web-01a03438-8d9f-7ea0-a898-caab0e4236ba</UserSecretsId>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <DefaultItemExcludesInProjectFolder>$(DefaultItemExcludesInProjectFolder);.codex/**</DefaultItemExcludesInProjectFolder>
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Remove=".codex/**" />
+    <None Remove=".codex/**" />
     <EmbeddedResource Include="Features/Chat/emoji-test-source.txt" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">

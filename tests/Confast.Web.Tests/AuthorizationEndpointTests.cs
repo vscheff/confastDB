@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Data;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
@@ -11,13 +12,16 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Tests;
 
-public sealed class AuthorizationEndpointTests
+[Collection(PostgresCollection.Name)]
+public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
 {
     [Fact]
     public async Task UnauthenticatedUser_IsRedirectedToLogin()
@@ -149,7 +153,7 @@ public sealed class AuthorizationEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    private static WebApplicationFactory<Program> CreateAuthenticatedFactory(string role) =>
+    private WebApplicationFactory<Program> CreateAuthenticatedFactory(string role) =>
         CreateFactory().WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
@@ -167,11 +171,25 @@ public sealed class AuthorizationEndpointTests
             });
         });
 
-    private static WebApplicationFactory<Program> CreateFactory() =>
+    private WebApplicationFactory<Program> CreateFactory() =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
+            builder.UseEnvironment("Production");
+            builder.ConfigureAppConfiguration((_, configuration) =>
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:Confast"] = database.ConnectionString,
+                    ["BootstrapAdmin:Username"] = null,
+                    ["BootstrapAdmin:Email"] = null,
+                    ["BootstrapAdmin:Password"] = null
+                }));
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveAll<AppDbContext>();
+                services.RemoveAll<DbContextOptions<AppDbContext>>();
+                services.RemoveAll<IDbContextFactory<AppDbContext>>();
+                services.AddDbContextFactory<AppDbContext>(options =>
+                    options.UseNpgsql(database.ConnectionString));
                 services.RemoveAll<IDataProtectionProvider>();
                 services.RemoveAll<IKeyManager>();
                 for (var index = services.Count - 1; index >= 0; index--)

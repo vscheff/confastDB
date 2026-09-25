@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using Confast.Web.Components;
 using Confast.Web.Data;
 using Confast.Web.Features.Customers;
@@ -143,6 +144,8 @@ builder.Services.AddScoped<InspectionSearchNavigationContext>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddSingleton<ChatNotifications>();
 builder.Services.AddScoped<ChatService>();
+builder.Services.AddScoped<UserProfilePictureService>();
+builder.Services.AddScoped<UserPresenceService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionScheduling.ProductionService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionTracking.ProductionTrackingService>();
 builder.Services.AddScoped<Confast.Web.Features.MorningProductionReview.MorningProductionReviewService>();
@@ -238,6 +241,21 @@ if (app.Environment.IsDevelopment())
 
 app.MapStaticAssets().AllowAnonymous();
 app.MapIdentityEndpoints();
+app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
+    string userId, HttpContext context, UserProfilePictureService pictures, CancellationToken cancellationToken) =>
+{
+    var requesterUserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (requesterUserId is null) return Results.Unauthorized();
+    try
+    {
+        var picture = await pictures.GetAsync(requesterUserId, userId, cancellationToken);
+        if (picture is null) return Results.NotFound();
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        context.Response.Headers.CacheControl = "private, no-store";
+        return Results.File(picture.Value.Data, picture.Value.ContentType);
+    }
+    catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
+}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet(
     "/parts/{partId:long}/inspection-criteria/{revisionId:long}/master-print",
     async Task<IResult> (

@@ -245,6 +245,34 @@ window.confastChatTime = {
         document.removeEventListener("pointerdown", this.reactionPickerOutsideClick, true);
         this.reactionPickerOutsideClick = null;
     },
+    watchProfileEditorOutsideClick(dotNetReference) {
+        if (this.profileEditorOutsideClick) return;
+        this.profileEditorOutsideClick = event => {
+            const target = event.target;
+            if (target instanceof Element && target.closest(".chat-presence-editor, .chat-profile-dock, .chat-picture-edit-backdrop")) return;
+            dotNetReference.invokeMethodAsync("DismissPresenceEditorAsync");
+        };
+        document.addEventListener("pointerdown", this.profileEditorOutsideClick, true);
+    },
+    stopWatchingProfileEditorOutsideClick() {
+        if (!this.profileEditorOutsideClick) return;
+        document.removeEventListener("pointerdown", this.profileEditorOutsideClick, true);
+        this.profileEditorOutsideClick = null;
+    },
+    watchStatusEmojiPickerOutsideClick(dotNetReference) {
+        if (this.statusEmojiPickerOutsideClick) return;
+        this.statusEmojiPickerOutsideClick = event => {
+            const target = event.target;
+            if (target instanceof Element && target.closest(".chat-status-emoji-picker, .chat-status-emoji-button")) return;
+            dotNetReference.invokeMethodAsync("DismissStatusEmojiPickerAsync");
+        };
+        document.addEventListener("pointerdown", this.statusEmojiPickerOutsideClick, true);
+    },
+    stopWatchingStatusEmojiPickerOutsideClick() {
+        if (!this.statusEmojiPickerOutsideClick) return;
+        document.removeEventListener("pointerdown", this.statusEmojiPickerOutsideClick, true);
+        this.statusEmojiPickerOutsideClick = null;
+    },
     positionTonePicker(messageId, defaultEmoji, source) {
         const picker = document.querySelector(".chat-tone-picker");
         if (!picker) return;

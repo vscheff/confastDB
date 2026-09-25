@@ -94,5 +94,16 @@ public static class ChatMapping
         tonePreference.Property(x => x.DefaultEmoji).HasColumnName("default_emoji").HasMaxLength(32);
         tonePreference.Property(x => x.PreferredEmoji).HasColumnName("preferred_emoji").HasMaxLength(32);
         tonePreference.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+
+        var presenceSession = model.Entity<UserPresenceSession>();
+        presenceSession.ToTable("chat_presence_sessions");
+        presenceSession.HasKey(x => x.Id);
+        presenceSession.Property(x => x.Id).HasColumnName("id");
+        presenceSession.Property(x => x.UserId).HasColumnName("user_id");
+        presenceSession.Property(x => x.LastHeartbeatAtUtc).HasColumnName("last_heartbeat_at_utc");
+        presenceSession.Property(x => x.LastActivityAtUtc).HasColumnName("last_activity_at_utc");
+        presenceSession.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        presenceSession.HasIndex(x => new { x.UserId, x.LastHeartbeatAtUtc });
+
     }
 }

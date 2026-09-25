@@ -247,6 +247,15 @@ committed state from PostgreSQL. Opening the panel also reloads state after a
 disconnect. If the application is deployed on multiple server instances, this
 publisher will need a distributed backplane to reach circuits on other instances.
 
+Chat presence is derived from database-backed client heartbeats. A client becomes
+Idle after five minutes without activity, and its session expires 45 seconds after
+the last heartbeat; users with no live sessions appear Offline. Multiple open
+clients count as one user, so activity in any client keeps the user Online.
+Users may choose Online, Do Not Disturb, or Invisible and may save an emoji and
+short status message. Invisible appears Offline to other users and hides the
+custom status from them. The selected presence preference and custom status
+survive sign-out; actual Online and Idle state always requires a live client.
+
 ## Integration tests
 
 The integration tests use PostgreSQL because they exercise PostgreSQL-specific
