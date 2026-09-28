@@ -1,12 +1,12 @@
 window.confastChatTime = {
     conversationScrollPositions: new Map(),
+    lastInsertedMention: null,
     formatMessageTimes(utcValues) {
         const formatter = new Intl.DateTimeFormat(undefined, {
             month: "short",
             day: "numeric",
             hour: "numeric",
-            minute: "2-digit",
-            timeZoneName: "short"
+            minute: "2-digit"
         });
         return utcValues.map(value => formatter.format(new Date(value)));
     },
@@ -17,18 +17,107 @@ window.confastChatTime = {
         });
         return utcValues.map(value => formatter.format(new Date(value)));
     },
-    enableEnterToSend() {
-        const textarea = document.getElementById("chat-message-body");
+    enableEnterToSend(id = "chat-message-body") {
+        const textarea = document.getElementById(id);
         if (!(textarea instanceof HTMLTextAreaElement)) return false;
         if (textarea.getAttribute("data-enter-to-send-attached") === "true") return true;
 
         textarea.addEventListener("keydown", event => {
+            if (id === "chat-message-body" && !event.isComposing) {
+                const mentionMenu = document.getElementById("chat-mention-menu");
+                if (mentionMenu && event.key === "Escape") {
+                    event.preventDefault();
+                    document.getElementById("chat-mention-dismiss")?.click();
+                    return;
+                }
+                const options = mentionMenu ? [...mentionMenu.querySelectorAll("button[role='option']")] : [];
+                if (options.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                    event.preventDefault();
+                    const currentIndex = options.findIndex(option => option.getAttribute("aria-selected") === "true");
+                    const nextIndex = currentIndex < 0
+                        ? (event.key === "ArrowDown" ? 0 : options.length - 1)
+                        : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+                    options.forEach((option, index) => option.setAttribute("aria-selected", index === nextIndex ? "true" : "false"));
+                    options[nextIndex].scrollIntoView({ block: "nearest" });
+                    return;
+                }
+                if (options.length && event.key === "Tab" && !event.shiftKey) {
+                    event.preventDefault();
+                    (options.find(option => option.getAttribute("aria-selected") === "true") ?? options[0]).click();
+                    return;
+                }
+                if (options.length && event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    (options.find(option => option.getAttribute("aria-selected") === "true") ?? options[0]).click();
+                    return;
+                }
+            }
             if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
             event.preventDefault();
             textarea.form?.requestSubmit();
         });
+        if (id === "chat-message-body") {
+            textarea.addEventListener("compositionstart", () => textarea.dataset.chatComposing = "true");
+            textarea.addEventListener("compositionend", () => delete textarea.dataset.chatComposing);
+            textarea.addEventListener("input", () => this.syncDraftPreviewScroll());
+            textarea.addEventListener("scroll", () => this.syncDraftPreviewScroll());
+            textarea.addEventListener("pointerup", () => this.syncDraftPreviewScroll());
+            this.syncDraftPreviewScroll();
+        }
         textarea.setAttribute("data-enter-to-send-attached", "true");
         return true;
+    },
+    syncDraftPreviewScroll() {
+        const textarea = document.getElementById("chat-message-body");
+        const preview = document.getElementById("chat-draft-preview");
+        if (!(textarea instanceof HTMLTextAreaElement) || !preview) return;
+        const style = getComputedStyle(textarea);
+        const scrollbarWidth = textarea.offsetWidth - textarea.clientWidth
+            - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth);
+        preview.style.right = `${Math.max(0, scrollbarWidth)}px`;
+        preview.scrollTop = textarea.scrollTop;
+        preview.scrollLeft = textarea.scrollLeft;
+    },
+    normalizeDraftText(raw, normalized) {
+        const textarea = document.getElementById("chat-message-body");
+        if (!(textarea instanceof HTMLTextAreaElement) || textarea.dataset.chatComposing === "true"
+            || textarea.value !== raw || raw.length !== normalized.length) return false;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        textarea.value = normalized;
+        textarea.setSelectionRange(start, end);
+        this.syncDraftPreviewScroll();
+        return true;
+    },
+    getMentionQuery(availableTags) {
+        const textarea = document.getElementById("chat-message-body");
+        if (!(textarea instanceof HTMLTextAreaElement) || textarea.selectionStart !== textarea.selectionEnd) return null;
+        const cursor = textarea.selectionStart;
+        const start = textarea.value.lastIndexOf("@", cursor - 1);
+        if (start < 0 || cursor - start > 81) return null;
+        if (start > 0 && /[\p{L}\p{N}_]/u.test(textarea.value[start - 1])) return null;
+        const inserted = this.lastInsertedMention;
+        if (inserted?.start === start && cursor >= start + inserted.text.length
+            && textarea.value.startsWith(inserted.text, start)) return null;
+        const query = textarea.value.slice(start + 1, cursor);
+        if (/[\r\n@]/.test(query)) return null;
+        if (query.includes(" ") && Array.isArray(availableTags)
+            && !availableTags.some(tag => tag.toLowerCase().startsWith(query.toLowerCase()))) return null;
+        return { Start: start, Query: query };
+    },
+    insertMention(start, tag) {
+        const textarea = document.getElementById("chat-message-body");
+        if (!(textarea instanceof HTMLTextAreaElement) || textarea.value[start] !== "@") return null;
+        const cursor = textarea.selectionStart;
+        const value = textarea.value.slice(0, start) + `@${tag} ` + textarea.value.slice(cursor);
+        if (value.length > textarea.maxLength) return null;
+        textarea.value = value;
+        const nextCursor = start + tag.length + 2;
+        textarea.focus();
+        textarea.setSelectionRange(nextCursor, nextCursor);
+        this.lastInsertedMention = { start, text: `@${tag} ` };
+        this.syncDraftPreviewScroll();
+        return value;
     },
     scrollToLatestMessage() {
         const history = document.getElementById("chat-message-history");
@@ -80,32 +169,82 @@ window.confastChatTime = {
         const sidebar = document.getElementById("chat-conversation-sidebar");
         if (!sidebar) return false;
         if (sidebar.dataset.channelDragAttached === "true") return true;
+        const scroll = sidebar.querySelector(".chat-sidebar-scroll");
+        const rows = () => Array.from(scroll.children)
+            .filter(child => child.matches(".chat-layout-row[data-chat-item-kind]"));
+        const parentOf = row => row.dataset.chatParent ? Number(row.dataset.chatParent) : null;
+        const depthOf = row => Number(row.dataset.chatDepth);
+        const folderName = parentId => rows().find(row =>
+            row.dataset.chatItemKind === "folder" && Number(row.dataset.chatDragId) === parentId)
+            ?.querySelector(".chat-folder-label strong")?.textContent.trim();
+        const slot = (parentId, beforeRow, y, depth, bounds) => ({
+            parentId,
+            beforeIsFolder: beforeRow ? beforeRow.dataset.chatItemKind === "folder" : null,
+            beforeId: beforeRow ? Number(beforeRow.dataset.chatDragId) : null,
+            top: y,
+            left: bounds.left + 4 + depth * 16,
+            right: bounds.right - 4,
+            label: parentId === null ? "Root level" : `Inside ${folderName(parentId) ?? "folder"}`
+        });
+        const dropSlot = (x, y, sourceRow) => {
+            const bounds = scroll.getBoundingClientRect();
+            if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
+            const all = rows();
+            const element = document.elementFromPoint(x, y);
+            const row = element?.closest(".chat-layout-row[data-chat-item-kind]");
+            const rootZone = element?.closest("[data-chat-root-drop]");
+            let result = null;
+            if (rootZone && scroll.contains(rootZone)) {
+                const first = all.find(item => depthOf(item) === 0);
+                const rect = (first ?? rootZone).getBoundingClientRect();
+                result = slot(null, first, first ? rect.top : rect.bottom, 0, bounds);
+            } else if (row && scroll.contains(row) && row.dataset.chatDropDisabled !== "true") {
+                const index = all.indexOf(row);
+                const depth = depthOf(row);
+                const rect = row.getBoundingClientRect();
+                const fraction = (y - rect.top) / rect.height;
+                if (row.dataset.chatItemKind === "folder" && fraction >= .3 && fraction <= .7) {
+                    const next = all[index + 1];
+                    const firstChild = next && depthOf(next) === depth + 1 &&
+                        next.dataset.chatDropDisabled !== "true" ? next : null;
+                    result = slot(Number(row.dataset.chatDragId), firstChild,
+                        firstChild ? firstChild.getBoundingClientRect().top : rect.bottom, depth + 1, bounds);
+                } else if (fraction < .5) {
+                    result = slot(parentOf(row), row, rect.top, depth, bounds);
+                } else {
+                    let nextIndex = index + 1;
+                    while (nextIndex < all.length && depthOf(all[nextIndex]) > depth) nextIndex++;
+                    const next = all[nextIndex];
+                    const nextSibling = next && depthOf(next) === depth ? next : null;
+                    const lastInSubtree = all[nextIndex - 1];
+                    result = slot(parentOf(row), nextSibling,
+                        next ? next.getBoundingClientRect().top : lastInSubtree.getBoundingClientRect().bottom,
+                        depth, bounds);
+                }
+            } else if (scroll.contains(element) && all.length && y >= all[all.length - 1].getBoundingClientRect().bottom) {
+                result = slot(null, null, all[all.length - 1].getBoundingClientRect().bottom, 0, bounds);
+            }
+            if (!result || result.top < bounds.top || result.top > bounds.bottom) return null;
+            if (sourceRow.dataset.chatDragKind === "folder") {
+                const sourceId = Number(sourceRow.dataset.chatDragId);
+                const sourceDepth = depthOf(sourceRow);
+                const sourceIndex = all.indexOf(sourceRow);
+                const descendants = new Set([sourceId]);
+                for (let index = sourceIndex + 1; index < all.length && depthOf(all[index]) > sourceDepth; index++)
+                    if (all[index].dataset.chatItemKind === "folder") descendants.add(Number(all[index].dataset.chatDragId));
+                if (descendants.has(result.parentId)) return null;
+            }
+            return result;
+        };
 
-        let highlighted = null;
-        const dropTarget = element => {
-            const target = element?.closest("[data-channel-drop-group]");
-            return target && sidebar.contains(target) ? target : null;
-        };
-        const highlight = target => {
-            if (highlighted === target) return;
-            highlighted?.classList.remove("chat-drop-target");
-            highlighted = target;
-            highlighted?.classList.add("chat-drop-target");
-        };
-        const move = (channelId, target) => {
-            if (!target) return;
-            const groupValue = target.getAttribute("data-channel-drop-group");
-            const beforeValue = target.getAttribute("data-channel-drop-before");
-            const groupId = groupValue ? Number(groupValue) : null;
-            const beforeId = beforeValue ? Number(beforeValue) : null;
-            dotNet.invokeMethodAsync("MoveChannelFromDragAsync", Number(channelId), groupId, beforeId);
-        };
         sidebar.addEventListener("pointerdown", event => {
             if (event.button !== 0) return;
-            if (event.target.closest(".chat-channel-controls")) return;
-            const sourceRow = event.target.closest(".chat-channel-row[data-chat-drag-channel]");
-            if (!sourceRow || !sidebar.contains(sourceRow)) return;
-            const channelId = sourceRow.getAttribute("data-chat-drag-channel");
+            if (event.target.closest(".chat-channel-settings, .chat-folder-chevron, .chat-folder-add, .chat-channel-action-toggle")) return;
+            const sourceRow = event.target.closest(".chat-layout-row[data-chat-drag-kind]");
+            if (!sourceRow || !scroll.contains(sourceRow)) return;
+            if (sourceRow.dataset.chatDragKind !== "folder" && sourceRow.dataset.chatDragKind !== "channel") return;
+            const itemId = Number(sourceRow.dataset.chatDragId);
+            const isFolder = sourceRow.dataset.chatDragKind === "folder";
             const pointerId = event.pointerId;
             const startX = event.clientX;
             const startY = event.clientY;
@@ -114,24 +253,37 @@ window.confastChatTime = {
             let scrolling = false;
             let previousY = startY;
             let preview = null;
+            let insertionLine = null;
             let holdTimer = null;
+            let currentSlot = null;
 
+            const showSlot = pointerEvent => {
+                currentSlot = dropSlot(pointerEvent.clientX, pointerEvent.clientY, sourceRow);
+                if (!currentSlot) {
+                    insertionLine.style.display = "none";
+                    return;
+                }
+                insertionLine.style.display = "block";
+                insertionLine.style.left = `${currentSlot.left}px`;
+                insertionLine.style.top = `${currentSlot.top}px`;
+                insertionLine.style.width = `${Math.max(8, currentSlot.right - currentSlot.left)}px`;
+                insertionLine.dataset.label = currentSlot.label;
+            };
             const positionPreview = pointerEvent => {
                 const width = preview.offsetWidth;
                 const height = preview.offsetHeight;
                 preview.style.left = `${Math.max(8, Math.min(pointerEvent.clientX + 12, window.innerWidth - width - 8))}px`;
                 preview.style.top = `${Math.max(8, Math.min(pointerEvent.clientY + 12, window.innerHeight - height - 8))}px`;
             };
-
             const clear = () => {
                 if (holdTimer) clearTimeout(holdTimer);
                 document.removeEventListener("pointermove", onPointerMove);
                 document.removeEventListener("pointerup", onPointerUp);
                 document.removeEventListener("pointercancel", onPointerCancel);
-                highlight(null);
                 sidebar.classList.remove("chat-channel-dragging");
                 sourceRow.classList.remove("chat-channel-drag-source");
                 preview?.remove();
+                insertionLine?.remove();
                 if (sourceRow.hasPointerCapture?.(pointerId)) sourceRow.releasePointerCapture(pointerId);
             };
             const startDrag = pointerEvent => {
@@ -140,12 +292,21 @@ window.confastChatTime = {
                 sidebar.classList.add("chat-channel-dragging");
                 sourceRow.classList.add("chat-channel-drag-source");
                 preview = sourceRow.cloneNode(true);
-                preview.querySelector(".chat-channel-controls")?.remove();
+                preview.querySelectorAll(".chat-channel-settings, .chat-channel-action-toggle, .chat-folder-chevron, .chat-folder-add").forEach(x => x.remove());
                 preview.classList.add("chat-channel-drag-preview");
                 preview.setAttribute("aria-hidden", "true");
                 preview.style.width = `${sourceRow.getBoundingClientRect().width}px`;
                 document.body.appendChild(preview);
+                insertionLine = sourceRow.cloneNode(false);
+                insertionLine.className = "chat-channel-insertion-line";
+                insertionLine.removeAttribute("data-chat-drag-kind");
+                insertionLine.removeAttribute("data-chat-item-kind");
+                insertionLine.removeAttribute("data-chat-drag-id");
+                insertionLine.removeAttribute("title");
+                insertionLine.setAttribute("aria-hidden", "true");
+                document.body.appendChild(insertionLine);
                 positionPreview(pointerEvent);
+                showSlot(pointerEvent);
             };
             const onPointerMove = moveEvent => {
                 if (moveEvent.pointerId !== pointerId) return;
@@ -156,7 +317,7 @@ window.confastChatTime = {
                     }
                     if (scrolling) {
                         moveEvent.preventDefault();
-                        sidebar.scrollTop -= moveEvent.clientY - previousY;
+                        scroll.scrollTop -= moveEvent.clientY - previousY;
                         previousY = moveEvent.clientY;
                     }
                     return;
@@ -166,12 +327,13 @@ window.confastChatTime = {
                 if (moved) {
                     moveEvent.preventDefault();
                     positionPreview(moveEvent);
-                    highlight(dropTarget(document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)));
+                    showSlot(moveEvent);
                 }
             };
             const onPointerUp = upEvent => {
                 if (upEvent.pointerId !== pointerId) return;
-                const target = moved ? dropTarget(document.elementFromPoint(upEvent.clientX, upEvent.clientY)) : null;
+                if (moved) showSlot(upEvent);
+                const target = currentSlot;
                 clear();
                 if (moved || scrolling) {
                     const suppressClick = clickEvent => {
@@ -180,13 +342,14 @@ window.confastChatTime = {
                     };
                     document.addEventListener("click", suppressClick, { capture: true, once: true });
                     setTimeout(() => document.removeEventListener("click", suppressClick, true), 0);
-                    if (target) move(channelId, target);
+                    if (moved && target)
+                        dotNet.invokeMethodAsync("MoveLayoutFromDragAsync", isFolder, itemId,
+                            target.parentId, target.beforeIsFolder, target.beforeId);
                 }
             };
             const onPointerCancel = cancelEvent => {
                 if (cancelEvent.pointerId === pointerId) clear();
             };
-
             document.addEventListener("pointermove", onPointerMove);
             document.addEventListener("pointerup", onPointerUp);
             document.addEventListener("pointercancel", onPointerCancel);
@@ -244,6 +407,92 @@ window.confastChatTime = {
         if (!this.reactionPickerOutsideClick) return;
         document.removeEventListener("pointerdown", this.reactionPickerOutsideClick, true);
         this.reactionPickerOutsideClick = null;
+    },
+    positionChannelSettings(channelId) {
+        const popover = document.getElementById(`chat-channel-settings-${channelId}`);
+        const anchor = document.querySelector(`[data-chat-settings-toggle="${channelId}"]`);
+        const panel = document.querySelector(".chat-panel");
+        if (!popover || !anchor || !panel) return;
+        const boundary = panel.getBoundingClientRect();
+        const rect = anchor.getBoundingClientRect();
+        const margin = 8;
+        const width = popover.offsetWidth;
+        const height = popover.offsetHeight;
+        const right = rect.right + 6;
+        const left = rect.left - width - 6;
+        const x = right + width <= boundary.right - margin ? right
+            : left >= boundary.left + margin ? left
+            : Math.max(boundary.left + margin, boundary.right - width - margin);
+        const y = Math.max(boundary.top + margin,
+            Math.min(rect.top, boundary.bottom - height - margin));
+        popover.style.left = `${Math.round(x)}px`;
+        popover.style.top = `${Math.round(y)}px`;
+        popover.style.visibility = "visible";
+    },
+    watchChannelSettingsOutsideClick(dotNetReference) {
+        if (this.channelSettingsOutsideClick) return;
+        this.channelSettingsOutsideClick = event => {
+            if (event.target instanceof Element && event.target.closest(".chat-channel-settings, .chat-channel-action-toggle")) return;
+            dotNetReference.invokeMethodAsync("DismissChannelSettingsAsync");
+        };
+        this.channelSettingsEscape = event => {
+            if (event.key === "Escape") dotNetReference.invokeMethodAsync("DismissChannelSettingsAsync");
+        };
+        this.channelSettingsScroll = event => {
+            if (event.target instanceof Element && event.target.closest(".chat-channel-settings")) return;
+            dotNetReference.invokeMethodAsync("DismissChannelSettingsAsync");
+        };
+        document.addEventListener("pointerdown", this.channelSettingsOutsideClick, true);
+        document.addEventListener("keydown", this.channelSettingsEscape, true);
+        document.addEventListener("scroll", this.channelSettingsScroll, true);
+    },
+    stopWatchingChannelSettingsOutsideClick() {
+        if (!this.channelSettingsOutsideClick) return;
+        document.removeEventListener("pointerdown", this.channelSettingsOutsideClick, true);
+        document.removeEventListener("keydown", this.channelSettingsEscape, true);
+        document.removeEventListener("scroll", this.channelSettingsScroll, true);
+        this.channelSettingsOutsideClick = null;
+        this.channelSettingsEscape = null;
+        this.channelSettingsScroll = null;
+    },
+    positionMessageProfile(anchorKey) {
+        const popover = document.querySelector(".chat-user-popover");
+        const anchor = document.querySelector(`[data-chat-profile-anchor="${anchorKey}"]`);
+        if (!popover || !anchor) return;
+        const panel = document.querySelector(".chat-panel");
+        const boundary = panel?.getBoundingClientRect() ?? { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+        const rect = anchor.getBoundingClientRect();
+        const margin = 8;
+        const width = popover.offsetWidth;
+        const height = popover.offsetHeight;
+        const left = Math.max(boundary.left + margin, Math.min(rect.left, boundary.right - width - margin));
+        const below = rect.bottom + 6;
+        const above = rect.top - height - 6;
+        const top = below + height <= boundary.bottom - margin ? below
+            : above >= boundary.top + margin ? above
+            : Math.max(boundary.top + margin, boundary.bottom - height - margin);
+        popover.style.left = `${Math.round(left)}px`;
+        popover.style.top = `${Math.round(top)}px`;
+        popover.style.visibility = "visible";
+    },
+    watchMessageProfileOutsideClick(dotNetReference) {
+        if (this.messageProfileOutsideClick) return;
+        this.messageProfileOutsideClick = event => {
+            if (event.target instanceof Element && event.target.closest(".chat-user-popover, .chat-sender-link, .chat-message-user-tag")) return;
+            dotNetReference.invokeMethodAsync("DismissMessageProfileAsync");
+        };
+        this.messageProfileEscape = event => {
+            if (event.key === "Escape") dotNetReference.invokeMethodAsync("DismissMessageProfileAsync");
+        };
+        document.addEventListener("pointerdown", this.messageProfileOutsideClick, true);
+        document.addEventListener("keydown", this.messageProfileEscape, true);
+    },
+    stopWatchingMessageProfileOutsideClick() {
+        if (!this.messageProfileOutsideClick) return;
+        document.removeEventListener("pointerdown", this.messageProfileOutsideClick, true);
+        document.removeEventListener("keydown", this.messageProfileEscape, true);
+        this.messageProfileOutsideClick = null;
+        this.messageProfileEscape = null;
     },
     watchProfileEditorOutsideClick(dotNetReference) {
         if (this.profileEditorOutsideClick) return;

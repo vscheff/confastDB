@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260928145016_AddChatMessageMentions")]
+    partial class AddChatMessageMentions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -46,10 +49,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("character varying(120)")
                         .HasColumnName("name");
 
-                    b.Property<long?>("ParentGroupId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("parent_group_id");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer")
                         .HasColumnName("sort_order");
@@ -62,13 +61,9 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasIndex("SortOrder", "Id");
 
-                    b.HasIndex("ParentGroupId", "SortOrder", "Id");
-
                     b.ToTable("chat_channel_groups", null, t =>
                         {
                             t.HasCheckConstraint("CK_chat_channel_groups_name", "btrim(name) <> ''");
-
-                            t.HasCheckConstraint("CK_chat_channel_groups_parent", "parent_group_id IS NULL OR parent_group_id <> id");
                         });
                 });
 
@@ -192,38 +187,6 @@ namespace Confast.Web.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("chat_message_reactions", (string)null);
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessageTag", b =>
-                {
-                    b.Property<long>("MessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("message_id");
-
-                    b.Property<int>("Start")
-                        .HasColumnType("integer")
-                        .HasColumnName("start");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer")
-                        .HasColumnName("kind");
-
-                    b.Property<int>("Length")
-                        .HasColumnType("integer")
-                        .HasColumnName("length");
-
-                    b.Property<string>("UserId")
-                        .HasColumnType("text")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("MessageId", "Start");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("chat_message_tags", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_chat_message_tags_shape", "start >= 0 AND length > 0 AND ((kind = 0 AND user_id IS NOT NULL) OR (kind IN (1, 2) AND user_id IS NULL))");
-                        });
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>
@@ -3520,14 +3483,7 @@ namespace Confast.Web.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Confast.Web.Features.Chat.ChatChannelGroup", "ParentGroup")
-                        .WithMany("ChildGroups")
-                        .HasForeignKey("ParentGroupId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("CreatedByUser");
-
-                    b.Navigation("ParentGroup");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatEmojiTonePreference", b =>
@@ -3598,24 +3554,6 @@ namespace Confast.Web.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("Message");
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessageTag", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Chat.ChatMessage", "Message")
-                        .WithMany("Tags")
-                        .HasForeignKey("MessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Message");
 
@@ -4514,15 +4452,11 @@ namespace Confast.Web.Data.Migrations
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelGroup", b =>
                 {
                     b.Navigation("Channels");
-
-                    b.Navigation("ChildGroups");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessage", b =>
                 {
                     b.Navigation("Mentions");
-
-                    b.Navigation("Tags");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>

@@ -10,6 +10,9 @@ public sealed class ChatChannelGroup
 {
     public long Id { get; set; }
     public string Name { get; set; } = string.Empty;
+    public long? ParentGroupId { get; set; }
+    public ChatChannelGroup? ParentGroup { get; set; }
+    public List<ChatChannelGroup> ChildGroups { get; set; } = [];
     public int SortOrder { get; set; }
     public string CreatedByUserId { get; set; } = string.Empty;
     public ApplicationUser CreatedByUser { get; set; } = null!;
@@ -61,6 +64,27 @@ public sealed class ChatMessage
     public DateTime? DeletedAtUtc { get; set; }
     public string? DeletedByUserId { get; set; }
     public ApplicationUser? DeletedByUser { get; set; }
+    public List<ChatMessageMention> Mentions { get; set; } = [];
+    public List<ChatMessageTag> Tags { get; set; } = [];
+}
+
+public sealed class ChatMessageTag
+{
+    public long MessageId { get; set; }
+    public ChatMessage Message { get; set; } = null!;
+    public int Start { get; set; }
+    public int Length { get; set; }
+    public ChatMentionKind Kind { get; set; }
+    public string? UserId { get; set; }
+    public ApplicationUser? User { get; set; }
+}
+
+public sealed class ChatMessageMention
+{
+    public long MessageId { get; set; }
+    public ChatMessage Message { get; set; } = null!;
+    public string UserId { get; set; } = string.Empty;
+    public ApplicationUser User { get; set; } = null!;
 }
 
 public sealed class ChatMessageReaction

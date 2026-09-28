@@ -16,7 +16,7 @@
     }
     @if (unreadTotal > 0)
     {
-        <span class="chat-launcher-count">@(unreadTotal > 99 ? "99+" : unreadTotal.ToString())</span>
+        <span class="chat-launcher-count @(hasUnreadAlert ? "attention" : "")">@(unreadTotal > 99 ? "99+" : unreadTotal.ToString())</span>
     }
 </button>
 
@@ -51,8 +51,20 @@
             <aside id="chat-conversation-sidebar" class="chat-sidebar">
                 <div class="chat-sidebar-scroll">
                 <div class="chat-tabs" aria-label="Chat views">
-                    <button type="button" class="@(view is ChatView.Conversations or ChatView.NewDirect ? "active" : "")" @onclick="() => ChangeView(ChatView.Conversations)">Conversations</button>
-                    <button type="button" class="@(view is ChatView.Channels or ChatView.NewChannel ? "active" : "")" @onclick="() => ChangeView(ChatView.Channels)">Channels</button>
+                    <button type="button" class="@(view is ChatView.Conversations or ChatView.NewDirect ? "active" : "")" @onclick="() => ChangeView(ChatView.Conversations)">
+                        Conversations
+                        @if (unreadConversations > 0)
+                        {
+                            <span class="chat-tab-count attention" aria-label="@unreadConversations unread messages">@(unreadConversations > 99 ? "99+" : unreadConversations.ToString())</span>
+                        }
+                    </button>
+                    <button type="button" class="@(view is ChatView.Channels or ChatView.NewChannel ? "active" : "")" @onclick="() => ChangeView(ChatView.Channels)">
+                        Channels
+                        @if (unreadChannels > 0)
+                        {
+                            <span class="chat-tab-count @(conversations.Any(x => x.Kind == ConversationKind.Channel && x.HasUnreadMention) ? "attention" : "")" aria-label="@unreadChannels unread messages">@(unreadChannels > 99 ? "99+" : unreadChannels.ToString())</span>
+                        }
+                    </button>
                 </div>
                 @if (view == ChatView.Conversations)
                 {
@@ -70,107 +82,115 @@
                                 @if (PictureUrl(row.OtherUserId) is { } pictureUrl) { <img src="@pictureUrl" alt="" /> }
                                 else { @Initials(row.Name) }
                             </span>
-                            <span class="chat-conversation-top"><strong><span class="chat-presence-dot @PresenceClass(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span> @row.Name</strong><time>@GetActivityDate(row)</time></span>
+                            <span class="chat-conversation-top"><strong><span class="chat-presence-dot @PresenceClass(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span> @row.Name</strong><span class="chat-conversation-meta"><time>@GetActivityDate(row)</time>@if (row.UnreadCount > 0) { <b class="chat-unread-count attention">@row.UnreadCount</b> }</span></span>
                             @if (PresenceOf(row.OtherUserId) is { } contact && (contact.StatusEmoji is not null || contact.StatusMessage is not null))
                             {
                                 <span class="chat-user-status">@contact.StatusEmoji @contact.StatusMessage</span>
                             }
-                            <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
                         </button>
                     }
                 }
                 else if (view == ChatView.Channels)
                 {
                     <div class="chat-create-actions">
-                        <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewChannel)">New Channel</button>
+                        <button class="button button-secondary" type="button" @onclick="() => StartNewChannel(null)">New Channel</button>
                         <button class="button button-secondary" type="button" aria-expanded="@addingFolder" @onclick="StartAddingFolder">Add folder</button>
                     </div>
-                    @if (!conversations.Any(x => x.Kind == ConversationKind.Channel)) { <p class="chat-empty">No channels yet.</p> }
-                    @if (ChannelsInGroup(null).Count > 0 || channelGroups.Count > 0)
+                    @if (!conversations.Any(x => x.Kind == ConversationKind.Channel) && channelGroups.Count == 0) { <p class="chat-empty">No channels yet.</p> }
+                    <div class="chat-layout-root-drop" data-chat-root-drop="" aria-hidden="true"></div>
+                    @foreach (var item in ChannelLayout())
                     {
-                        <div class="chat-channel-drop-zone chat-ungrouped-drop-zone" data-channel-drop-group="" data-channel-drop-before=""></div>
-                    }
-                    @foreach (var row in ChannelsInGroup(null))
-                    {
-                        <div @key="row.Id" class="chat-channel-row" data-chat-drag-channel="@row.Id" data-channel-drop-group="" data-channel-drop-before="@row.Id" title="Drag to reorder channel">
-                            <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                                <span class="chat-conversation-top"><strong># @row.Name</strong><time>@GetActivityDate(row)</time></span>
-                                <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
-                            </button>
-                            <button type="button" class="chat-channel-action-toggle" aria-label="Options for @row.Name" aria-expanded="@(channelActionsId == row.Id)" @onclick="() => ToggleChannelActions(row.Id)">⋯</button>
-                            @if (channelActionsId == row.Id)
-                            {
-                                <div class="chat-channel-controls">
-                                    <button type="button" disabled="@(!CanMoveChannel(row, -1))" aria-label="Move @row.Name up" @onclick="() => MoveChannelStepAsync(row, -1)">↑</button>
-                                    <button type="button" disabled="@(!CanMoveChannel(row, 1))" aria-label="Move @row.Name down" @onclick="() => MoveChannelStepAsync(row, 1)">↓</button>
-                                    <select aria-label="Move @row.Name to group" value="" @onchange="e => MoveChannelToGroupAsync(row.Id, e.Value?.ToString())">
-                                        <option value="">Move to group…</option>
-                                        @foreach (var group in channelGroups) { <option value="@group.Id">@group.Name</option> }
-                                    </select>
-                                </div>
-                            }
-                        </div>
-                    }
-                    @foreach (var group in channelGroups)
-                    {
-                        <section @key="group.Id" class="chat-channel-group">
-                            <div class="chat-channel-drop-zone chat-group-heading" data-channel-drop-group="@group.Id" data-channel-drop-before="">
-                                @if (editingGroupId == group.Id)
-                                {
-                                    <form class="chat-group-rename" @onsubmit="SaveGroupNameAsync" @onsubmit:preventDefault>
-                                        <input aria-label="Group name" maxlength="120" @bind="groupNameDraft" @bind:event="oninput" />
-                                        <button type="submit" aria-label="Save group name">✓</button>
-                                        <button type="button" aria-label="Cancel group rename" @onclick="CancelGroupRename">×</button>
-                                    </form>
-                                }
-                                else
-                                {
-                                    <strong>@group.Name</strong>
-                                    <span class="chat-group-controls">
-                                        <button type="button" disabled="@(!CanMoveGroup(group, -1))" aria-label="Move folder @group.Name up" @onclick="() => MoveGroupStepAsync(group, -1)">↑</button>
-                                        <button type="button" disabled="@(!CanMoveGroup(group, 1))" aria-label="Move folder @group.Name down" @onclick="() => MoveGroupStepAsync(group, 1)">↓</button>
-                                        @if (group.CanManage)
-                                        {
-                                            <button type="button" aria-label="Rename folder @group.Name" @onclick="() => StartGroupRename(group)">✎</button>
-                                            <button type="button" aria-label="Delete folder @group.Name" @onclick="() => confirmDeleteGroupId = group.Id">×</button>
-                                        }
+                        @if (item.Group is { } group)
+                        {
+                            <div @key="(nameof(ChatChannelGroup), group.Id)" class="chat-folder-row chat-layout-row"
+                                 data-chat-item-kind="folder" data-chat-drag-kind="@(group.CanManage ? "folder" : null)" data-chat-drag-id="@group.Id"
+                                 data-chat-parent="@group.ParentGroupId" data-chat-depth="@item.Depth"
+                                 style="@($"--chat-depth:{item.Depth}")" title="@(group.CanManage ? "Drag to move folder" : null)">
+                                <div class="chat-group-heading">
+                                    <span class="chat-folder-label">
+                                        <strong>@group.Name</strong>
+                                        <button type="button" class="chat-folder-chevron" aria-label="@(collapsedFolderIds.Contains(group.Id) ? "Expand" : "Collapse") folder @group.Name"
+                                                aria-expanded="@(collapsedFolderIds.Contains(group.Id) ? "false" : "true")" @onclick="() => ToggleFolderCollapsed(group.Id)">
+                                            @if (collapsedFolderIds.Contains(group.Id))
+                                            {
+                                                <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m6 3 5 5-5 5" /></svg>
+                                            }
+                                            else
+                                            {
+                                                <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m3 6 5 5 5-5" /></svg>
+                                            }
+                                        </button>
                                     </span>
+                                    <button type="button" class="chat-folder-add" aria-label="Add channel to @group.Name" @onclick="() => StartNewChannel(group.Id)">＋</button>
+                                </div>
+                            </div>
+                        }
+                        else if (item.Channel is { } row)
+                        {
+                            <div @key="(nameof(Conversation), row.Id)" class="chat-channel-row chat-layout-row"
+                                 data-chat-item-kind="channel" data-chat-drag-kind="@(item.Pinned ? null : "channel")" data-chat-drag-id="@row.Id"
+                                 data-chat-drop-disabled="@(item.Pinned ? "true" : null)"
+                                 data-chat-parent="@item.ParentGroupId" data-chat-depth="@item.Depth"
+                                 style="@($"--chat-depth:{item.Depth}")" title="@(item.Pinned ? null : "Drag to reorder channel")">
+                                <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
+                                    <span class="chat-conversation-top"><strong># @row.Name</strong><span class="chat-conversation-meta"><time>@GetActivityDate(row)</time>@if (row.UnreadCount > 0) { <b class="chat-unread-count @(row.HasUnreadMention ? "attention" : "")">@row.UnreadCount</b> }</span></span>
+                                </button>
+                                <button type="button" class="chat-channel-action-toggle" data-chat-settings-toggle="@row.Id" aria-label="Settings for @row.Name" aria-haspopup="dialog" aria-controls="chat-channel-settings-@row.Id" aria-expanded="@(channelActionsId == row.Id ? "true" : "false")" @onclick="() => ToggleChannelActionsAsync(row)">
+                                    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.1 2.8h3.8l.5 2.2c.6.2 1.2.4 1.7.7l2-1.2 2.7 2.7-1.2 2c.3.5.5 1.1.7 1.7l2.2.5v3.8l-2.2.5c-.2.6-.4 1.2-.7 1.7l1.2 2-2.7 2.7-2-1.2c-.5.3-1.1.5-1.7.7l-.5 2.2h-3.8l-.5-2.2c-.6-.2-1.2-.4-1.7-.7l-2 1.2-2.7-2.7 1.2-2c-.3-.5-.5-1.1-.7-1.7l-2.2-.5v-3.8l2.2-.5c.2-.6.4-1.2.7-1.7l-1.2-2 2.7-2.7 2 1.2c.5-.3 1.1-.5 1.7-.7l.5-2.2Z"/><circle cx="12" cy="12" r="3.2"/></svg>
+                                </button>
+                                @if (channelActionsId == row.Id)
+                                {
+                                    <div id="chat-channel-settings-@row.Id" class="chat-channel-settings" role="dialog" aria-label="Settings for @row.Name">
+                                        @if (row.IsOwner || currentUserIsAdministrator)
+                                        {
+                                            <form @onsubmit="() => RenameChannelAsync(row.Id)" @onsubmit:preventDefault>
+                                                <label for="chat-rename-channel-@row.Id">Channel name</label>
+                                                <div class="chat-channel-settings-entry">
+                                                    <input id="chat-rename-channel-@row.Id" maxlength="120" @bind="channelRenameDraft" @bind:event="oninput" />
+                                                    <button type="submit" disabled="@string.IsNullOrWhiteSpace(channelRenameDraft)">Save</button>
+                                                </div>
+                                            </form>
+                                        }
+                                        @if (row.Visibility == ChannelVisibility.Private)
+                                        {
+                                            <div class="chat-channel-settings-members">
+                                                <strong>Members</strong>
+                                                @foreach (var member in channelSettingsMembers)
+                                                {
+                                                    <div class="chat-channel-settings-member">
+                                                        <span>@member.Name</span>
+                                                        @if (row.IsOwner && member.Id != currentUserId)
+                                                        {
+                                                            <button type="button" aria-label="Remove @member.Name from @row.Name" @onclick="() => RemoveChannelSettingsMemberAsync(row.Id, member.Id)">Remove</button>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                            @if (row.IsOwner)
+                                            {
+                                                <div class="chat-channel-settings-add">
+                                                    <label for="chat-settings-add-member-@row.Id">Add user</label>
+                                                    <div class="chat-channel-settings-entry">
+                                                        <select id="chat-settings-add-member-@row.Id" @bind="channelSettingsAddMemberId">
+                                                            <option value="">Select a user</option>
+                                                            @foreach (var user in users.Where(x => channelSettingsMembers.All(member => member.Id != x.Id)))
+                                                            {
+                                                                <option value="@user.Id">@user.Name</option>
+                                                            }
+                                                        </select>
+                                                        <button type="button" disabled="@string.IsNullOrEmpty(channelSettingsAddMemberId)" @onclick="() => AddChannelSettingsMemberAsync(row.Id)">Add</button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <p>All active users belong to public channels.</p>
+                                        }
+                                    </div>
                                 }
                             </div>
-                            @if (confirmDeleteGroupId == group.Id)
-                            {
-                                <div class="chat-group-delete-confirm">
-                                    <span>Move this folder's channels to Ungrouped?</span>
-                                    <button type="button" @onclick="() => DeleteGroupAsync(group.Id)">Delete folder</button>
-                                    <button type="button" @onclick="() => confirmDeleteGroupId = null">Cancel</button>
-                                </div>
-                            }
-                            @if (ChannelsInGroup(group.Id).Count == 0)
-                            {
-                                <p class="chat-empty-folder">Drag a channel here.</p>
-                            }
-                            @foreach (var row in ChannelsInGroup(group.Id))
-                            {
-                                <div @key="row.Id" class="chat-channel-row" data-chat-drag-channel="@row.Id" data-channel-drop-group="@group.Id" data-channel-drop-before="@row.Id" title="Drag to reorder channel">
-                                    <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                                        <span class="chat-conversation-top"><strong># @row.Name</strong><time>@GetActivityDate(row)</time></span>
-                                        <span class="chat-conversation-bottom"><span>@(row.Preview ?? "No messages yet")</span>@if (row.UnreadCount > 0) { <b>@row.UnreadCount</b> }</span>
-                                    </button>
-                                    <button type="button" class="chat-channel-action-toggle" aria-label="Options for @row.Name" aria-expanded="@(channelActionsId == row.Id)" @onclick="() => ToggleChannelActions(row.Id)">⋯</button>
-                                    @if (channelActionsId == row.Id)
-                                    {
-                                        <div class="chat-channel-controls">
-                                            <button type="button" disabled="@(!CanMoveChannel(row, -1))" aria-label="Move @row.Name up" @onclick="() => MoveChannelStepAsync(row, -1)">↑</button>
-                                            <button type="button" disabled="@(!CanMoveChannel(row, 1))" aria-label="Move @row.Name down" @onclick="() => MoveChannelStepAsync(row, 1)">↓</button>
-                                            <select aria-label="Move @row.Name to group" value="@group.Id" @onchange="e => MoveChannelToGroupAsync(row.Id, e.Value?.ToString())">
-                                                <option value="">Ungrouped</option>
-                                                @foreach (var destination in channelGroups) { <option value="@destination.Id">@destination.Name</option> }
-                                            </select>
-                                        </div>
-                                    }
-                                </div>
-                            }
-                        </section>
+                        }
                     }
                     @if (addingFolder)
                     {
@@ -200,6 +220,10 @@
                 else if (view == ChatView.NewChannel)
                 {
                     <h3>New Channel</h3>
+                    @if (newChannelGroupId is long destinationId)
+                    {
+                        <p class="chat-channel-destination">In @(channelGroups.FirstOrDefault(x => x.Id == destinationId)?.Name ?? "folder")</p>
+                    }
                     <label for="chat-channel-name">Name</label>
                     <input id="chat-channel-name" maxlength="120" @bind="channelName" @bind:event="oninput" />
                     <label for="chat-channel-visibility">Visibility</label>
@@ -238,6 +262,7 @@
                                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14.5 5.5 4 4M4 20l4.5-1 11-11a2.12 2.12 0 0 0-3-3l-11 11L4 20Z" /></svg>
                                 </label>
                             </div>
+                            <strong class="chat-picture-name">@(currentUserDisplayName ?? "My profile")</strong>
                         </div>
                         <div class="chat-presence-setting">
                             <div class="chat-presence-control" @onmouseenter="ShowPresencePicker" @onmouseleave="HidePresencePicker"
@@ -323,33 +348,11 @@
                     <div class="chat-thread-header">
                         <button type="button" class="chat-back" @onclick="BackToList" aria-label="Back to conversations">←</button>
                         <strong>@(thread.Conversation.Kind == ConversationKind.Channel ? "# " : "")@thread.Conversation.Name</strong>
-                        @if (thread.Conversation.Kind == ConversationKind.Channel)
+                        @if (thread.Conversation.Kind == ConversationKind.Channel && !showMembers)
                         {
-                            <button type="button" class="chat-icon-button" @onclick="() => showMembers = !showMembers">Members (@thread.Members.Count)</button>
+                            <button type="button" class="chat-icon-button" aria-expanded="@showMembers" aria-controls="chat-members-sidebar" @onclick="() => showMembers = !showMembers">Members (@thread.Members.Count)</button>
                         }
                     </div>
-                    @if (showMembers && thread.Conversation.Kind == ConversationKind.Channel)
-                    {
-                        <div class="chat-members">
-                            @foreach (var member in thread.Members)
-                            {
-                                <div><span><span class="chat-presence-dot @PresenceClass(member.Id)" title="@PresenceDescription(member.Id)"></span> @member.Name @PresenceOf(member.Id)?.StatusEmoji @PresenceOf(member.Id)?.StatusMessage</span>
-                                    @if (thread.Conversation.IsOwner && thread.Conversation.Visibility == ChannelVisibility.Private && member.Id != currentUserId)
-                                    {
-                                        <button type="button" @onclick="() => RemoveMemberAsync(member.Id)">Remove</button>
-                                    }
-                                </div>
-                            }
-                            @if (thread.Conversation.IsOwner && thread.Conversation.Visibility == ChannelVisibility.Private)
-                            {
-                                <label for="chat-add-member">Add Member</label>
-                                <select id="chat-add-member" @bind="addMemberId"><option value="">Select a user</option>
-                                    @foreach (var user in users.Where(x => thread.Members.All(m => m.Id != x.Id))) { <option value="@user.Id">@user.Name</option> }
-                                </select>
-                                <button type="button" disabled="@string.IsNullOrEmpty(addMemberId)" @onclick="AddMemberAsync">Add</button>
-                            }
-                        </div>
-                    }
                     <div class="chat-history-container">
                     <div id="chat-message-history" class="chat-messages" data-conversation-id="@thread.Conversation.Id" role="log" aria-label="Message history"
                          @onclick="MarkCurrentConversationReadAsync" @onscroll="MarkCurrentConversationReadAsync">
@@ -368,7 +371,9 @@
                                     @if (message.SenderUserId is { } senderId && senderId != currentUserId)
                                     {
                                         <button type="button" class="chat-sender-link" title="@PresenceDescription(senderId)"
-                                                @onclick="() => OpenDirectFromMessageAsync(senderId)">@message.SenderName</button>
+                                                data-chat-profile-anchor="@SenderAnchorKey(message.Id)" aria-haspopup="dialog" aria-controls="chat-user-popover"
+                                                aria-expanded="@(profileAnchorKey == SenderAnchorKey(message.Id))"
+                                                @onclick="() => ToggleMessageProfile(senderId, message.SenderName, SenderAnchorKey(message.Id))">@message.SenderName</button>
                                     }
                                     else { <strong>@message.SenderName</strong> }
                                     <time>
@@ -389,7 +394,7 @@
                                 }
                                 else
                                 {
-                                    <p>@(message.IsDeleted ? "Message deleted" : message.Body)</p>
+                                    <p>@RenderMessageBody(message)</p>
                                 }
                                 @if (!message.IsDeleted && editingMessageId != message.Id)
                                 {
@@ -485,13 +490,186 @@
                     </div>
                     <form class="chat-compose" @onsubmit="SendAsync" @onsubmit:preventDefault>
                         <label class="sr-only" for="chat-message-body">Message</label>
-                        <textarea id="chat-message-body" rows="2" maxlength="4000" placeholder="Write a message" @bind="draft" @bind:event="oninput"
-                                  @onfocus="MarkCurrentConversationReadAsync" @onclick="MarkCurrentConversationReadAsync"></textarea>
+                        <div class="chat-compose-input">
+                            <div class="chat-draft-editor @(thread.Conversation.Kind == ConversationKind.Channel ? "chat-draft-overlay-active" : "")">
+                                @if (thread.Conversation.Kind == ConversationKind.Channel)
+                                {
+                                    <div id="chat-draft-preview" class="chat-draft-preview" aria-hidden="true">@RenderDraftBody()</div>
+                                }
+                                <textarea id="chat-message-body" rows="2" maxlength="4000" placeholder="Write a message" value="@draft"
+                                          @oninput="HandleDraftInputAsync" @onkeyup="HandleDraftCaretAsync"
+                                          @onfocus="MarkCurrentConversationReadAsync" @onclick="HandleDraftClickAsync"
+                                          aria-controls="chat-mention-menu" aria-expanded="@mentionMenuOpen"></textarea>
+                            </div>
+                            @if (mentionMenuOpen && thread.Conversation.Kind == ConversationKind.Channel)
+                            {
+                                var mentionOptions = MentionOptions;
+                                <div @key="(mentionStart, mentionQuery)" id="chat-mention-menu" class="chat-mention-menu" role="listbox" aria-label="Tag a channel member">
+                                    <button id="chat-mention-dismiss" type="button" class="chat-mention-dismiss" aria-label="Close tag suggestions" @onclick="() => mentionMenuOpen = false">×</button>
+                                    @for (var index = 0; index < mentionOptions.Count; index++)
+                                    {
+                                        var option = mentionOptions[index];
+                                        <button type="button" role="option" aria-selected="@(index == 0 ? "true" : "false")" @onclick="() => SelectMentionAsync(option.Tag)">
+                                            <strong>@@@option.Tag</strong>
+                                            @if (option.Description is not null) { <span>@option.Description</span> }
+                                        </button>
+                                    }
+                                    @if (mentionOptions.Count == 0) { <p>No matching members.</p> }
+                                </div>
+                            }
+                        </div>
                         <button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(draft)">Send</button>
                     </form>
                 }
             </div>
+            @if (showMembers && thread is not null && thread.Conversation.Kind == ConversationKind.Channel)
+            {
+                <aside id="chat-members-sidebar" class="chat-members-sidebar" aria-label="Channel members">
+                    <header class="chat-members-header">
+                        <strong>Members <span>(@thread.Members.Count)</span></strong>
+                        <button type="button" class="chat-icon-button" aria-label="Close members" @onclick="() => showMembers = false">×</button>
+                    </header>
+                    <div class="chat-members-list">
+                        <section aria-labelledby="chat-members-online-heading">
+                            <h3 id="chat-members-online-heading">Online — <span>@(thread.Members.Count(member => IsMemberOnline(member.Id)))</span></h3>
+                            @foreach (var member in thread.Members.Where(member => IsMemberOnline(member.Id)))
+                            {
+                                <div class="chat-member-card">
+                                    <span class="chat-avatar chat-member-avatar" aria-hidden="true">
+                                        @if (PictureUrl(member.Id) is { } memberPictureUrl) { <img src="@memberPictureUrl" alt="" /> }
+                                        else { @Initials(member.Name) }
+                                        <span class="chat-presence-dot @PresenceClass(member.Id)" title="@PresenceDescription(member.Id)"></span>
+                                    </span>
+                                    <span class="chat-member-copy">
+                                        @if (member.Id != currentUserId)
+                                        {
+                                            <button type="button"
+                                                    class="chat-member-link"
+                                                    title="@PresenceDescription(member.Id)"
+                                                    data-chat-profile-anchor="@MemberAnchorKey(member.Id)"
+                                                    aria-haspopup="dialog"
+                                                    aria-controls="chat-user-popover"
+                                                    aria-expanded="@(profileAnchorKey == MemberAnchorKey(member.Id))"
+                                                    @onclick="() => ToggleMessageProfile(
+                                                        member.Id,
+                                                        member.Name,
+                                                        MemberAnchorKey(member.Id))">
+                                                @member.Name
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <strong>@member.Name</strong>
+                                        }
+
+                                        <span>
+                                            @PresenceOf(member.Id)?.StatusEmoji @PresenceOf(member.Id)?.StatusMessage
+                                        </span>
+                                    </span>
+                                    @if (thread.Conversation.IsOwner && thread.Conversation.Visibility == ChannelVisibility.Private && member.Id != currentUserId)
+                                    {
+                                        <button type="button" class="chat-member-remove" aria-label="Remove @member.Name" @onclick="() => RemoveMemberAsync(member.Id)">×</button>
+                                    }
+                                </div>
+                            }
+                        </section>
+                        <section aria-labelledby="chat-members-offline-heading">
+                            <h3 id="chat-members-offline-heading">Offline — <span>@(thread.Members.Count(member => !IsMemberOnline(member.Id)))</span></h3>
+                            @foreach (var member in thread.Members.Where(member => !IsMemberOnline(member.Id)))
+                            {
+                                <div class="chat-member-card">
+                                    <span class="chat-avatar chat-member-avatar" aria-hidden="true">
+                                        @if (PictureUrl(member.Id) is { } memberPictureUrl)
+                                        {
+                                            <img src="@memberPictureUrl" alt="" />
+                                        }
+                                        else
+                                        {
+                                            @Initials(member.Name)
+                                        }
+                                        <span class="chat-presence-dot @PresenceClass(member.Id)"
+                                                title="@PresenceDescription(member.Id)"></span>
+                                    </span>
+
+                                    <span class="chat-member-copy">
+                                        @if (member.Id != currentUserId)
+                                        {
+                                            <button type="button"
+                                                    class="chat-member-link"
+                                                    title="@PresenceDescription(member.Id)"
+                                                    data-chat-profile-anchor="@MemberAnchorKey(member.Id)"
+                                                    aria-haspopup="dialog"
+                                                    aria-controls="chat-user-popover"
+                                                    aria-expanded="@(profileAnchorKey == MemberAnchorKey(member.Id))"
+                                                    @onclick="() => ToggleMessageProfile(
+                                                        member.Id,
+                                                        member.Name,
+                                                        MemberAnchorKey(member.Id))">
+                                                @member.Name
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <strong>@member.Name</strong>
+                                        }
+
+                                        <span>
+                                            @PresenceOf(member.Id)?.StatusEmoji @PresenceOf(member.Id)?.StatusMessage
+                                        </span>
+                                    </span>
+
+                                    @if (thread.Conversation.IsOwner &&
+                                            thread.Conversation.Visibility == ChannelVisibility.Private &&
+                                            member.Id != currentUserId)
+                                    {
+                                        <button type="button"
+                                                class="chat-member-remove"
+                                                aria-label="Remove @member.Name"
+                                                @onclick="() => RemoveMemberAsync(member.Id)">×</button>
+                                    }
+                                </div>
+                            }
+                     </section>
+                    </div>
+                    @if (thread.Conversation.IsOwner && thread.Conversation.Visibility == ChannelVisibility.Private)
+                    {
+                        <div class="chat-members-add">
+                            <label for="chat-add-member">Add member</label>
+                            <select id="chat-add-member" @bind="addMemberId"><option value="">Select a user</option>
+                                @foreach (var user in users.Where(x => thread.Members.All(m => m.Id != x.Id))) { <option value="@user.Id">@user.Name</option> }
+                            </select>
+                            <button type="button" class="button button-secondary" disabled="@string.IsNullOrEmpty(addMemberId)" @onclick="AddMemberAsync">Add member</button>
+                        </div>
+                    }
+                </aside>
+            }
         </div>
+        @if (profileUserId is not null)
+        {
+            <div id="chat-user-popover" class="chat-user-popover" role="dialog" aria-label="@profileUserName profile">
+                <div class="chat-user-popover-heading">
+                    <span class="chat-avatar chat-user-popover-avatar" aria-hidden="true">
+                        @if (PictureUrl(profileUserId) is { } messageProfilePictureUrl) { <img src="@messageProfilePictureUrl" alt="" /> }
+                        else { @Initials(profileUserName) }
+                        <span class="chat-presence-dot @PresenceClass(profileUserId)" title="@PresenceDescription(profileUserId)"></span>
+                    </span>
+                    <span class="chat-user-popover-identity">
+                        <button type="button" class="chat-user-popover-name" @onclick="() => OpenDirectFromMessageAsync(profileUserId)">@profileUserName</button>
+                        @if (PresenceOf(profileUserId) is { } profilePresence &&
+                            (!string.IsNullOrWhiteSpace(profilePresence.StatusEmoji) || !string.IsNullOrWhiteSpace(profilePresence.StatusMessage)))
+                        {
+                            <span class="chat-user-popover-status">@profilePresence.StatusEmoji @profilePresence.StatusMessage</span>
+                        }
+                    </span>
+                    <button type="button" class="chat-user-popover-close" aria-label="Close profile" @onclick="CloseMessageProfile">×</button>
+                </div>
+                <form class="chat-user-popover-compose" @onsubmit="SendMessageProfileAsync" @onsubmit:preventDefault>
+                    <label class="sr-only" for="chat-user-popover-message">Message @profileUserName</label>
+                    <textarea id="chat-user-popover-message" rows="2" maxlength="4000" placeholder="Message @profileUserName" @bind="profileDraft" @bind:event="oninput"></textarea>
+                    <button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(profileDraft)">Send</button>
+                </form>
+            </div>
+        }
     </section>
     @if (showPictureEditor)
     {
@@ -531,6 +709,8 @@
     private enum ChatView { Conversations, Channels, NewDirect, NewChannel }
     private sealed record EmojiSupportResult(double MaxVersion, string[] UnsupportedEmoji);
     private sealed record PresenceActivity(double IdleSeconds);
+    private sealed record MentionQuery(int Start, string Query);
+    private sealed record MentionOption(string Tag, string? Description);
     private readonly Guid presenceSessionId = Guid.NewGuid();
     private bool presenceMonitoringAttached;
     private bool showPresenceEditor;
@@ -569,31 +749,50 @@
                 : x.Name.Contains(statusEmojiSearch, StringComparison.OrdinalIgnoreCase)));
     private IDisposable? subscription;
     private string? currentUserId;
+    private bool currentUserIsAdministrator;
     private string? currentUserDisplayName;
     private bool isOpen;
     private bool disposed;
     private bool showMembers;
     private int unreadTotal;
+    private bool hasUnreadAlert;
+    private int unreadConversations => conversations.Where(x => x.Kind == ConversationKind.Direct).Sum(x => x.UnreadCount);
+    private int unreadChannels => conversations.Where(x => x.Kind == ConversationKind.Channel).Sum(x => x.UnreadCount);
     private bool sidebarCollapsed;
     private bool addingFolder;
     private bool focusNewGroupNameAfterRender;
     private ElementReference newGroupNameInput;
     private string newGroupName = string.Empty;
     private long? channelActionsId;
-    private long? editingGroupId;
-    private long? confirmDeleteGroupId;
-    private string groupNameDraft = string.Empty;
+    private DotNetObjectReference<ChatPanel>? channelSettingsReference;
+    private bool channelSettingsOutsideClickAttached;
+    private string channelRenameDraft = string.Empty;
+    private string channelSettingsAddMemberId = string.Empty;
+    private IReadOnlyList<ChatUser> channelSettingsMembers = [];
+    private readonly HashSet<long> collapsedFolderIds = [];
+    private readonly Dictionary<long, long> pinnedChannelsByFolder = [];
     private DotNetObjectReference<ChatPanel>? channelDragReference;
     private bool channelDragAttached;
     private long? selectedId;
     private string? error;
     private string directUserId = string.Empty;
     private string channelName = string.Empty;
+    private long? newChannelGroupId;
     private ChannelVisibility channelVisibility = ChannelVisibility.Public;
     private readonly HashSet<string> initialMembers = [];
     private readonly CancellationTokenSource refreshLifetime = new();
     private string addMemberId = string.Empty;
     private string draft = string.Empty;
+    private long draftInputVersion;
+    private bool mentionMenuOpen;
+    private string mentionQuery = string.Empty;
+    private int mentionStart;
+    private string? profileUserId;
+    private string profileUserName = string.Empty;
+    private string? profileAnchorKey;
+    private string profileDraft = string.Empty;
+    private DotNetObjectReference<ChatPanel>? messageProfileReference;
+    private bool messageProfileOutsideClickAttached;
     private long? editingMessageId;
     private string editDraft = string.Empty;
     private long? reactionPickerMessageId;
@@ -744,6 +943,29 @@
             catch (JSException ex) { Logger.LogWarning(ex, "Could not enable channel drag and drop."); }
         }
 
+        if (isOpen && view == ChatView.Channels && channelActionsId is long settingsChannelId)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("confastChatTime.positionChannelSettings", settingsChannelId);
+                if (!channelSettingsOutsideClickAttached)
+                {
+                    channelSettingsReference ??= DotNetObjectReference.Create(this);
+                    await JS.InvokeVoidAsync("confastChatTime.watchChannelSettingsOutsideClick", channelSettingsReference);
+                    channelSettingsOutsideClickAttached = true;
+                }
+            }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not position the channel settings menu."); }
+        }
+        else if (channelSettingsOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingChannelSettingsOutsideClick"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not stop watching the channel settings menu."); }
+            channelSettingsOutsideClickAttached = false;
+        }
+
         if (isOpen && selectedId is not null && !composeKeyHandlerAttached)
         {
             try
@@ -756,6 +978,30 @@
                 Logger.LogWarning(ex, "Could not enable Enter-to-send for the chat compose box.");
                 return;
             }
+        }
+
+        if (isOpen && profileUserId is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("confastChatTime.positionMessageProfile", profileAnchorKey);
+                await JS.InvokeVoidAsync("confastChatTime.enableEnterToSend", "chat-user-popover-message");
+                if (!messageProfileOutsideClickAttached)
+                {
+                    messageProfileReference ??= DotNetObjectReference.Create(this);
+                    await JS.InvokeVoidAsync("confastChatTime.watchMessageProfileOutsideClick", messageProfileReference);
+                    messageProfileOutsideClickAttached = true;
+                }
+            }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not position the chat user profile."); }
+        }
+        else if (messageProfileOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingMessageProfileOutsideClick"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not stop watching the chat user profile."); }
+            messageProfileOutsideClickAttached = false;
         }
 
         if (isOpen && reactionPickerMessageId is not null)
@@ -889,6 +1135,7 @@
         if (showPictureEditor) await ClosePictureEditorAsync();
         subscription?.Dispose();
         currentUserId = resolvedUserId;
+        currentUserIsAdministrator = false;
         showPresencePicker = false;
         showPresenceEditor = false;
         currentUserDisplayName = await ProfilePictures.GetCurrentUserDisplayNameAsync();
@@ -897,10 +1144,13 @@
         subscription = Notifications.Subscribe(resolvedUserId, () => _ = InvokeAsync(RefreshFromNotificationAsync));
         selectedId = null;
         thread = null;
+        collapsedFolderIds.Clear();
+        pinnedChannelsByFolder.Clear();
         pendingNewMessageIds.Clear();
         channelGroups = [];
         conversations = [];
         unreadTotal = 0;
+        hasUnreadAlert = false;
         presenceByUser = new Dictionary<string, UserPresence>();
         pictureVersions = new Dictionary<string, Guid>();
         conversationRefreshVersion++;
@@ -951,16 +1201,24 @@
         var version = ++conversationRefreshVersion;
         var userId = currentUserId;
         var refreshedConversations = await Chat.GetConversationsAsync();
+        var refreshedAdministrator = await Chat.IsCurrentUserAdministratorAsync();
         var refreshedGroups = await Chat.GetChannelGroupsAsync();
         var refreshedPresence = await Presence.GetVisibleAsync();
         var refreshedPictures = await ProfilePictures.GetVersionsAsync();
         if (disposed || version != conversationRefreshVersion || userId != currentUserId) return;
 
         conversations = refreshedConversations;
+        currentUserIsAdministrator = refreshedAdministrator;
         channelGroups = refreshedGroups;
+        collapsedFolderIds.RemoveWhere(id => channelGroups.All(x => x.Id != id));
+        foreach (var (folderId, channelId) in pinnedChannelsByFolder.ToArray())
+            if (!collapsedFolderIds.Contains(folderId) || !IsChannelInFolder(channelId, folderId))
+                pinnedChannelsByFolder.Remove(folderId);
         presenceByUser = refreshedPresence;
         pictureVersions = refreshedPictures;
         unreadTotal = conversations.Sum(x => x.UnreadCount);
+        hasUnreadAlert = conversations.Any(x => x.HasUnreadMention ||
+            (x.Kind == ConversationKind.Direct && x.UnreadCount > 0));
         activityDatesNeedFormatting = true;
     }
 
@@ -984,7 +1242,12 @@
                         var version = ++conversationRefreshVersion;
                         var userId = currentUserId;
                         var total = await Chat.GetTotalUnreadCountAsync(refreshLifetime.Token);
-                        if (version == conversationRefreshVersion && userId == currentUserId) unreadTotal = total;
+                        var hasAlert = await Chat.HasUnreadAlertAsync(refreshLifetime.Token);
+                        if (version == conversationRefreshVersion && userId == currentUserId)
+                        {
+                            unreadTotal = total;
+                            hasUnreadAlert = hasAlert;
+                        }
                         presenceByUser = await Presence.GetVisibleAsync(refreshLifetime.Token);
                     }
                     StateHasChanged();
@@ -1030,12 +1293,17 @@
     private void ToggleSidebar()
     {
         sidebarCollapsed = !sidebarCollapsed;
+        channelActionsId = null;
         reactionPickerMessageId = null;
         CloseTonePicker();
     }
     private void BackToList()
     {
+        channelActionsId = null;
+        draftInputVersion++;
         CloseTonePicker();
+        CloseMessageProfile();
+        mentionMenuOpen = false;
         selectedId = null;
         thread = null;
         showMembers = false;
@@ -1049,9 +1317,81 @@
         error = null;
     }
 
-    private IReadOnlyList<ChatConversationRow> ChannelsInGroup(long? groupId) => conversations
-        .Where(x => x.Kind == ConversationKind.Channel && x.ChannelGroupId == groupId)
-        .OrderBy(x => x.ChannelSortOrder).ThenBy(x => x.Id).ToArray();
+    private sealed record ChannelLayoutItem(ChatChannelGroupRow? Group, ChatConversationRow? Channel,
+        int Depth, long? ParentGroupId, int SortOrder, bool Pinned = false)
+    {
+        public long Id => Group?.Id ?? Channel!.Id;
+        public bool IsFolder => Group is not null;
+    }
+
+    private IReadOnlyList<ChannelLayoutItem> SiblingLayout(long? parentId, int depth = 0) =>
+        channelGroups.Where(x => x.ParentGroupId == parentId)
+            .Select(x => new ChannelLayoutItem(x, null, depth, parentId, x.SortOrder))
+            .Concat(conversations.Where(x => x.Kind == ConversationKind.Channel && x.ChannelGroupId == parentId)
+                .Select(x => new ChannelLayoutItem(null, x, depth, parentId, x.ChannelSortOrder)))
+            .OrderBy(x => x.SortOrder).ThenBy(x => x.IsFolder ? 0 : 1).ThenBy(x => x.Id).ToArray();
+
+    private IReadOnlyList<ChannelLayoutItem> ChannelLayout()
+    {
+        var result = new List<ChannelLayoutItem>();
+        var visited = new HashSet<long>();
+        void Append(long? parentId, int depth)
+        {
+            foreach (var item in SiblingLayout(parentId, depth))
+            {
+                result.Add(item);
+                if (item.Group is not { } group || !visited.Add(group.Id)) continue;
+                if (collapsedFolderIds.Contains(group.Id))
+                {
+                    if (pinnedChannelsByFolder.TryGetValue(group.Id, out var pinnedId) &&
+                        conversations.FirstOrDefault(x => x.Id == pinnedId && x.Kind == ConversationKind.Channel) is { } pinned &&
+                        IsChannelInFolder(pinnedId, group.Id))
+                        result.Add(new ChannelLayoutItem(null, pinned, depth + 1, group.Id,
+                            pinned.ChannelSortOrder, Pinned: true));
+                }
+                else Append(group.Id, depth + 1);
+            }
+        }
+        Append(null, 0);
+        return result;
+    }
+
+    private bool IsChannelInFolder(long channelId, long folderId)
+    {
+        var parentId = conversations.FirstOrDefault(x => x.Id == channelId && x.Kind == ConversationKind.Channel)?.ChannelGroupId;
+        var visited = new HashSet<long>();
+        while (parentId is long id && visited.Add(id))
+        {
+            if (id == folderId) return true;
+            parentId = channelGroups.FirstOrDefault(x => x.Id == id)?.ParentGroupId;
+        }
+        return false;
+    }
+
+    private void ToggleFolderCollapsed(long folderId)
+    {
+        if (!collapsedFolderIds.Add(folderId))
+        {
+            collapsedFolderIds.Remove(folderId);
+            pinnedChannelsByFolder.Remove(folderId);
+            return;
+        }
+        if (selectedId is long channelId && IsChannelInFolder(channelId, folderId))
+            pinnedChannelsByFolder[folderId] = channelId;
+    }
+
+    private void UpdatePinnedChannelsForSelection(long channelId)
+    {
+        var selectedParent = conversations.FirstOrDefault(x => x.Id == channelId && x.Kind == ConversationKind.Channel)?.ChannelGroupId;
+        foreach (var (folderId, pinnedId) in pinnedChannelsByFolder.ToArray())
+        {
+            var pinnedParent = conversations.FirstOrDefault(x => x.Id == pinnedId)?.ChannelGroupId;
+            if (selectedParent is not null && selectedParent == pinnedParent && IsChannelInFolder(channelId, folderId))
+                pinnedChannelsByFolder[folderId] = channelId;
+            else
+                pinnedChannelsByFolder.Remove(folderId);
+        }
+    }
 
     private void StartAddingFolder()
     {
@@ -1077,79 +1417,54 @@
         CancelAddingFolder();
     });
 
-    private void ToggleChannelActions(long channelId) =>
-        channelActionsId = channelActionsId == channelId ? null : channelId;
-
-    private void StartGroupRename(ChatChannelGroupRow group)
+    private Task ToggleChannelActionsAsync(ChatConversationRow row) => RunAsync(async () =>
     {
-        editingGroupId = group.Id;
-        groupNameDraft = group.Name;
-    }
-
-    private void CancelGroupRename() => editingGroupId = null;
-
-    private Task SaveGroupNameAsync() => RunAsync(async () =>
-    {
-        if (editingGroupId is not long groupId) return;
-        await Chat.RenameChannelGroupAsync(groupId, groupNameDraft);
-        editingGroupId = null;
-    });
-
-    private Task DeleteGroupAsync(long groupId) => RunAsync(async () =>
-    {
-        await Chat.DeleteChannelGroupAsync(groupId);
-        confirmDeleteGroupId = null;
-    });
-
-    private bool CanMoveChannel(ChatConversationRow row, int direction)
-    {
-        var channels = ChannelsInGroup(row.ChannelGroupId);
-        var index = Array.FindIndex(channels.ToArray(), x => x.Id == row.Id);
-        return index + direction >= 0 && index + direction < channels.Count;
-    }
-
-    private Task MoveChannelStepAsync(ChatConversationRow row, int direction) => RunAsync(async () =>
-    {
-        var channels = ChannelsInGroup(row.ChannelGroupId);
-        var index = Array.FindIndex(channels.ToArray(), x => x.Id == row.Id);
-        if (index + direction < 0 || index + direction >= channels.Count) return;
-        var beforeId = direction < 0 ? channels[index - 1].Id
-            : index + 2 < channels.Count ? channels[index + 2].Id : (long?)null;
-        await Chat.MoveChannelAsync(row.Id, row.ChannelGroupId, beforeId);
-    });
-
-    private Task MoveChannelToGroupAsync(long channelId, string? value) => RunAsync(async () =>
-    {
-        long? groupId = null;
-        if (!string.IsNullOrEmpty(value))
+        if (channelActionsId == row.Id)
         {
-            if (!long.TryParse(value, out var parsedId))
-                throw new InvalidOperationException("Choose a valid channel group.");
-            groupId = parsedId;
+            channelActionsId = null;
+            return;
         }
-        await Chat.MoveChannelAsync(channelId, groupId, null);
-    });
-
-    private bool CanMoveGroup(ChatChannelGroupRow group, int direction)
-    {
-        var index = Array.FindIndex(channelGroups.ToArray(), x => x.Id == group.Id);
-        return index + direction >= 0 && index + direction < channelGroups.Count;
-    }
-
-    private Task MoveGroupStepAsync(ChatChannelGroupRow group, int direction) => RunAsync(async () =>
-    {
-        var index = Array.FindIndex(channelGroups.ToArray(), x => x.Id == group.Id);
-        if (index + direction < 0 || index + direction >= channelGroups.Count) return;
-        var beforeId = direction < 0 ? channelGroups[index - 1].Id
-            : index + 2 < channelGroups.Count ? channelGroups[index + 2].Id : (long?)null;
-        await Chat.MoveChannelGroupAsync(group.Id, beforeId);
+        var members = await Chat.GetChannelMembersAsync(row.Id);
+        channelRenameDraft = row.Name;
+        channelSettingsAddMemberId = string.Empty;
+        channelSettingsMembers = members;
+        channelActionsId = row.Id;
     });
 
     [JSInvokable]
-    public Task MoveChannelFromDragAsync(long channelId, long? groupId, long? beforeChannelId) =>
+    public Task DismissChannelSettingsAsync() => InvokeAsync(() =>
+    {
+        if (channelActionsId is null) return;
+        channelActionsId = null;
+        StateHasChanged();
+    });
+
+    private Task RenameChannelAsync(long channelId) => RunAsync(async () =>
+    {
+        await Chat.RenameChannelAsync(channelId, channelRenameDraft);
+        if (selectedId == channelId) await LoadThreadAsync(channelId);
+    });
+
+    private Task AddChannelSettingsMemberAsync(long channelId) => RunAsync(async () =>
+    {
+        await Chat.AddPrivateMemberAsync(channelId, channelSettingsAddMemberId);
+        channelSettingsAddMemberId = string.Empty;
+        channelSettingsMembers = await Chat.GetChannelMembersAsync(channelId);
+        if (selectedId == channelId) await LoadThreadAsync(channelId);
+    });
+
+    private Task RemoveChannelSettingsMemberAsync(long channelId, string userId) => RunAsync(async () =>
+    {
+        await Chat.RemovePrivateMemberAsync(channelId, userId);
+        channelSettingsMembers = await Chat.GetChannelMembersAsync(channelId);
+        if (selectedId == channelId) await LoadThreadAsync(channelId);
+    });
+
+    [JSInvokable]
+    public Task MoveLayoutFromDragAsync(bool isFolder, long itemId, long? parentId, bool? beforeIsFolder, long? beforeId) =>
         InvokeAsync(async () =>
         {
-            await RunAsync(() => Chat.MoveChannelAsync(channelId, groupId, beforeChannelId));
+            await RunAsync(() => Chat.MoveLayoutItemAsync(isFolder, itemId, parentId, beforeIsFolder, beforeId));
             StateHasChanged();
         });
 
@@ -1162,18 +1477,28 @@
     private void CancelNewChannel()
     {
         channelName = string.Empty;
+        newChannelGroupId = null;
         channelVisibility = ChannelVisibility.Public;
         initialMembers.Clear();
         ChangeView(ChatView.Channels);
     }
 
+    private void StartNewChannel(long? groupId)
+    {
+        newChannelGroupId = groupId;
+        ChangeView(ChatView.NewChannel);
+    }
+
     private async Task OpenThreadAsync(long id)
     {
+        channelActionsId = null;
         CloseTonePicker();
+        CloseMessageProfile();
         error = null;
         selectedId = id;
         showMembers = false;
         await LoadThreadAsync(id);
+        if (selectedId == id) UpdatePinnedChannelsForSelection(id);
     }
 
     private async Task LoadThreadAsync(long id)
@@ -1255,6 +1580,100 @@
         await OpenThreadAsync(id);
     });
 
+    private void ToggleMessageProfile(string userId, string name, string anchorKey)
+    {
+        if (profileUserId == userId && profileAnchorKey == anchorKey)
+        {
+            CloseMessageProfile();
+            return;
+        }
+        profileUserId = userId;
+        profileUserName = name;
+        profileAnchorKey = anchorKey;
+        profileDraft = string.Empty;
+        reactionPickerMessageId = null;
+        CloseTonePicker();
+    }
+
+    private static string SenderAnchorKey(long messageId) => $"sender-{messageId}";
+    private static string MemberAnchorKey(string userId) => $"member-{userId}";
+
+    private RenderFragment RenderDraftBody() => builder =>
+    {
+        if (thread?.Conversation.Kind != ConversationKind.Channel) return;
+        var body = ChatMentionParser.NormalizeTags(draft, thread.Members);
+        var parts = ChatMentionParser.GetParts(body, ChatMentionParser.FindTokens(body, thread.Members));
+        var sequence = 0;
+        foreach (var part in parts)
+        {
+            if (!part.IsTag)
+            {
+                builder.AddContent(sequence++, part.Text);
+                continue;
+            }
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "chat-message-tag");
+            builder.AddContent(sequence++, part.Text);
+            builder.CloseElement();
+        }
+    };
+
+    private RenderFragment RenderMessageBody(ChatMessageRow message) => builder =>
+    {
+        if (message.IsDeleted)
+        {
+            builder.AddContent(0, "Message deleted");
+            return;
+        }
+
+        for (var index = 0; index < message.Parts.Count; index++)
+        {
+            var part = message.Parts[index];
+            if (!part.IsTag)
+            {
+                builder.AddContent(1, part.Text);
+                continue;
+            }
+
+            if (part.UserId is null)
+            {
+                builder.OpenElement(2, "span");
+                builder.AddAttribute(3, "class", "chat-message-tag");
+                builder.AddContent(4, part.Text);
+                builder.CloseElement();
+                continue;
+            }
+
+            var anchorKey = $"tag-{message.Id}-{index}";
+            builder.OpenElement(5, "button");
+            builder.AddAttribute(6, "type", "button");
+            builder.AddAttribute(7, "class", "chat-message-tag chat-message-user-tag");
+            builder.AddAttribute(8, "data-chat-profile-anchor", anchorKey);
+            builder.AddAttribute(9, "aria-haspopup", "dialog");
+            builder.AddAttribute(10, "aria-controls", "chat-user-popover");
+            builder.AddAttribute(11, "aria-expanded", profileAnchorKey == anchorKey);
+            builder.AddAttribute(12, "onclick", EventCallback.Factory.Create(this,
+                () => ToggleMessageProfile(part.UserId, part.Name!, anchorKey)));
+            builder.AddContent(13, part.Text);
+            builder.CloseElement();
+        }
+    };
+
+    private void CloseMessageProfile()
+    {
+        profileUserId = null;
+        profileAnchorKey = null;
+        profileDraft = string.Empty;
+    }
+
+    [JSInvokable]
+    public Task DismissMessageProfileAsync() => InvokeAsync(() =>
+    {
+        if (profileUserId is null) return;
+        CloseMessageProfile();
+        StateHasChanged();
+    });
+
     private Task OpenDirectFromMessageAsync(string senderUserId) => RunAsync(async () =>
     {
         var id = await Chat.OpenDirectAsync(senderUserId);
@@ -1263,11 +1682,29 @@
         await OpenThreadAsync(id);
     });
 
+    private Task SendMessageProfileAsync() => RunAsync(async () =>
+    {
+        if (profileUserId is null || string.IsNullOrWhiteSpace(profileDraft)) return;
+        var id = await Chat.OpenDirectAsync(profileUserId);
+        await Chat.SendAsync(id, profileDraft);
+        reactionPickerMessageId = null;
+        view = ChatView.Conversations;
+        await OpenThreadAsync(id);
+        scrollToLatestAfterRender = true;
+    });
+
     private Task CreateChannelAsync() => RunAsync(async () =>
     {
-        var id = await Chat.CreateChannelAsync(channelName, channelVisibility, initialMembers);
+        var destinationId = newChannelGroupId;
+        var id = await Chat.CreateChannelAsync(channelName, channelVisibility, initialMembers, destinationId);
         channelName = string.Empty;
+        newChannelGroupId = null;
         initialMembers.Clear();
+        if (destinationId is long folderId)
+        {
+            collapsedFolderIds.Remove(folderId);
+            pinnedChannelsByFolder.Remove(folderId);
+        }
         view = ChatView.Channels;
         await OpenThreadAsync(id);
     });
@@ -1277,21 +1714,115 @@
         await Chat.AddPrivateMemberAsync(selectedId!.Value, addMemberId);
         addMemberId = string.Empty;
         await LoadThreadAsync(selectedId.Value);
+        if (channelActionsId == selectedId)
+            channelSettingsMembers = await Chat.GetChannelMembersAsync(selectedId.Value);
     });
 
     private Task RemoveMemberAsync(string userId) => RunAsync(async () =>
     {
         await Chat.RemovePrivateMemberAsync(selectedId!.Value, userId);
         await LoadThreadAsync(selectedId.Value);
+        if (channelActionsId == selectedId)
+            channelSettingsMembers = await Chat.GetChannelMembersAsync(selectedId.Value);
     });
 
     private Task SendAsync() => RunAsync(async () =>
     {
         await Chat.SendAsync(selectedId!.Value, draft);
+        draftInputVersion++;
         draft = string.Empty;
+        mentionMenuOpen = false;
         scrollToLatestAfterRender = true;
         await LoadThreadAsync(selectedId.Value);
     });
+
+    private IReadOnlyList<MentionOption> MentionOptions
+    {
+        get
+        {
+            if (thread?.Conversation.Kind != ConversationKind.Channel) return [];
+            var options = new List<MentionOption>
+            {
+                new("everyone", "All channel members"),
+                new("here", "Members currently online")
+            };
+            foreach (var member in thread.Members)
+            {
+                var tag = ChatMentionParser.TagForMember(member, thread.Members);
+                options.Add(new MentionOption(tag, member.Name));
+            }
+            return options.Where(x => x.Tag.Contains(mentionQuery, StringComparison.OrdinalIgnoreCase)
+                    || (x.Description?.Contains(mentionQuery, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToArray();
+        }
+    }
+
+    private async Task HandleDraftInputAsync(ChangeEventArgs args)
+    {
+        var inputVersion = ++draftInputVersion;
+        var rawDraft = args.Value?.ToString() ?? string.Empty;
+        draft = rawDraft;
+        if (thread?.Conversation.Kind == ConversationKind.Channel)
+        {
+            var normalized = ChatMentionParser.NormalizeTags(rawDraft, thread.Members);
+            if (normalized != rawDraft)
+            {
+                try
+                {
+                    if (await JS.InvokeAsync<bool>("confastChatTime.normalizeDraftText", rawDraft, normalized)
+                        && inputVersion == draftInputVersion)
+                        draft = normalized;
+                }
+                catch (JSDisconnectedException) { }
+                catch (JSException ex) { Logger.LogWarning(ex, "Could not normalize chat tags in the draft."); }
+            }
+        }
+        await UpdateMentionQueryAsync();
+    }
+
+    private Task HandleDraftCaretAsync() => UpdateMentionQueryAsync();
+
+    private async Task HandleDraftClickAsync()
+    {
+        await MarkCurrentConversationReadAsync();
+        await UpdateMentionQueryAsync();
+    }
+
+    private async Task UpdateMentionQueryAsync()
+    {
+        if (thread?.Conversation.Kind != ConversationKind.Channel)
+        {
+            mentionMenuOpen = false;
+            return;
+        }
+        try
+        {
+            var availableTags = thread.Members.SelectMany(member => new[]
+            {
+                ChatMentionParser.TagForMember(member, thread.Members), member.Name
+            }).ToArray();
+            var query = await JS.InvokeAsync<MentionQuery?>("confastChatTime.getMentionQuery", new object?[] { availableTags });
+            mentionMenuOpen = query is not null;
+            mentionQuery = query?.Query ?? string.Empty;
+            mentionStart = query?.Start ?? 0;
+        }
+        catch (JSDisconnectedException) { mentionMenuOpen = false; }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not inspect the chat mention query."); }
+    }
+
+    private async Task SelectMentionAsync(string tag)
+    {
+        try
+        {
+            var updated = await JS.InvokeAsync<string?>("confastChatTime.insertMention", mentionStart, tag);
+            if (updated is null) return;
+            draftInputVersion++;
+            draft = updated;
+            mentionMenuOpen = false;
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not insert the chat mention."); }
+    }
 
     private Task DeleteMessageAsync(long id) => RunAsync(async () =>
     {
@@ -1583,7 +2114,7 @@
 
     private string GetMessageTime(ChatMessageRow message) =>
         localMessageTimes.GetValueOrDefault(message.Id,
-            message.SentAtUtc.ToString("MMM d, h:mm tt") + " UTC");
+            message.SentAtUtc.ToString("MMM d, h:mm tt"));
 
     private string? PictureUrl(string? userId) =>
         userId is not null && pictureVersions.TryGetValue(userId, out var version)
@@ -1683,6 +2214,9 @@
 
     private string PresenceClass(string? userId) =>
         "chat-presence-" + (PresenceOf(userId)?.State ?? UserPresenceState.Offline).ToString().ToLowerInvariant();
+
+    private bool IsMemberOnline(string userId) => PresenceOf(userId)?.State is
+        UserPresenceState.Online or UserPresenceState.Idle or UserPresenceState.DoNotDisturb;
 
     private string PresenceDescription(string? userId)
     {
@@ -1803,6 +2337,18 @@
             catch (JSDisconnectedException) { }
             catch (JSException) { }
         }
+        if (messageProfileOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingMessageProfileOutsideClick"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException) { }
+        }
+        if (channelSettingsOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingChannelSettingsOutsideClick"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException) { }
+        }
         if (profileEditorOutsideClickAttached)
         {
             try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingProfileEditorOutsideClick"); }
@@ -1816,6 +2362,8 @@
             catch (JSException) { }
         }
         reactionPickerReference?.Dispose();
+        messageProfileReference?.Dispose();
+        channelSettingsReference?.Dispose();
         profileEditorReference?.Dispose();
         statusEmojiPickerReference?.Dispose();
         channelDragReference?.Dispose();

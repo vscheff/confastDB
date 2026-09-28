@@ -7,16 +7,22 @@ public static class ChatMapping
     public static void Configure(ModelBuilder model)
     {
         var group = model.Entity<ChatChannelGroup>();
-        group.ToTable("chat_channel_groups", t => t.HasCheckConstraint(
-            "CK_chat_channel_groups_name", "btrim(name) <> ''"));
+        group.ToTable("chat_channel_groups", t =>
+        {
+            t.HasCheckConstraint("CK_chat_channel_groups_name", "btrim(name) <> ''");
+            t.HasCheckConstraint("CK_chat_channel_groups_parent", "parent_group_id IS NULL OR parent_group_id <> id");
+        });
         group.HasKey(x => x.Id);
         group.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         group.Property(x => x.Name).HasColumnName("name").HasMaxLength(120);
+        group.Property(x => x.ParentGroupId).HasColumnName("parent_group_id");
         group.Property(x => x.SortOrder).HasColumnName("sort_order");
         group.Property(x => x.CreatedByUserId).HasColumnName("created_by_user_id");
         group.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         group.HasOne(x => x.CreatedByUser).WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        group.HasOne(x => x.ParentGroup).WithMany(x => x.ChildGroups).HasForeignKey(x => x.ParentGroupId).OnDelete(DeleteBehavior.Restrict);
         group.HasIndex(x => new { x.SortOrder, x.Id });
+        group.HasIndex(x => new { x.ParentGroupId, x.SortOrder, x.Id });
         group.HasIndex(x => x.Name);
 
         var conversation = model.Entity<Conversation>();
@@ -75,6 +81,28 @@ public static class ChatMapping
         message.HasIndex(x => new { x.ConversationId, x.Id });
         message.HasIndex(x => x.SenderUserId);
         message.HasIndex(x => x.DeletedByUserId);
+
+        var mention = model.Entity<ChatMessageMention>();
+        mention.ToTable("chat_message_mentions");
+        mention.HasKey(x => new { x.MessageId, x.UserId });
+        mention.Property(x => x.MessageId).HasColumnName("message_id");
+        mention.Property(x => x.UserId).HasColumnName("user_id");
+        mention.HasOne(x => x.Message).WithMany(x => x.Mentions).HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        mention.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        mention.HasIndex(x => x.UserId);
+
+        var tag = model.Entity<ChatMessageTag>();
+        tag.ToTable("chat_message_tags", table => table.HasCheckConstraint("CK_chat_message_tags_shape",
+            "start >= 0 AND length > 0 AND ((kind = 0 AND user_id IS NOT NULL) OR (kind IN (1, 2) AND user_id IS NULL))"));
+        tag.HasKey(x => new { x.MessageId, x.Start });
+        tag.Property(x => x.MessageId).HasColumnName("message_id");
+        tag.Property(x => x.Start).HasColumnName("start");
+        tag.Property(x => x.Length).HasColumnName("length");
+        tag.Property(x => x.Kind).HasColumnName("kind");
+        tag.Property(x => x.UserId).HasColumnName("user_id");
+        tag.HasOne(x => x.Message).WithMany(x => x.Tags).HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        tag.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        tag.HasIndex(x => x.UserId);
 
         var reaction = model.Entity<ChatMessageReaction>();
         reaction.ToTable("chat_message_reactions");

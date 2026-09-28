@@ -99,7 +99,6 @@ public sealed class UserPresenceServiceTests(PostgresTestDatabase database) : IA
         var (first, _) = await UsersAsync();
         var service = Service(first);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.SetPreferenceAsync((UserPresencePreference)3));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.SetPreferenceAsync((UserPresencePreference)5));

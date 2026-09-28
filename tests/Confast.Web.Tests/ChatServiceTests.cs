@@ -156,6 +156,74 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
     }
 
     [Fact]
+    public async Task CreateChannelInFolder_AssignsDestinationAndRequiresFolderAccess()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var ownerChat = Service(owner);
+        var folderId = await ownerChat.CreateChannelGroupAsync("Operations");
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(member).CreateChannelAsync("Not allowed", ChannelVisibility.Private, [], folderId));
+        Assert.Empty(await Service(member).GetConversationsAsync());
+
+        var channelId = await ownerChat.CreateChannelAsync("New channel", ChannelVisibility.Private, [member], folderId);
+        Assert.Equal(folderId, (await ownerChat.GetConversationsAsync()).Single(x => x.Id == channelId).ChannelGroupId);
+        Assert.Equal(folderId, Assert.Single(await Service(member).GetChannelGroupsAsync()).Id);
+    }
+
+    [Fact]
+    public async Task NestedFolders_PersistOrderAndRejectCycles()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var chat = Service(owner);
+        var first = await chat.CreateChannelAsync("First", ChannelVisibility.Private, [member]);
+        var second = await chat.CreateChannelAsync("Second", ChannelVisibility.Private, [member]);
+        var parent = await chat.CreateChannelGroupAsync("Parent", first);
+        var child = await chat.CreateChannelGroupAsync("Child", parentGroupId: parent);
+        var grandchild = await chat.CreateChannelGroupAsync("Grandchild", parentGroupId: child);
+        await chat.MoveLayoutItemAsync(false, second, grandchild, null, null);
+        await chat.MoveLayoutItemAsync(true, child, parent, false, first);
+
+        var groups = await Service(member).GetChannelGroupsAsync();
+        Assert.Equal(parent, groups.Single(x => x.Id == child).ParentGroupId);
+        Assert.Equal(child, groups.Single(x => x.Id == grandchild).ParentGroupId);
+        Assert.True(groups.Single(x => x.Id == child).SortOrder <
+            (await chat.GetConversationsAsync()).Single(x => x.Id == first).ChannelSortOrder);
+        Assert.Equal(grandchild, (await chat.GetConversationsAsync()).Single(x => x.Id == second).ChannelGroupId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            chat.MoveLayoutItemAsync(true, parent, grandchild, null, null));
+        Assert.Null((await chat.GetChannelGroupsAsync()).Single(x => x.Id == parent).ParentGroupId);
+    }
+
+    [Fact]
+    public async Task NestedFolders_HidePrivateBranchesAndPromoteChildrenOnDelete()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var chat = Service(owner);
+        var shared = await chat.CreateChannelAsync("Shared", ChannelVisibility.Private, [member]);
+        var hidden = await chat.CreateChannelAsync("Hidden", ChannelVisibility.Private, [outsider]);
+        var parent = await chat.CreateChannelGroupAsync("Parent");
+        var visibleChild = await chat.CreateChannelGroupAsync("Visible", shared, parent);
+        var hiddenChild = await chat.CreateChannelGroupAsync("Hidden folder", hidden, parent);
+
+        var memberGroups = await Service(member).GetChannelGroupsAsync();
+        Assert.Contains(memberGroups, x => x.Id == parent && !x.CanManage);
+        Assert.Contains(memberGroups, x => x.Id == visibleChild);
+        Assert.DoesNotContain(memberGroups, x => x.Id == hiddenChild);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Service(member).CreateChannelGroupAsync("Parent"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(member).MoveLayoutItemAsync(true, parent, null, null, null));
+
+        await chat.DeleteChannelGroupAsync(parent);
+        var ownerGroups = await chat.GetChannelGroupsAsync();
+        Assert.DoesNotContain(ownerGroups, x => x.Id == parent);
+        Assert.All(ownerGroups.Where(x => x.Id == visibleChild || x.Id == hiddenChild),
+            x => Assert.Null(x.ParentGroupId));
+        Assert.Equal(visibleChild, (await chat.GetConversationsAsync()).Single(x => x.Id == shared).ChannelGroupId);
+    }
+
+    [Fact]
     public async Task PublicChannel_IncludesAllActiveUsersAndEnrollsNewUsersAutomatically()
     {
         var (owner, member, outsider) = await UsersAsync();
@@ -199,6 +267,71 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
     }
 
     [Fact]
+    public async Task PrivateChannelSettings_RequireMembershipAndOwnerForChanges()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var ownerService = Service(owner);
+        var id = await ownerService.CreateChannelAsync("Initial", ChannelVisibility.Private, [member]);
+
+        Assert.Equal(new[] { owner, member }.OrderBy(x => x), (await Service(member).GetChannelMembersAsync(id))
+            .Select(x => x.Id).OrderBy(x => x));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).GetChannelMembersAsync(id));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(member).RenameChannelAsync(id, "Wrong"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).RenameChannelAsync(id, "Wrong"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ownerService.RenameChannelAsync(id, " "));
+
+        await ownerService.RenameChannelAsync(id, "  Revised  ");
+        Assert.Equal("Revised", (await Service(member).GetConversationsAsync()).Single().Name);
+        await ownerService.AddPrivateMemberAsync(id, outsider);
+        Assert.Equal(3, (await ownerService.GetChannelMembersAsync(id)).Count);
+        await ownerService.RemovePrivateMemberAsync(id, outsider);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).GetChannelMembersAsync(id));
+
+        var directId = await ownerService.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ownerService.RenameChannelAsync(directId, "Wrong"));
+    }
+
+    [Fact]
+    public async Task Administrator_CanRenameChannelsWithoutOwningThem()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var ownerService = Service(owner);
+        var channelId = await ownerService.CreateChannelAsync("First name", ChannelVisibility.Public, []);
+        var privateChannelId = await Service(outsider).CreateChannelAsync("Private name", ChannelVisibility.Private, []);
+        Assert.False((await Service(member).GetConversationsAsync()).Single().IsOwner);
+        Assert.False(await Service(member).IsCurrentUserAdministratorAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(member).RenameChannelAsync(channelId, "Not allowed"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(member).RenameChannelAsync(privateChannelId, "Not allowed"));
+
+        await using (var db = database.CreateDbContext())
+        {
+            db.UserRoles.Add(new()
+            {
+                UserId = member,
+                RoleId = db.Roles.Single(x => x.Name == AppRoles.Administrator).Id
+            });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.True(await Service(member).IsCurrentUserAdministratorAsync());
+        await Service(member).RenameChannelAsync(channelId, "  Updated by administrator  ");
+        Assert.Equal("Updated by administrator", (await Service(owner).GetConversationsAsync()).Single().Name);
+        await Service(member).RenameChannelAsync(privateChannelId, "Updated private name");
+        Assert.Equal("Updated private name", (await Service(outsider).GetConversationsAsync())
+            .Single(x => x.Id == privateChannelId).Name);
+
+        await using (var db = database.CreateDbContext())
+        {
+            db.UserRoles.Remove(db.UserRoles.Single(x => x.UserId == member));
+            await db.SaveChangesAsync();
+        }
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(member).RenameChannelAsync(channelId, "After role removal"));
+    }
+
+    [Fact]
     public async Task Messages_TrackUnreadAndReadProgressAndKeepDeletedAudit()
     {
         var (owner, member, _) = await UsersAsync();
@@ -207,10 +340,13 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var id = await sender.OpenDirectAsync(member);
         var messageId = await sender.SendAsync(id, "Hello");
         Assert.Equal(1, (await recipient.GetConversationsAsync()).Single().UnreadCount);
+        Assert.True(await recipient.HasUnreadAlertAsync());
+        Assert.False(await sender.HasUnreadAlertAsync());
         Assert.Equal(0, (await sender.GetConversationsAsync()).Single().UnreadCount);
         Assert.Equal("Hello", (await recipient.GetThreadAsync(id)).Messages.Single().Body);
         await recipient.MarkReadAsync(id, messageId);
         Assert.Equal(0, (await recipient.GetConversationsAsync()).Single().UnreadCount);
+        Assert.False(await recipient.HasUnreadAlertAsync());
         var secondMessageId = await sender.SendAsync(id, "Again");
         await Task.WhenAll(
             recipient.MarkReadAsync(id, secondMessageId),
@@ -226,6 +362,130 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Equal("Hello", stored!.Body);
         Assert.NotNull(stored.DeletedAtUtc);
         Assert.Equal(owner, stored.DeletedByUserId);
+    }
+
+    [Fact]
+    public async Task ChannelMentions_OnlyTargetMembers_AndUnreadBadgesPreferMentions()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channelId = await sender.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+
+        await sender.SendAsync(channelId, "Normal update");
+        var row = Assert.Single(await recipient.GetConversationsAsync());
+        Assert.Equal(1, row.UnreadCount);
+        Assert.False(row.HasUnreadMention);
+        Assert.False(await recipient.HasUnreadAlertAsync());
+
+        var taggedMessageId = await sender.SendAsync(channelId, "Please check this, @mEmBeR");
+        row = Assert.Single(await recipient.GetConversationsAsync());
+        Assert.Equal(2, row.UnreadCount);
+        Assert.True(row.HasUnreadMention);
+        Assert.True(await recipient.HasUnreadAlertAsync());
+        Assert.True(await recipient.HasUnreadMentionAsync());
+        Assert.False(await Service(outsider).HasUnreadMentionAsync());
+        var tagged = (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == taggedMessageId);
+        Assert.Equal("Please check this, @Member", tagged.Body);
+        Assert.Contains(tagged.Parts, part => part.IsTag && part.UserId == member && part.Text == "@Member");
+
+        await recipient.MarkReadAsync(channelId, taggedMessageId);
+        Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        Assert.False(await recipient.HasUnreadAlertAsync());
+        var outsiderMessageId = await sender.SendAsync(channelId, "@Outsider cannot be tagged here");
+        Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        var outsiderMessage = (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == outsiderMessageId);
+        Assert.DoesNotContain(outsiderMessage.Parts, part => part.IsTag);
+
+        var everyoneId = await sender.SendAsync(channelId, "@EvErYoNe please review");
+        Assert.Equal("@everyone please review", (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == everyoneId).Body);
+        Assert.True((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        await sender.DeleteOwnMessageAsync(everyoneId);
+        Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+
+        var editableId = await sender.SendAsync(channelId, "Initial text");
+        await sender.EditOwnMessageAsync(editableId, "Now tagged: @mEmBeR");
+        Assert.Equal("Now tagged: @Member", (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == editableId).Body);
+        Assert.True((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        await sender.EditOwnMessageAsync(editableId, "No tag now");
+        Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+    }
+
+    [Fact]
+    public async Task HereMentions_UseLiveVisiblePresenceAtSendTime()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channelId = await sender.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+
+        var offlineId = await sender.SendAsync(channelId, "@here offline");
+        Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        await recipient.MarkReadAsync(channelId, offlineId);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var now = DateTime.UtcNow;
+            db.UserPresenceSessions.Add(new UserPresenceSession
+            {
+                Id = Guid.NewGuid(), UserId = member, LastHeartbeatAtUtc = now,
+                LastActivityAtUtc = now
+            });
+            await db.SaveChangesAsync();
+        }
+        var onlineId = await sender.SendAsync(channelId, "@here online");
+        Assert.True((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        await recipient.MarkReadAsync(channelId, onlineId);
+
+        await using (var db = database.CreateDbContext())
+        {
+            var user = await db.Users.FindAsync(member);
+            user!.PresencePreference = UserPresencePreference.Invisible;
+            await db.SaveChangesAsync();
+        }
+        await sender.SendAsync(channelId, "@here invisible");
+        Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+    }
+
+    [Fact]
+    public async Task SavedTagStillTargetsOriginalUserAfterChannelMembershipAndNamesChange()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var channelId = await sender.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+        var messageId = await sender.SendAsync(channelId, "Check with @Member");
+
+        await sender.RemovePrivateMemberAsync(channelId, member);
+        await using (var db = database.CreateDbContext())
+        {
+            (await db.Users.FindAsync(member))!.DisplayName = "Renamed";
+            (await db.Users.FindAsync(outsider))!.DisplayName = "Member";
+            await db.SaveChangesAsync();
+        }
+        await sender.AddPrivateMemberAsync(channelId, outsider);
+
+        var message = (await sender.GetThreadAsync(channelId)).Messages.Single(x => x.Id == messageId);
+        var tag = Assert.Single(message.Parts, x => x.IsTag);
+        Assert.Equal("@Member", tag.Text);
+        Assert.Equal(member, tag.UserId);
+        Assert.Equal("Renamed", tag.Name);
+    }
+
+    [Fact]
+    public async Task EarlierMentionRecipientsCanStillRenderTheirTag()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var channelId = await sender.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+        var messageId = await sender.SendAsync(channelId, "Check with @Member");
+        await using (var db = database.CreateDbContext())
+        {
+            db.ChatMessageTags.RemoveRange(db.ChatMessageTags.Where(x => x.MessageId == messageId));
+            await db.SaveChangesAsync();
+        }
+
+        var message = (await sender.GetThreadAsync(channelId)).Messages.Single(x => x.Id == messageId);
+        Assert.Contains(message.Parts, part => part.IsTag && part.UserId == member);
     }
 
     [Fact]
