@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260929150005_PersistManualChatUnread")]
+    partial class PersistManualChatUnread
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -125,14 +128,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("edited_at_utc");
 
-                    b.Property<DateTime?>("PinnedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("pinned_at_utc");
-
-                    b.Property<string>("PinnedByUserId")
-                        .HasColumnType("text")
-                        .HasColumnName("pinned_by_user_id");
-
                     b.Property<long?>("ReplyToMessageId")
                         .HasColumnType("bigint")
                         .HasColumnName("reply_to_message_id");
@@ -153,22 +148,15 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasIndex("DeletedByUserId");
 
-                    b.HasIndex("PinnedByUserId");
-
                     b.HasIndex("SenderUserId");
 
                     b.HasIndex("ConversationId", "Id");
-
-                    b.HasIndex("ConversationId", "PinnedAtUtc")
-                        .HasFilter("pinned_at_utc IS NOT NULL");
 
                     b.HasIndex("ConversationId", "ReplyToMessageId");
 
                     b.ToTable("chat_messages", null, t =>
                         {
                             t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
-
-                            t.HasCheckConstraint("CK_chat_messages_pin", "(pinned_at_utc IS NULL) = (pinned_by_user_id IS NULL) AND (deleted_at_utc IS NULL OR pinned_at_utc IS NULL)");
                         });
                 });
 
@@ -3579,11 +3567,6 @@ namespace Confast.Web.Data.Migrations
                         .HasForeignKey("DeletedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "PinnedByUser")
-                        .WithMany()
-                        .HasForeignKey("PinnedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "SenderUser")
                         .WithMany()
                         .HasForeignKey("SenderUserId")
@@ -3598,8 +3581,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("Conversation");
 
                     b.Navigation("DeletedByUser");
-
-                    b.Navigation("PinnedByUser");
 
                     b.Navigation("ReplyToMessage");
 

@@ -1,6 +1,92 @@
 window.confastChatTime = {
     conversationScrollPositions: new Map(),
     lastInsertedMention: null,
+    attachSidebarResize(userId) {
+        const body = document.querySelector(".chat-panel-body");
+        const edge = body?.querySelector(".chat-sidebar-resize-edge");
+        if (!body || !edge) return false;
+        this.stopSidebarResize();
+
+        const minimum = 200;
+        const storageKey = `confast.chat.sidebarWidth.${userId}`;
+        let preferredWidth = 270;
+        try {
+            const saved = Number(localStorage.getItem(storageKey));
+            if (Number.isFinite(saved) && saved >= minimum && saved <= 480) preferredWidth = saved;
+        } catch { /* Resizing still works when browser storage is unavailable. */ }
+
+        const maximum = () => {
+            const members = body.querySelector(".chat-members-sidebar");
+            const membersWidth = members && getComputedStyle(members).position !== "absolute"
+                ? members.getBoundingClientRect().width : 0;
+            return Math.max(minimum, Math.min(480, body.clientWidth - membersWidth - 200));
+        };
+        const applyWidth = width => {
+            const max = maximum();
+            const actual = Math.max(minimum, Math.min(max, Math.round(width)));
+            body.style.setProperty("--chat-sidebar-width", `${actual}px`);
+            edge.setAttribute("aria-valuenow", String(actual));
+            edge.setAttribute("aria-valuemax", String(max));
+            return actual;
+        };
+        const save = () => {
+            try { localStorage.setItem(storageKey, String(preferredWidth)); }
+            catch { /* Keep the width for this open chat session. */ }
+        };
+        let draggingPointerId = null;
+        const onPointerDown = event => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            draggingPointerId = event.pointerId;
+            edge.setPointerCapture(event.pointerId);
+            body.classList.add("chat-sidebar-resizing");
+        };
+        const onPointerMove = event => {
+            if (event.pointerId !== draggingPointerId) return;
+            preferredWidth = applyWidth(event.clientX - body.getBoundingClientRect().left);
+        };
+        const onPointerUp = event => {
+            if (event.pointerId !== draggingPointerId) return;
+            draggingPointerId = null;
+            body.classList.remove("chat-sidebar-resizing");
+            if (edge.hasPointerCapture(event.pointerId)) edge.releasePointerCapture(event.pointerId);
+            save();
+        };
+        const onKeyDown = event => {
+            const current = Number(edge.getAttribute("aria-valuenow"));
+            const next = event.key === "ArrowLeft" ? current - 10
+                : event.key === "ArrowRight" ? current + 10
+                : event.key === "Home" ? minimum
+                : event.key === "End" ? maximum() : null;
+            if (next === null) return;
+            event.preventDefault();
+            preferredWidth = applyWidth(next);
+            save();
+        };
+        const controller = new AbortController();
+        edge.addEventListener("pointerdown", onPointerDown, { signal: controller.signal });
+        edge.addEventListener("pointermove", onPointerMove, { signal: controller.signal });
+        edge.addEventListener("pointerup", onPointerUp, { signal: controller.signal });
+        edge.addEventListener("pointercancel", onPointerUp, { signal: controller.signal });
+        edge.addEventListener("keydown", onKeyDown, { signal: controller.signal });
+        window.addEventListener("resize", () => applyWidth(preferredWidth), { signal: controller.signal });
+        const observer = new MutationObserver(() => applyWidth(preferredWidth));
+        observer.observe(body, { childList: true });
+        body.classList.add("chat-sidebar-resizing");
+        applyWidth(preferredWidth);
+        requestAnimationFrame(() => body.classList.remove("chat-sidebar-resizing"));
+        this.sidebarResizeCleanup = () => {
+            save();
+            observer.disconnect();
+            controller.abort();
+            body.classList.remove("chat-sidebar-resizing");
+        };
+        return true;
+    },
+    stopSidebarResize() {
+        this.sidebarResizeCleanup?.();
+        this.sidebarResizeCleanup = null;
+    },
     formatMessageTimes(utcValues) {
         const formatter = new Intl.DateTimeFormat(undefined, {
             month: "short",
@@ -9,6 +95,24 @@ window.confastChatTime = {
             minute: "2-digit"
         });
         return utcValues.map(value => formatter.format(new Date(value)));
+    },
+    formatMessageDates(utcValues) {
+        const formatter = new Intl.DateTimeFormat(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric"
+        });
+        const timeFormatter = new Intl.DateTimeFormat(undefined, {
+            hour: "numeric",
+            minute: "2-digit"
+        });
+        const pad = value => String(value).padStart(2, "0");
+        return utcValues.map(value => {
+            const date = new Date(value);
+            const key = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+            return [key, formatter.format(date), timeFormatter.format(date)];
+        });
     },
     formatActivityDates(utcValues) {
         const formatter = new Intl.DateTimeFormat(undefined, {
@@ -239,7 +343,7 @@ window.confastChatTime = {
 
         sidebar.addEventListener("pointerdown", event => {
             if (event.button !== 0) return;
-            if (event.target.closest(".chat-channel-settings, .chat-folder-chevron, .chat-folder-add, .chat-channel-action-toggle")) return;
+            if (event.target.closest(".chat-channel-settings, .chat-folder-rename, .chat-folder-add, .chat-channel-action-toggle")) return;
             const sourceRow = event.target.closest(".chat-layout-row[data-chat-drag-kind]");
             if (!sourceRow || !scroll.contains(sourceRow)) return;
             if (sourceRow.dataset.chatDragKind !== "folder" && sourceRow.dataset.chatDragKind !== "channel") return;
@@ -408,6 +512,62 @@ window.confastChatTime = {
         document.removeEventListener("pointerdown", this.reactionPickerOutsideClick, true);
         this.reactionPickerOutsideClick = null;
     },
+    positionMessageActions(messageId) {
+        const menu = document.getElementById(`chat-message-more-${messageId}`);
+        const trigger = document.querySelector(`[data-chat-more-trigger="${messageId}"]`);
+        const panel = document.querySelector(".chat-panel");
+        if (!menu || !trigger || !panel) return;
+        const boundary = panel.getBoundingClientRect();
+        const anchor = trigger.getBoundingClientRect();
+        const margin = 8;
+        const width = menu.offsetWidth;
+        const height = menu.offsetHeight;
+        const left = Math.max(boundary.left + margin,
+            Math.min(anchor.right - width, boundary.right - width - margin));
+        const below = anchor.bottom + 5;
+        const above = anchor.top - height - 5;
+        const top = below + height <= boundary.bottom - margin ? below
+            : above >= boundary.top + margin ? above
+            : Math.max(boundary.top + margin, boundary.bottom - height - margin);
+        menu.style.left = `${Math.round(left)}px`;
+        menu.style.top = `${Math.round(top)}px`;
+        menu.style.visibility = "visible";
+    },
+    focusMessageActions(messageId) {
+        document.getElementById(`chat-message-more-${messageId}`)?.querySelector("button")?.focus();
+    },
+    watchMessageActionsOutsideClick(dotNetReference) {
+        if (this.messageActionsWatch) return;
+        const dismiss = () => dotNetReference.invokeMethodAsync("DismissMessageActionsAsync");
+        const onDown = event => {
+            if (event.target instanceof Element && event.target.closest(
+                ".chat-message-more-menu, .chat-more-action")) return;
+            dismiss();
+        };
+        const onKey = event => {
+            if (event.key === "Escape") {
+                event.preventDefault();
+                const trigger = document.querySelector(".chat-more-action[aria-expanded='true']");
+                dismiss().then(() => trigger?.focus());
+            }
+        };
+        const history = document.getElementById("chat-message-history");
+        document.addEventListener("pointerdown", onDown, true);
+        document.addEventListener("keydown", onKey, true);
+        history?.addEventListener("scroll", dismiss, { passive: true });
+        this.messageActionsWatch = () => {
+            document.removeEventListener("pointerdown", onDown, true);
+            document.removeEventListener("keydown", onKey, true);
+            history?.removeEventListener("scroll", dismiss);
+        };
+    },
+    stopWatchingMessageActionsOutsideClick() {
+        this.messageActionsWatch?.();
+        this.messageActionsWatch = null;
+    },
+    copyMessageText(text) {
+        return navigator.clipboard.writeText(text);
+    },
     positionChannelSettings(channelId) {
         const popover = document.getElementById(`chat-channel-settings-${channelId}`);
         const anchor = document.querySelector(`[data-chat-settings-toggle="${channelId}"]`);
@@ -428,6 +588,18 @@ window.confastChatTime = {
         popover.style.left = `${Math.round(x)}px`;
         popover.style.top = `${Math.round(y)}px`;
         popover.style.visibility = "visible";
+    },
+    jumpToMessage(messageId) {
+        const history = document.getElementById("chat-message-history");
+        const message = Array.from(history?.querySelectorAll("[data-chat-message-id]") ?? [])
+            .find(element => element.dataset.chatMessageId === String(messageId));
+        if (!history || !message) return false;
+        message.scrollIntoView({ block: "center", behavior: "smooth" });
+        message.classList.remove("chat-reply-highlight");
+        void message.offsetWidth;
+        message.classList.add("chat-reply-highlight");
+        setTimeout(() => message.classList.remove("chat-reply-highlight"), 1800);
+        return true;
     },
     watchChannelSettingsOutsideClick(dotNetReference) {
         if (this.channelSettingsOutsideClick) return;
@@ -454,6 +626,31 @@ window.confastChatTime = {
         this.channelSettingsOutsideClick = null;
         this.channelSettingsEscape = null;
         this.channelSettingsScroll = null;
+    },
+    watchPinnedMessagesOutsideClick(dotNetReference) {
+        if (this.pinnedMessagesWatch) return;
+        const dismiss = () => dotNetReference.invokeMethodAsync("DismissPinnedMessagesAsync");
+        const onDown = event => {
+            if (!document.getElementById("chat-pinned-menu")) return;
+            if (event.target instanceof Element && event.target.closest(
+                ".chat-pinned-control, [data-chat-pinned-trigger]")) return;
+            dismiss();
+        };
+        const onKey = event => {
+            if (event.key !== "Escape" || !document.getElementById("chat-pinned-menu")) return;
+            event.preventDefault();
+            dismiss().then(() => document.querySelector(".chat-pinned-control > button")?.focus());
+        };
+        document.addEventListener("pointerdown", onDown, true);
+        document.addEventListener("keydown", onKey, true);
+        this.pinnedMessagesWatch = () => {
+            document.removeEventListener("pointerdown", onDown, true);
+            document.removeEventListener("keydown", onKey, true);
+        };
+    },
+    stopWatchingPinnedMessagesOutsideClick() {
+        this.pinnedMessagesWatch?.();
+        this.pinnedMessagesWatch = null;
     },
     positionMessageProfile(anchorKey) {
         const popover = document.querySelector(".chat-user-popover");
@@ -554,6 +751,43 @@ window.confastChatTime = {
     },
     focusTonePicker() {
         document.querySelector(".chat-tone-picker button.selected")?.focus();
+    },
+    watchQuickTonePicker(dotNetReference) {
+        if (this.quickTonePickerWatch) return;
+        let dismissTimer;
+        const isInside = target => {
+            if (!(target instanceof Element)) return false;
+            if (target.closest(".chat-tone-picker")) return true;
+            const anchor = target.closest("[data-tone-message][data-tone-base][data-tone-source]");
+            const current = this.tonePickerAnchor;
+            return !!anchor && !!current
+                && anchor.dataset.toneMessage === String(current.messageId)
+                && anchor.dataset.toneBase === current.defaultEmoji
+                && anchor.dataset.toneSource === current.source;
+        };
+        const onMove = event => {
+            clearTimeout(dismissTimer);
+            if (!isInside(event.target))
+                dismissTimer = setTimeout(() => dotNetReference.invokeMethodAsync("DismissQuickTonePickerAsync"), 180);
+        };
+        const onDown = event => {
+            if (!isInside(event.target))
+                dotNetReference.invokeMethodAsync("DismissQuickTonePickerAsync");
+        };
+        document.addEventListener("pointermove", onMove, true);
+        document.addEventListener("pointerdown", onDown, true);
+        window.addEventListener("blur", onDown);
+        this.quickTonePickerWatch = () => {
+            clearTimeout(dismissTimer);
+            document.removeEventListener("pointermove", onMove, true);
+            document.removeEventListener("pointerdown", onDown, true);
+            window.removeEventListener("blur", onDown);
+        };
+    },
+    stopWatchingQuickTonePicker() {
+        this.quickTonePickerWatch?.();
+        this.quickTonePickerWatch = null;
+        this.tonePickerAnchor = null;
     },
     detectEmojiSupport(candidates) {
         try {

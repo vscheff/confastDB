@@ -354,14 +354,156 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Equal(0, (await recipient.GetConversationsAsync()).Single().UnreadCount);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => recipient.DeleteOwnMessageAsync(messageId));
         await sender.DeleteOwnMessageAsync(messageId);
-        var deleted = (await recipient.GetThreadAsync(id)).Messages.Single(x => x.Id == messageId);
-        Assert.True(deleted.IsDeleted);
-        Assert.Null(deleted.Body);
+        Assert.DoesNotContain((await recipient.GetThreadAsync(id)).Messages, message => message.Id == messageId);
         await using var db = database.CreateDbContext();
         var stored = await db.ChatMessages.FindAsync(messageId);
         Assert.Equal("Hello", stored!.Body);
         Assert.NotNull(stored.DeletedAtUtc);
         Assert.Equal(owner, stored.DeletedByUserId);
+    }
+
+    [Fact]
+    public async Task DeletingAnUnreadMessageClearsItsUnreadCountAndAlert()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var id = await sender.OpenDirectAsync(member);
+        var messageId = await sender.SendAsync(id, "Soon deleted");
+        Assert.Equal(1, await recipient.GetTotalUnreadCountAsync());
+
+        await sender.DeleteOwnMessageAsync(messageId);
+
+        Assert.Empty((await recipient.GetThreadAsync(id)).Messages);
+        Assert.Equal(0, (await recipient.GetConversationsAsync()).Single().UnreadCount);
+        Assert.Equal(0, await recipient.GetTotalUnreadCountAsync());
+        Assert.False(await recipient.HasUnreadAlertAsync());
+    }
+
+    [Fact]
+    public async Task Pinning_PersistsNoticeAndPinnedList_AndDeletionClearsThePin()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var ownerChat = Service(owner);
+        var memberChat = Service(member);
+        var channelId = await ownerChat.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+        var messageId = await ownerChat.SendAsync(channelId, "Keep this handy");
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SetMessagePinnedAsync(messageId, true));
+        await memberChat.SetMessagePinnedAsync(messageId, true);
+        await memberChat.SetMessagePinnedAsync(messageId, true);
+        Assert.False((await ownerChat.GetConversationsAsync()).Single(x => x.Id == channelId).HasUnreadMention);
+
+        var thread = await ownerChat.GetThreadAsync(channelId);
+        var pinned = Assert.Single(thread.PinnedMessages);
+        Assert.Equal(messageId, pinned.Id);
+        Assert.Equal("Keep this handy", pinned.Body);
+        Assert.NotNull(thread.Messages.Single(x => x.Id == messageId).PinnedAtUtc);
+        var notice = Assert.Single(thread.Messages, x => x.Type == ChatMessageType.PinNotice);
+        Assert.Equal(member, notice.SenderUserId);
+        Assert.Equal(messageId, notice.ReplyToMessageId);
+        Assert.Equal("Keep this handy", notice.ReplyToBody);
+
+        await ownerChat.SetMessagePinnedAsync(messageId, false);
+        Assert.Empty((await ownerChat.GetThreadAsync(channelId)).PinnedMessages);
+        await ownerChat.SetMessagePinnedAsync(messageId, true);
+        Assert.Equal(2, (await ownerChat.GetThreadAsync(channelId)).Messages.Count(x => x.Type == ChatMessageType.PinNotice));
+        await ownerChat.DeleteOwnMessageAsync(messageId);
+        Assert.Empty((await memberChat.GetThreadAsync(channelId)).PinnedMessages);
+        await using var db = database.CreateDbContext();
+        var stored = await db.ChatMessages.FindAsync(messageId);
+        Assert.Null(stored!.PinnedAtUtc);
+        Assert.Null(stored.PinnedByUserId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => memberChat.SetMessagePinnedAsync(messageId, true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SetMessagePinnedAsync(messageId, false));
+    }
+
+    [Fact]
+    public async Task Replies_KeepTheirTargetAndAlertTheOriginalSender()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var ownerChat = Service(owner);
+        var memberChat = Service(member);
+        var channelId = await ownerChat.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+        var otherChannelId = await ownerChat.CreateChannelAsync("Other", ChannelVisibility.Private, [member]);
+        var originalId = await ownerChat.SendAsync(channelId, "A long original message");
+        var otherId = await ownerChat.SendAsync(otherChannelId, "Other channel");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            memberChat.SendAsync(channelId, "Wrong target", replyToMessageId: otherId));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(outsider).SendAsync(channelId, "Unauthorized", replyToMessageId: originalId));
+
+        var replyId = await memberChat.SendAsync(channelId, "I checked it", replyToMessageId: originalId);
+        var reply = (await ownerChat.GetThreadAsync(channelId)).Messages.Single(x => x.Id == replyId);
+        Assert.Equal(originalId, reply.ReplyToMessageId);
+        Assert.Equal(owner, reply.ReplyToSenderUserId);
+        Assert.Equal("Owner", reply.ReplyToSenderName);
+        Assert.Equal("A long original message", reply.ReplyToBody);
+        Assert.True((await ownerChat.GetConversationsAsync()).Single(x => x.Id == channelId).HasUnreadMention);
+        Assert.True(await ownerChat.HasUnreadAlertAsync());
+        await ownerChat.MarkReadAsync(channelId, replyId);
+        Assert.False(await ownerChat.HasUnreadAlertAsync());
+
+        await ownerChat.DeleteOwnMessageAsync(originalId);
+        reply = (await memberChat.GetThreadAsync(channelId)).Messages.Single(x => x.Id == replyId);
+        Assert.Null(reply.ReplyToBody);
+        Assert.DoesNotContain((await memberChat.GetThreadAsync(channelId)).Messages, message => message.Id == originalId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            memberChat.SendAsync(channelId, "Deleted target", replyToMessageId: originalId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ownerChat.GetThreadAsync(channelId, throughMessageId: originalId));
+    }
+
+    [Fact]
+    public async Task MarkUnread_StartsAtSelectedMessageAndCannotCrossConversations()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channelId = await sender.CreateChannelAsync("Quality", ChannelVisibility.Private, [member]);
+        var otherChannelId = await sender.CreateChannelAsync("Other", ChannelVisibility.Private, [member]);
+        var firstId = await sender.SendAsync(channelId, "First");
+        var secondId = await sender.SendAsync(channelId, "Second");
+        var thirdId = await sender.SendAsync(channelId, "Third");
+        var otherId = await sender.SendAsync(otherChannelId, "Other");
+        await recipient.MarkReadAsync(channelId, thirdId);
+
+        await recipient.MarkUnreadAsync(channelId, secondId);
+        Assert.Equal(2, (await recipient.GetConversationsAsync())
+            .Single(x => x.Id == channelId).UnreadCount);
+        await recipient.MarkUnreadAsync(channelId, thirdId);
+        Assert.Equal(2, (await recipient.GetConversationsAsync())
+            .Single(x => x.Id == channelId).UnreadCount);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            recipient.MarkUnreadAsync(channelId, otherId));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(outsider).MarkUnreadAsync(channelId, firstId));
+        await recipient.MarkUnreadAsync(channelId, firstId);
+        Assert.Equal(3, (await recipient.GetConversationsAsync())
+            .Single(x => x.Id == channelId).UnreadCount);
+        await recipient.MarkReadAsync(channelId, thirdId);
+        Assert.Equal(3, (await recipient.GetConversationsAsync())
+            .Single(x => x.Id == channelId).UnreadCount);
+        await recipient.MarkConversationReadAsync(channelId);
+        Assert.Equal(0, (await recipient.GetConversationsAsync())
+            .Single(x => x.Id == channelId).UnreadCount);
+
+        await sender.MarkReadAsync(channelId, thirdId);
+        await sender.MarkUnreadAsync(channelId, thirdId);
+        var ownMessageUnread = (await sender.GetConversationsAsync()).Single(x => x.Id == channelId);
+        Assert.True(ownMessageUnread.IsManuallyUnread);
+        Assert.Equal(1, ownMessageUnread.UnreadCount);
+        Assert.Equal(1, await sender.GetTotalUnreadCountAsync());
+        await sender.SendAsync(channelId, "Back in the conversation");
+        Assert.False((await sender.GetConversationsAsync()).Single(x => x.Id == channelId).IsManuallyUnread);
+        Assert.Equal(0, (await sender.GetConversationsAsync()).Single(x => x.Id == channelId).UnreadCount);
+
+        var directId = await sender.OpenDirectAsync(member);
+        var ownDirectMessageId = await sender.SendAsync(directId, "Direct update");
+        await sender.MarkReadAsync(directId, ownDirectMessageId);
+        await sender.MarkUnreadAsync(directId, ownDirectMessageId);
+        Assert.True(await sender.HasUnreadAlertAsync());
+        Assert.Equal(1, (await sender.GetConversationsAsync()).Single(x => x.Id == directId).UnreadCount);
     }
 
     [Fact]

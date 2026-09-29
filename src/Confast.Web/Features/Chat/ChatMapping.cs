@@ -54,6 +54,7 @@ public static class ChatMapping
         member.Property(x => x.UserId).HasColumnName("user_id");
         member.Property(x => x.JoinedAtUtc).HasColumnName("joined_at_utc");
         member.Property(x => x.LastReadMessageId).HasColumnName("last_read_message_id");
+        member.Property(x => x.IsManuallyUnread).HasColumnName("is_manually_unread");
         member.Property(x => x.IsOwner).HasColumnName("is_owner");
         member.HasOne(x => x.Conversation).WithMany(x => x.Members).HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         member.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
@@ -64,23 +65,36 @@ public static class ChatMapping
         member.HasIndex(x => x.UserId);
 
         var message = model.Entity<ChatMessage>();
-        message.ToTable("chat_messages", t => t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000"));
+        message.ToTable("chat_messages", t =>
+        {
+            t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
+            t.HasCheckConstraint("CK_chat_messages_pin", "(pinned_at_utc IS NULL) = (pinned_by_user_id IS NULL) AND (deleted_at_utc IS NULL OR pinned_at_utc IS NULL)");
+        });
         message.HasKey(x => x.Id);
         message.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         message.Property(x => x.ConversationId).HasColumnName("conversation_id");
         message.Property(x => x.SenderUserId).HasColumnName("sender_user_id");
         message.Property(x => x.Type).HasColumnName("type");
         message.Property(x => x.Body).HasColumnName("body").HasMaxLength(4000);
+        message.Property(x => x.ReplyToMessageId).HasColumnName("reply_to_message_id");
         message.Property(x => x.SentAtUtc).HasColumnName("sent_at_utc");
         message.Property(x => x.EditedAtUtc).HasColumnName("edited_at_utc");
         message.Property(x => x.DeletedAtUtc).HasColumnName("deleted_at_utc");
         message.Property(x => x.DeletedByUserId).HasColumnName("deleted_by_user_id");
+        message.Property(x => x.PinnedAtUtc).HasColumnName("pinned_at_utc");
+        message.Property(x => x.PinnedByUserId).HasColumnName("pinned_by_user_id");
         message.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
         message.HasOne(x => x.SenderUser).WithMany().HasForeignKey(x => x.SenderUserId).OnDelete(DeleteBehavior.Restrict);
         message.HasOne(x => x.DeletedByUser).WithMany().HasForeignKey(x => x.DeletedByUserId).OnDelete(DeleteBehavior.Restrict);
+        message.HasOne(x => x.PinnedByUser).WithMany().HasForeignKey(x => x.PinnedByUserId).OnDelete(DeleteBehavior.Restrict);
+        message.HasOne(x => x.ReplyToMessage).WithMany()
+            .HasForeignKey(x => new { x.ConversationId, x.ReplyToMessageId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
         message.HasIndex(x => new { x.ConversationId, x.Id });
         message.HasIndex(x => x.SenderUserId);
         message.HasIndex(x => x.DeletedByUserId);
+        message.HasIndex(x => new { x.ConversationId, x.PinnedAtUtc }).HasFilter("pinned_at_utc IS NOT NULL");
 
         var mention = model.Entity<ChatMessageMention>();
         mention.ToTable("chat_message_mentions");

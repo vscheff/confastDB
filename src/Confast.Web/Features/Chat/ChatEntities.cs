@@ -4,7 +4,7 @@ namespace Confast.Web.Features.Chat;
 
 public enum ConversationKind { Direct, Channel }
 public enum ChannelVisibility { Public, Private }
-public enum ChatMessageType { Text }
+public enum ChatMessageType { Text, PinNotice }
 
 public sealed class ChatChannelGroup
 {
@@ -46,6 +46,7 @@ public sealed class ConversationMember
     public ApplicationUser User { get; set; } = null!;
     public DateTime JoinedAtUtc { get; set; }
     public long? LastReadMessageId { get; set; }
+    public bool IsManuallyUnread { get; set; }
     public bool IsOwner { get; set; }
 }
 
@@ -59,11 +60,16 @@ public sealed class ChatMessage
     public ApplicationUser? SenderUser { get; set; }
     public ChatMessageType Type { get; set; } = ChatMessageType.Text;
     public string Body { get; set; } = string.Empty;
+    public long? ReplyToMessageId { get; set; }
+    public ChatMessage? ReplyToMessage { get; set; }
     public DateTime SentAtUtc { get; set; }
     public DateTime? EditedAtUtc { get; set; }
     public DateTime? DeletedAtUtc { get; set; }
     public string? DeletedByUserId { get; set; }
     public ApplicationUser? DeletedByUser { get; set; }
+    public DateTime? PinnedAtUtc { get; set; }
+    public string? PinnedByUserId { get; set; }
+    public ApplicationUser? PinnedByUser { get; set; }
     public List<ChatMessageMention> Mentions { get; set; } = [];
     public List<ChatMessageTag> Tags { get; set; } = [];
 }
