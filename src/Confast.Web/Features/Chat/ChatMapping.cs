@@ -31,6 +31,7 @@ public static class ChatMapping
             "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL AND channel_group_id IS NULL AND channel_sort_order = 0) OR " +
             "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0)"));
         conversation.HasKey(x => x.Id);
+        conversation.HasAlternateKey(x => new { x.Id, x.Kind });
         conversation.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         conversation.Property(x => x.Kind).HasColumnName("kind");
         conversation.Property(x => x.Visibility).HasColumnName("visibility");
@@ -46,6 +47,34 @@ public static class ChatMapping
         conversation.HasIndex(x => x.DirectPairKey).IsUnique();
         conversation.HasIndex(x => x.LastActivityAtUtc);
         conversation.HasIndex(x => new { x.ChannelGroupId, x.ChannelSortOrder, x.Id });
+
+        var channelThread = model.Entity<ChatChannelThread>();
+        channelThread.ToTable("chat_channel_threads", t =>
+        {
+            t.HasCheckConstraint("CK_chat_channel_threads_title", "btrim(title) <> ''");
+            t.HasCheckConstraint("CK_chat_channel_threads_channel", "conversation_kind = 1");
+        });
+        channelThread.HasKey(x => x.Id);
+        channelThread.HasAlternateKey(x => new { x.ConversationId, x.Id });
+        channelThread.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
+        channelThread.Property(x => x.ConversationId).HasColumnName("conversation_id");
+        channelThread.Property(x => x.ConversationKind).HasColumnName("conversation_kind");
+        channelThread.Property(x => x.Title).HasColumnName("title").HasMaxLength(120);
+        channelThread.Property(x => x.CreatedByUserId).HasColumnName("created_by_user_id");
+        channelThread.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        channelThread.Property(x => x.LastMessageAtUtc).HasColumnName("last_message_at_utc");
+        channelThread.Property(x => x.StartedFromMessageId).HasColumnName("started_from_message_id");
+        channelThread.HasOne(x => x.Conversation).WithMany()
+            .HasForeignKey(x => new { x.ConversationId, x.ConversationKind })
+            .HasPrincipalKey(x => new { x.Id, x.Kind })
+            .OnDelete(DeleteBehavior.Restrict);
+        channelThread.HasOne(x => x.CreatedByUser).WithMany()
+            .HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        channelThread.HasOne(x => x.StartedFromMessage).WithMany()
+            .HasForeignKey(x => new { x.ConversationId, x.StartedFromMessageId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
+        channelThread.HasIndex(x => new { x.ConversationId, x.LastMessageAtUtc });
 
         var member = model.Entity<ConversationMember>();
         member.ToTable("chat_conversation_members");
@@ -69,10 +98,12 @@ public static class ChatMapping
         {
             t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
             t.HasCheckConstraint("CK_chat_messages_pin", "(pinned_at_utc IS NULL) = (pinned_by_user_id IS NULL) AND (deleted_at_utc IS NULL OR pinned_at_utc IS NULL)");
+            t.HasCheckConstraint("CK_chat_messages_thread_notice", "type <> 2 OR channel_thread_id IS NOT NULL");
         });
         message.HasKey(x => x.Id);
         message.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         message.Property(x => x.ConversationId).HasColumnName("conversation_id");
+        message.Property(x => x.ChannelThreadId).HasColumnName("channel_thread_id");
         message.Property(x => x.SenderUserId).HasColumnName("sender_user_id");
         message.Property(x => x.Type).HasColumnName("type");
         message.Property(x => x.Body).HasColumnName("body").HasMaxLength(4000);
@@ -84,6 +115,10 @@ public static class ChatMapping
         message.Property(x => x.PinnedAtUtc).HasColumnName("pinned_at_utc");
         message.Property(x => x.PinnedByUserId).HasColumnName("pinned_by_user_id");
         message.HasOne(x => x.Conversation).WithMany().HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Restrict);
+        message.HasOne(x => x.ChannelThread).WithMany()
+            .HasForeignKey(x => new { x.ConversationId, x.ChannelThreadId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id })
+            .OnDelete(DeleteBehavior.Restrict);
         message.HasOne(x => x.SenderUser).WithMany().HasForeignKey(x => x.SenderUserId).OnDelete(DeleteBehavior.Restrict);
         message.HasOne(x => x.DeletedByUser).WithMany().HasForeignKey(x => x.DeletedByUserId).OnDelete(DeleteBehavior.Restrict);
         message.HasOne(x => x.PinnedByUser).WithMany().HasForeignKey(x => x.PinnedByUserId).OnDelete(DeleteBehavior.Restrict);
@@ -92,9 +127,26 @@ public static class ChatMapping
             .HasPrincipalKey(x => new { x.ConversationId, x.Id })
             .OnDelete(DeleteBehavior.Restrict);
         message.HasIndex(x => new { x.ConversationId, x.Id });
+        message.HasIndex(x => new { x.ConversationId, x.ChannelThreadId, x.Id });
         message.HasIndex(x => x.SenderUserId);
         message.HasIndex(x => x.DeletedByUserId);
         message.HasIndex(x => new { x.ConversationId, x.PinnedAtUtc }).HasFilter("pinned_at_utc IS NOT NULL");
+
+        var attachment = model.Entity<ChatAttachment>();
+        attachment.ToTable("chat_attachments", table =>
+        {
+            table.HasCheckConstraint("CK_chat_attachments_content", "octet_length(content) BETWEEN 1 AND 26214400");
+            table.HasCheckConstraint("CK_chat_attachments_file_name", "btrim(file_name) <> ''");
+            table.HasCheckConstraint("CK_chat_attachments_kind", "kind BETWEEN 0 AND 3");
+        });
+        attachment.HasKey(x => x.MessageId);
+        attachment.Property(x => x.MessageId).HasColumnName("message_id");
+        attachment.Property(x => x.FileName).HasColumnName("file_name").HasMaxLength(255);
+        attachment.Property(x => x.ContentType).HasColumnName("content_type").HasMaxLength(100);
+        attachment.Property(x => x.Kind).HasColumnName("kind");
+        attachment.Property(x => x.Content).HasColumnName("content");
+        attachment.HasOne(x => x.Message).WithOne(x => x.Attachment)
+            .HasForeignKey<ChatAttachment>(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
 
         var mention = model.Entity<ChatMessageMention>();
         mention.ToTable("chat_message_mentions");

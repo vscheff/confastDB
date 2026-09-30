@@ -4,7 +4,22 @@ namespace Confast.Web.Features.Chat;
 
 public enum ConversationKind { Direct, Channel }
 public enum ChannelVisibility { Public, Private }
-public enum ChatMessageType { Text, PinNotice }
+public enum ChatMessageType { Text, PinNotice, ThreadNotice }
+
+public sealed class ChatChannelThread
+{
+    public long Id { get; set; }
+    public long ConversationId { get; set; }
+    public ConversationKind ConversationKind { get; set; } = ConversationKind.Channel;
+    public Conversation Conversation { get; set; } = null!;
+    public string Title { get; set; } = string.Empty;
+    public string CreatedByUserId { get; set; } = string.Empty;
+    public ApplicationUser CreatedByUser { get; set; } = null!;
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime LastMessageAtUtc { get; set; }
+    public long? StartedFromMessageId { get; set; }
+    public ChatMessage? StartedFromMessage { get; set; }
+}
 
 public sealed class ChatChannelGroup
 {
@@ -55,6 +70,8 @@ public sealed class ChatMessage
     public long Id { get; set; }
     public long ConversationId { get; set; }
     public Conversation Conversation { get; set; } = null!;
+    public long? ChannelThreadId { get; set; }
+    public ChatChannelThread? ChannelThread { get; set; }
     // Null is reserved for future system/agent senders. Only human sends exist today.
     public string? SenderUserId { get; set; }
     public ApplicationUser? SenderUser { get; set; }
@@ -72,6 +89,19 @@ public sealed class ChatMessage
     public ApplicationUser? PinnedByUser { get; set; }
     public List<ChatMessageMention> Mentions { get; set; } = [];
     public List<ChatMessageTag> Tags { get; set; } = [];
+    public ChatAttachment? Attachment { get; set; }
+}
+
+public enum ChatAttachmentKind { Download, Image, Video, Text }
+
+public sealed class ChatAttachment
+{
+    public long MessageId { get; set; }
+    public ChatMessage Message { get; set; } = null!;
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
+    public ChatAttachmentKind Kind { get; set; }
+    public byte[] Content { get; set; } = [];
 }
 
 public sealed class ChatMessageTag

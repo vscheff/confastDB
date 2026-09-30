@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260930123001_AddChatAttachments")]
+    partial class AddChatAttachments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -111,64 +114,6 @@ namespace Confast.Web.Data.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelThread", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<long>("ConversationId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("conversation_id");
-
-                    b.Property<int>("ConversationKind")
-                        .HasColumnType("integer")
-                        .HasColumnName("conversation_kind");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<string>("CreatedByUserId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<DateTime>("LastMessageAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_message_at_utc");
-
-                    b.Property<long?>("StartedFromMessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("started_from_message_id");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("title");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("ConversationId", "ConversationKind");
-
-                    b.HasIndex("ConversationId", "LastMessageAtUtc");
-
-                    b.HasIndex("ConversationId", "StartedFromMessageId");
-
-                    b.ToTable("chat_channel_threads", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_chat_channel_threads_channel", "conversation_kind = 1");
-
-                            t.HasCheckConstraint("CK_chat_channel_threads_title", "btrim(title) <> ''");
-                        });
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatEmojiTonePreference", b =>
                 {
                     b.Property<string>("UserId")
@@ -205,10 +150,6 @@ namespace Confast.Web.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)")
                         .HasColumnName("body");
-
-                    b.Property<long?>("ChannelThreadId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("channel_thread_id");
 
                     b.Property<long>("ConversationId")
                         .HasColumnType("bigint")
@@ -265,15 +206,11 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasIndex("ConversationId", "ReplyToMessageId");
 
-                    b.HasIndex("ConversationId", "ChannelThreadId", "Id");
-
                     b.ToTable("chat_messages", null, t =>
                         {
                             t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
 
                             t.HasCheckConstraint("CK_chat_messages_pin", "(pinned_at_utc IS NULL) = (pinned_by_user_id IS NULL) AND (deleted_at_utc IS NULL OR pinned_at_utc IS NULL)");
-
-                            t.HasCheckConstraint("CK_chat_messages_thread_notice", "type <> 2 OR channel_thread_id IS NOT NULL");
                         });
                 });
 
@@ -3671,34 +3608,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("ParentGroup");
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelThread", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "CreatedByUser")
-                        .WithMany()
-                        .HasForeignKey("CreatedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Confast.Web.Features.Chat.Conversation", "Conversation")
-                        .WithMany()
-                        .HasForeignKey("ConversationId", "ConversationKind")
-                        .HasPrincipalKey("Id", "Kind")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Confast.Web.Features.Chat.ChatMessage", "StartedFromMessage")
-                        .WithMany()
-                        .HasForeignKey("ConversationId", "StartedFromMessageId")
-                        .HasPrincipalKey("ConversationId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Conversation");
-
-                    b.Navigation("CreatedByUser");
-
-                    b.Navigation("StartedFromMessage");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatEmojiTonePreference", b =>
                 {
                     b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "User")
@@ -3733,19 +3642,11 @@ namespace Confast.Web.Data.Migrations
                         .HasForeignKey("SenderUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Confast.Web.Features.Chat.ChatChannelThread", "ChannelThread")
-                        .WithMany()
-                        .HasForeignKey("ConversationId", "ChannelThreadId")
-                        .HasPrincipalKey("ConversationId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Confast.Web.Features.Chat.ChatMessage", "ReplyToMessage")
                         .WithMany()
                         .HasForeignKey("ConversationId", "ReplyToMessageId")
                         .HasPrincipalKey("ConversationId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ChannelThread");
 
                     b.Navigation("Conversation");
 

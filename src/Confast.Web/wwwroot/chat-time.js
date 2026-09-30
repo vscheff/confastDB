@@ -1,6 +1,55 @@
 window.confastChatTime = {
+    clickAttachmentPicker(id = "chat-attachment-picker") {
+        document.getElementById(id)?.click();
+    },
+    watchThreadControls(dotNetReference) {
+        if (this.threadControlsWatch) return;
+        const onDown = event => {
+            if (event.target instanceof Element &&
+                (event.target.closest("[data-chat-thread-menu]") ||
+                    event.target.closest("[data-chat-compose-menu]"))) return;
+            dotNetReference.invokeMethodAsync("DismissThreadControlsAsync");
+        };
+        const onKey = event => {
+            if (event.key === "Escape") dotNetReference.invokeMethodAsync("DismissThreadControlsAsync");
+        };
+        document.addEventListener("pointerdown", onDown, true);
+        document.addEventListener("keydown", onKey, true);
+        this.threadControlsWatch = () => {
+            document.removeEventListener("pointerdown", onDown, true);
+            document.removeEventListener("keydown", onKey, true);
+        };
+    },
+    stopWatchingThreadControls() {
+        this.threadControlsWatch?.();
+        this.threadControlsWatch = null;
+    },
     conversationScrollPositions: new Map(),
     lastInsertedMention: null,
+    selectedChatView(userId) {
+        try { return localStorage.getItem(`confast.chat.view.${userId}`); }
+        catch { return null; }
+    },
+    selectedChatThread(userId, view) {
+        try {
+            const value = Number(localStorage.getItem(`confast.chat.selected.${userId}.${view}`));
+            return Number.isSafeInteger(value) && value > 0 ? value : null;
+        } catch { return null; }
+    },
+    rememberChatView(userId, view) {
+        try { localStorage.setItem(`confast.chat.view.${userId}`, view); }
+        catch { /* Chat remains usable without browser storage. */ }
+    },
+    rememberChatThread(userId, view, id) {
+        try {
+            localStorage.setItem(`confast.chat.selected.${userId}.${view}`, String(id));
+            localStorage.setItem(`confast.chat.view.${userId}`, view);
+        } catch { /* Chat remains usable without browser storage. */ }
+    },
+    forgetChatThread(userId, view) {
+        try { localStorage.removeItem(`confast.chat.selected.${userId}.${view}`); }
+        catch { /* Chat remains usable without browser storage. */ }
+    },
     attachSidebarResize(userId) {
         const body = document.querySelector(".chat-panel-body");
         const edge = body?.querySelector(".chat-sidebar-resize-edge");
@@ -114,13 +163,6 @@ window.confastChatTime = {
             return [key, formatter.format(date), timeFormatter.format(date)];
         });
     },
-    formatActivityDates(utcValues) {
-        const formatter = new Intl.DateTimeFormat(undefined, {
-            month: "short",
-            day: "numeric"
-        });
-        return utcValues.map(value => formatter.format(new Date(value)));
-    },
     enableEnterToSend(id = "chat-message-body") {
         const textarea = document.getElementById(id);
         if (!(textarea instanceof HTMLTextAreaElement)) return false;
@@ -160,13 +202,21 @@ window.confastChatTime = {
             event.preventDefault();
             textarea.form?.requestSubmit();
         });
-        if (id === "chat-message-body") {
-            textarea.addEventListener("compositionstart", () => textarea.dataset.chatComposing = "true");
-            textarea.addEventListener("compositionend", () => delete textarea.dataset.chatComposing);
-            textarea.addEventListener("input", () => this.syncDraftPreviewScroll());
-            textarea.addEventListener("scroll", () => this.syncDraftPreviewScroll());
-            textarea.addEventListener("pointerup", () => this.syncDraftPreviewScroll());
-            this.syncDraftPreviewScroll();
+        if (id === "chat-message-body" || id === "chat-sidebar-thread-draft") {
+            if (id === "chat-message-body") {
+                textarea.addEventListener("compositionstart", () => textarea.dataset.chatComposing = "true");
+                textarea.addEventListener("compositionend", () => delete textarea.dataset.chatComposing);
+            }
+            textarea.addEventListener("input", () => {
+                this.resizeDraftTextarea(id);
+                if (id === "chat-message-body") this.syncDraftPreviewScroll();
+            });
+            if (id === "chat-message-body") {
+                textarea.addEventListener("scroll", () => this.syncDraftPreviewScroll());
+                textarea.addEventListener("pointerup", () => this.syncDraftPreviewScroll());
+            }
+            this.resizeDraftTextarea(id);
+            if (id === "chat-message-body") this.syncDraftPreviewScroll();
         }
         textarea.setAttribute("data-enter-to-send-attached", "true");
         return true;
@@ -182,6 +232,32 @@ window.confastChatTime = {
         preview.scrollTop = textarea.scrollTop;
         preview.scrollLeft = textarea.scrollLeft;
     },
+    resizeDraftTextarea(id = "chat-message-body") {
+        const textarea = document.getElementById(id);
+        if (!(textarea instanceof HTMLTextAreaElement)) return;
+        const style = getComputedStyle(textarea);
+        const lineHeight = parseFloat(style.lineHeight) || 22;
+        const verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        const maxHeight = lineHeight * 8 + verticalPadding;
+        textarea.style.height = "auto";
+        const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+        textarea.style.height = `${nextHeight}px`;
+        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+    },
+    focusChatComposer(id = "chat-message-body") {
+        document.getElementById(id)?.focus();
+    },
+    insertDraftEmoji(emoji, id = "chat-message-body") {
+        const textarea = document.getElementById(id);
+        if (!(textarea instanceof HTMLTextAreaElement)) return false;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        if (textarea.value.length + emoji.length - (end - start) > textarea.maxLength) return false;
+        textarea.focus();
+        textarea.setRangeText(emoji, start, end, "end");
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+    },
     normalizeDraftText(raw, normalized) {
         const textarea = document.getElementById("chat-message-body");
         if (!(textarea instanceof HTMLTextAreaElement) || textarea.dataset.chatComposing === "true"
@@ -190,6 +266,7 @@ window.confastChatTime = {
         const end = textarea.selectionEnd;
         textarea.value = normalized;
         textarea.setSelectionRange(start, end);
+        this.resizeDraftTextarea(id);
         this.syncDraftPreviewScroll();
         return true;
     },
@@ -220,6 +297,7 @@ window.confastChatTime = {
         textarea.focus();
         textarea.setSelectionRange(nextCursor, nextCursor);
         this.lastInsertedMention = { start, text: `@${tag} ` };
+        this.resizeDraftTextarea();
         this.syncDraftPreviewScroll();
         return value;
     },
@@ -564,6 +642,35 @@ window.confastChatTime = {
     stopWatchingMessageActionsOutsideClick() {
         this.messageActionsWatch?.();
         this.messageActionsWatch = null;
+    },
+    watchTextAttachmentMenuOutsideClick(dotNetReference) {
+        if (this.textAttachmentMenuWatch) return;
+        const dismiss = () => dotNetReference.invokeMethodAsync("DismissTextAttachmentMenuAsync");
+        const onDown = event => {
+            if (event.target instanceof Element && event.target.closest(
+                "[data-chat-text-menu], [data-chat-text-menu-trigger]")) return;
+            dismiss();
+        };
+        const onKey = event => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            const trigger = document.querySelector("[data-chat-text-menu-trigger][aria-expanded='true']");
+            dismiss().then(() => trigger?.focus());
+        };
+        const history = document.getElementById("chat-message-history");
+        document.addEventListener("pointerdown", onDown, true);
+        document.addEventListener("keydown", onKey, true);
+        history?.addEventListener("scroll", dismiss, { passive: true });
+        this.textAttachmentMenuWatch = () => {
+            document.removeEventListener("pointerdown", onDown, true);
+            document.removeEventListener("keydown", onKey, true);
+            history?.removeEventListener("scroll", dismiss);
+        };
+    },
+    stopWatchingTextAttachmentMenuOutsideClick() {
+        this.textAttachmentMenuWatch?.();
+        this.textAttachmentMenuWatch = null;
     },
     copyMessageText(text) {
         return navigator.clipboard.writeText(text);

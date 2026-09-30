@@ -256,6 +256,33 @@ app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
     }
     catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
 }).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+app.MapGet("/chat/attachments/{messageId:long}", async Task<IResult> (
+    long messageId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var requesterUserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (requesterUserId is null) return Results.Unauthorized();
+    ChatAttachmentFile? file;
+    try { file = await chat.GetAttachmentForHttpUserAsync(messageId, requesterUserId, cancellationToken); }
+    catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
+    if (file is null || file.Kind is not (ChatAttachmentKind.Image or ChatAttachmentKind.Video))
+        return Results.NotFound();
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    context.Response.Headers.CacheControl = "private, no-store";
+    return Results.File(file.Content, file.ContentType, enableRangeProcessing: true);
+}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+app.MapGet("/chat/attachments/{messageId:long}/download", async Task<IResult> (
+    long messageId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var requesterUserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (requesterUserId is null) return Results.Unauthorized();
+    ChatAttachmentFile? file;
+    try { file = await chat.GetAttachmentForHttpUserAsync(messageId, requesterUserId, cancellationToken); }
+    catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
+    if (file is null) return Results.NotFound();
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    context.Response.Headers.CacheControl = "private, no-store";
+    return Results.File(file.Content, "application/octet-stream", fileDownloadName: file.FileName);
+}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet(
     "/parts/{partId:long}/inspection-criteria/{revisionId:long}/master-print",
     async Task<IResult> (

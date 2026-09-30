@@ -21,6 +21,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<ChatChannelGroup> ChatChannelGroups => Set<ChatChannelGroup>();
     public DbSet<ConversationMember> ChatConversationMembers => Set<ConversationMember>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    public DbSet<ChatChannelThread> ChatChannelThreads => Set<ChatChannelThread>();
+    public DbSet<ChatAttachment> ChatAttachments => Set<ChatAttachment>();
     public DbSet<ChatMessageMention> ChatMessageMentions => Set<ChatMessageMention>();
     public DbSet<ChatMessageTag> ChatMessageTags => Set<ChatMessageTag>();
     public DbSet<ChatMessageReaction> ChatMessageReactions => Set<ChatMessageReaction>();

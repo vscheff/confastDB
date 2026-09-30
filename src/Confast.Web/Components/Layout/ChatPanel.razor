@@ -2,6 +2,7 @@
 @using Confast.Web.Features.Identity
 @using AngleSharp.Dom
 @using AngleSharp.Html.Parser
+@using Microsoft.AspNetCore.Components.Forms
 @inject ChatService Chat
 @inject UserProfilePictureService ProfilePictures
 @inject UserPresenceService Presence
@@ -53,14 +54,14 @@
             <aside id="chat-conversation-sidebar" class="chat-sidebar">
                 <div class="chat-sidebar-scroll">
                 <div class="chat-tabs" aria-label="Chat views">
-                    <button type="button" class="@(view is ChatView.Conversations or ChatView.NewDirect ? "active" : "")" @onclick="() => ChangeView(ChatView.Conversations)">
+                    <button type="button" class="@(view is ChatView.Conversations or ChatView.NewDirect ? "active" : "")" @onclick="() => ChangeViewAsync(ChatView.Conversations)">
                         Conversations
                         @if (unreadConversations > 0)
                         {
                             <span class="chat-tab-count attention" aria-label="@unreadConversations unread messages">@(unreadConversations > 99 ? "99+" : unreadConversations.ToString())</span>
                         }
                     </button>
-                    <button type="button" class="@(view is ChatView.Channels or ChatView.NewChannel ? "active" : "")" @onclick="() => ChangeView(ChatView.Channels)">
+                    <button type="button" class="@(view is ChatView.Channels or ChatView.NewChannel ? "active" : "")" @onclick="() => ChangeViewAsync(ChatView.Channels)">
                         Channels
                         @if (unreadChannels > 0)
                         {
@@ -71,7 +72,7 @@
                 @if (view == ChatView.Conversations)
                 {
                     <div class="chat-create-actions">
-                        <button class="button button-secondary" type="button" @onclick="() => ChangeView(ChatView.NewDirect)">New Message</button>
+                        <button class="button button-secondary" type="button" @onclick="() => ChangeViewAsync(ChatView.NewDirect)">New Message</button>
                     </div>
                     @if (!conversations.Any(x => x.Kind == ConversationKind.Direct))
                     {
@@ -84,7 +85,7 @@
                                 @if (PictureUrl(row.OtherUserId) is { } pictureUrl) { <img src="@pictureUrl" alt="" /> }
                                 else { @Initials(row.Name) }
                             </span>
-                            <span class="chat-conversation-top"><strong><span class="chat-presence-dot @PresenceClass(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span> @row.Name</strong><span class="chat-conversation-meta"><time>@GetActivityDate(row)</time>@if (row.UnreadCount > 0) { <b class="chat-unread-count attention">@row.UnreadCount</b> }</span></span>
+                            <span class="chat-conversation-top"><strong class="@(row.UnreadCount > 0 ? "unread" : "")"><span class="chat-presence-dot @PresenceClass(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span> @row.Name</strong>@if (row.UnreadCount > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count attention">@row.UnreadCount</b></span> }</span>
                             @if (PresenceOf(row.OtherUserId) is { } contact && (contact.StatusEmoji is not null || contact.StatusMessage is not null))
                             {
                                 <span class="chat-user-status">@contact.StatusEmoji @contact.StatusMessage</span>
@@ -149,7 +150,7 @@
                                  data-chat-parent="@item.ParentGroupId" data-chat-depth="@item.Depth"
                                  style="@($"--chat-depth:{item.Depth}")" title="@(item.Pinned ? null : "Drag to reorder channel")">
                                 <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                                    <span class="chat-conversation-top"><strong># @row.Name</strong><span class="chat-conversation-meta"><time>@GetActivityDate(row)</time>@if (row.UnreadCount > 0) { <b class="chat-unread-count @(row.HasUnreadMention ? "attention" : "")">@row.UnreadCount</b> }</span></span>
+                                    <span class="chat-conversation-top"><strong class="@(row.UnreadCount > 0 ? "unread" : "")"># @row.Name</strong>@if (row.UnreadCount > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count @(row.HasUnreadMention ? "attention" : "")">@row.UnreadCount</b></span> }</span>
                                 </button>
                                 <button type="button" class="chat-channel-action-toggle" data-chat-settings-toggle="@row.Id" aria-label="Settings for @row.Name" title="Settings for @row.Name" aria-haspopup="dialog" aria-controls="chat-channel-settings-@row.Id" aria-expanded="@(channelActionsId == row.Id ? "true" : "false")" @onclick="() => ToggleChannelActionsAsync(row)">
                                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.1 2.8h3.8l.5 2.2c.6.2 1.2.4 1.7.7l2-1.2 2.7 2.7-1.2 2c.3.5.5 1.1.7 1.7l2.2.5v3.8l-2.2.5c-.2.6-.4 1.2-.7 1.7l1.2 2-2.7 2.7-2-1.2c-.5.3-1.1.5-1.7.7l-.5 2.2h-3.8l-.5-2.2c-.6-.2-1.2-.4-1.7-.7l-2 1.2-2.7-2.7 1.2-2c-.3-.5-.5-1.1-.7-1.7l-2.2-.5v-3.8l2.2-.5c.2-.6.4-1.2.7-1.7l-1.2-2 2.7-2.7 2 1.2c.5-.3 1.1-.5 1.7-.7l.5-2.2Z"/><circle cx="12" cy="12" r="3.2"/></svg>
@@ -206,6 +207,14 @@
                                     </div>
                                 }
                             </div>
+                            @foreach (var active in activeChannelThreads.Where(x => x.ConversationId == row.Id))
+                            {
+                                <button @key="active.Id" type="button" class="chat-active-thread @(sidebarChannelThreadId == active.Id || fullChannelThreadId == active.Id ? "selected" : "")"
+                                        style="@($"--chat-depth:{item.Depth}")" title="Thread in #@row.Name"
+                                        @onclick="() => OpenChannelThreadFullAsync(active.Id, row.Id)">
+                                    <span aria-hidden="true">↳</span><span>@active.Title</span>
+                                </button>
+                            }
                         }
                     }
                     @if (addingFolder)
@@ -365,8 +374,44 @@
                 {
                     <div class="chat-thread-header">
                         <button type="button" class="chat-back" @onclick="BackToList" aria-label="Back to conversations">←</button>
-                        <strong>@(thread.Conversation.Kind == ConversationKind.Channel ? "# " : "")@thread.Conversation.Name</strong>
+                        <strong>
+                            @if (thread.ChannelThread is { } fullThread)
+                            {
+                                <button type="button" class="chat-thread-breadcrumb" @onclick="ReturnToChannelAsync"># @thread.Conversation.Name</button>
+                                <span aria-hidden="true"> › </span><span><svg class="chat-thread-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 4v16M6 8h9a3 3 0 0 1 0 6h-5"/><circle cx="6" cy="4" r="1"/><circle cx="10" cy="14" r="1"/></svg> @fullThread.Title</span>
+                            }
+                            else { @(thread.Conversation.Kind == ConversationKind.Channel ? "# " : "")@thread.Conversation.Name }
+                        </strong>
                         <div class="chat-thread-header-actions">
+                            @if (thread.Conversation.Kind == ConversationKind.Channel)
+                            {
+                                <div class="chat-thread-list-control" data-chat-thread-menu>
+                                    <button type="button" class="chat-icon-button" title="Threads" aria-label="Threads" aria-haspopup="dialog"
+                                            aria-expanded="@showThreadsMenu" @onclick="ToggleThreadsMenu">
+                                        <svg class="chat-thread-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 4v16M6 8h9a3 3 0 0 1 0 6h-5"/><circle cx="6" cy="4" r="1"/><circle cx="10" cy="14" r="1"/></svg>
+                                    </button>
+                                    @if (showThreadsMenu)
+                                    {
+                                        <section class="chat-thread-list-menu" role="dialog" aria-label="Channel threads">
+                                            <header>
+                                                <strong>Threads (@channelThreads.Count)</strong>
+                                                <button type="button" class="chat-thread-menu-create" @onclick="BeginCreateThread">Create Thread</button>
+                                                <button type="button" aria-label="Close threads" @onclick="() => showThreadsMenu = false">×</button>
+                                            </header>
+                                            <div class="chat-thread-list-items">
+                                                @if (channelThreads.Count == 0) { <p>No threads yet.</p> }
+                                                @foreach (var listed in channelThreads)
+                                                {
+                                                    <button type="button" @onclick="() => OpenChannelThreadFullAsync(listed.Id)">
+                                                        <strong>@listed.Title</strong>
+                                                        <small>@listed.MessageCount @(listed.MessageCount == 1 ? "message" : "messages") · @(IsActiveThread(listed) ? "Active" : "Inactive")</small>
+                                                    </button>
+                                                }
+                                            </div>
+                                        </section>
+                                    }
+                                </div>
+                            }
                             <div class="chat-pinned-control">
                                 <button type="button" class="chat-icon-button" title="Pinned messages" aria-label="Pinned messages"
                                         data-chat-pinned-trigger aria-haspopup="dialog"
@@ -401,7 +446,7 @@
                                     </section>
                                 }
                             </div>
-                            @if (thread.Conversation.Kind == ConversationKind.Channel)
+                            @if (thread.Conversation.Kind == ConversationKind.Channel && thread.ChannelThread is null)
                             {
                                 <button type="button" class="chat-icon-button" title="Members (@thread.Members.Count)" aria-label="Members (@thread.Members.Count)"
                                         aria-expanded="@showMembers" aria-controls="chat-members-sidebar" @onclick="ToggleMembers">
@@ -410,8 +455,12 @@
                             }
                         </div>
                     </div>
+                    @if (thread.ChannelThread?.StartedFromMessage is { } fullSourceMessage)
+                    {
+                        <p class="chat-thread-source">Started from a reply: @fullSourceMessage</p>
+                    }
                     <div class="chat-history-container">
-                    <div id="chat-message-history" class="chat-messages" data-conversation-id="@thread.Conversation.Id" role="log" aria-label="Message history"
+                    <div id="chat-message-history" class="chat-messages" data-conversation-id="@(fullChannelThreadId is long displayedThreadId ? $"thread-{displayedThreadId}" : thread.Conversation.Id.ToString())" role="log" aria-label="Message history"
                          @onclick="MarkCurrentConversationReadAsync" @onscroll="MarkCurrentConversationReadAsync">
                         @if (thread.Messages.Count == 100) { <p class="chat-history-limit">Showing the latest 100 messages.</p> }
                         @{ string? previousMessageDate = null; ChatMessageRow? previousMessage = null; }
@@ -421,11 +470,16 @@
                             var isGrouped = previousMessage is not null
                                 && previousMessage.Type == ChatMessageType.Text
                                 && message.Type == ChatMessageType.Text
+                                && message.ReplyToMessageId is null
                                 && message.SenderUserId is not null
                                 && message.SenderUserId == previousMessage.SenderUserId
                                 && messageDate.Key == previousMessageDate
                                 && message.SentAtUtc >= previousMessage.SentAtUtc
                                 && message.SentAtUtc - previousMessage.SentAtUtc <= TimeSpan.FromMinutes(5);
+                            var isReplyToCurrentUser = message.Type == ChatMessageType.Text
+                                && currentUserId is not null
+                                && message.ReplyToSenderUserId == currentUserId
+                                && message.SenderUserId != currentUserId;
                             if (previousMessageDate is not null && previousMessageDate != messageDate.Key)
                             {
                                 <div class="chat-date-divider" role="separator" aria-label="@messageDate.Label">
@@ -434,8 +488,34 @@
                             }
                             previousMessageDate = messageDate.Key;
                             previousMessage = message;
-                            <article @key="message.Id" data-chat-message-id="@message.Id" tabindex="0" class="chat-message @(message.Type == ChatMessageType.PinNotice ? "chat-pin-notice" : "") @(isGrouped ? "chat-message-grouped" : "") @(message.SenderUserId == currentUserId ? "mine" : "") @(reactionPickerMessageId == message.Id ? "picker-open" : "") @(moreActionsMessageId == message.Id ? "more-menu-open" : "") @(tonePickerOpenedByTouch && tonePickerMessageId == message.Id ? "tone-picker-touch-open" : "")">
-                                @if (message.Type == ChatMessageType.PinNotice)
+                            <article @key="message.Id" data-chat-message-id="@message.Id" tabindex="0" class="chat-message @(message.Type is ChatMessageType.PinNotice or ChatMessageType.ThreadNotice ? "chat-pin-notice" : "") @(isGrouped ? "chat-message-grouped" : "") @(message.SenderUserId == currentUserId ? "mine" : "") @(isReplyToCurrentUser ? "reply-to-me" : "") @(reactionPickerMessageId == message.Id ? "picker-open" : "") @(moreActionsMessageId == message.Id ? "more-menu-open" : "") @(tonePickerOpenedByTouch && tonePickerMessageId == message.Id ? "tone-picker-touch-open" : "")">
+                                @if (message.Type == ChatMessageType.ThreadNotice && message.ChannelThreadId is long announcedThreadId)
+                                {
+                                    var announced = channelThreads.FirstOrDefault(x => x.Id == announcedThreadId);
+                                    <div class="chat-thread-notice">
+                                        <p>
+                                            @if (message.SenderUserId is { } noticeSenderId)
+                                            {
+                                                <button type="button" class="chat-thread-notice-author" data-chat-profile-anchor="@SenderAnchorKey(message.Id)" aria-haspopup="dialog"
+                                                        aria-controls="chat-user-popover" aria-expanded="@(profileAnchorKey == SenderAnchorKey(message.Id))"
+                                                        @onclick="() => ToggleMessageProfile(noticeSenderId, message.SenderName, SenderAnchorKey(message.Id))">@message.SenderName</button>
+                                            }
+                                            else { <strong>@message.SenderName</strong> }
+                                            started a thread:
+                                            <button type="button" class="chat-thread-notice-link chat-thread-notice-title" @onclick="() => OpenChannelThreadSidebarAsync(announcedThreadId)">@(announced?.Title ?? "Thread")</button>.
+                                            See all <button type="button" class="chat-thread-notice-link chat-thread-notice-threads" @onclick="OpenThreadsMenu">threads</button>.
+                                            <time class="chat-thread-notice-time" datetime="@message.SentAtUtc.ToString("O")">@GetMessageTime(message)</time>
+                                        </p>
+                                        @if (announced is not null)
+                                        {
+                                            <button type="button" class="chat-thread-notice-card" @onclick="() => OpenChannelThreadSidebarAsync(announcedThreadId)">
+                                                <strong>@announced.Title</strong><span>@announced.MessageCount @(announced.MessageCount == 1 ? "Message" : "Messages") ›</span>
+                                                @if (announced.LatestMessage is { } latest) { <small>@latest</small> }
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                                else if (message.Type == ChatMessageType.PinNotice)
                                 {
                                     <p class="chat-pin-notice-copy">
                                         <button type="button" data-chat-profile-anchor="@SenderAnchorKey(message.Id)" aria-haspopup="dialog"
@@ -447,8 +527,9 @@
                                             <button type="button" @onclick="() => JumpToMessageAsync(pinnedMessageId)">a message</button>
                                         }
                                         else { <span>a message</span> }
-                                        to this @(thread.Conversation.Kind == ConversationKind.Channel ? "channel" : "conversation"). See all
+                                         to this @(thread.ChannelThread is not null ? "thread" : thread.Conversation.Kind == ConversationKind.Channel ? "channel" : "conversation"). See all
                                         <button type="button" data-chat-pinned-trigger @onclick="OpenPinnedMessages">pinned messages</button>.
+                                        <time class="chat-pin-notice-time" datetime="@message.SentAtUtc.ToString("O")">@GetMessageTime(message)</time>
                                     </p>
                                 }
                                 else
@@ -513,7 +594,80 @@
                                 }
                                 else
                                 {
-                                    <div class="chat-message-body">@RenderMessageBody(message)</div>
+                                    @if (message.Attachment is null || !string.Equals(message.Body, "Shared a file", StringComparison.Ordinal))
+                                    {
+                                        <div class="chat-message-body">@RenderMessageBody(message)</div>
+                                    }
+                                }
+                                @if (message.Attachment is { } attachment)
+                                {
+                                    <div class="chat-attachment">
+                                        @if (attachment.Kind == ChatAttachmentKind.Image)
+                                        {
+                                            <div class="chat-attachment-media">
+                                                <button type="button" class="chat-attachment-image-button" aria-label="Expand @attachment.FileName" @onclick="() => OpenExpandedAttachment(message.Id, attachment)">
+                                                    <img src="@AttachmentUrl(message.Id)" alt="@attachment.FileName" loading="lazy" />
+                                                </button>
+                                            </div>
+                                        }
+                                        else if (attachment.Kind == ChatAttachmentKind.Video)
+                                        {
+                                            <div class="chat-attachment-media">
+                                                <video src="@AttachmentUrl(message.Id)" controls preload="metadata" playsinline aria-label="@attachment.FileName"></video>
+                                                <a class="chat-attachment-download" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                                </a>
+                                            </div>
+                                        }
+                                        else if (attachment.Kind == ChatAttachmentKind.Text)
+                                        {
+                                            var language = GetTextLanguage(message.Id, attachment.FileName);
+                                            <div class="chat-attachment-code-card">
+                                                <pre id="chat-code-@message.Id" class="chat-attachment-code-preview @(IsTextExpanded(message.Id) ? "expanded" : "") @(IsWordWrapEnabled(message.Id) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(IsTextExpanded(message.Id) ? attachment.Text : PreviewText(attachment.Text), language))</code></pre>
+                                                <div class="chat-attachment-code-toolbar">
+                                                    <button type="button" class="chat-code-caret" title="@(IsTextExpanded(message.Id) ? "Collapse preview" : "Show all lines")" aria-label="@(IsTextExpanded(message.Id) ? "Collapse preview" : "Show all lines")" aria-expanded="@(IsTextExpanded(message.Id) ? "true" : "false")" aria-controls="chat-code-@message.Id" @onclick="() => ToggleTextExpanded(message.Id)">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                                    </button>
+                                                    <div class="chat-code-file-details"><span title="@attachment.FileName">@attachment.FileName</span><small>@FormatFileSize(attachment.Size)</small></div>
+                                                    <div class="chat-code-actions">
+                                                        <button type="button" title="Language: @ChatTextHighlighter.Label(language)" aria-label="Change language, currently @ChatTextHighlighter.Label(language)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(message.Id, TextAttachmentMenu.Language)"><span aria-hidden="true">&lt;&gt;</span></button>
+                                                        <button type="button" title="Open full text viewer" aria-label="Open full text viewer" @onclick="() => OpenExpandedAttachment(message.Id, attachment)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H4v4m0-4 6 6m6 10h4v-4m0 4-6-6M16 4h4v4m0-4-6 6M8 20H4v-4m0 4 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                                                        <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(message.Id, TextAttachmentMenu.Options)">⋯</button>
+                                                    </div>
+                                                </div>
+                                                @if (textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer)
+                                                {
+                                                    <div class="chat-code-menu chat-code-language-menu" role="menu" data-chat-text-menu>
+                                                        <strong>Language</strong>
+                                                        @foreach (var choice in ChatTextHighlighter.Languages)
+                                                        {
+                                                            <button type="button" role="menuitemradio" aria-checked="@(language == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(message.Id, choice.Language)">@choice.Label</button>
+                                                        }
+                                                    </div>
+                                                }
+                                                else if (textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer)
+                                                {
+                                                    <div class="chat-code-menu chat-code-options-menu" role="menu" data-chat-text-menu>
+                                                        <a role="menuitem" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false">Download file</a>
+                                                        <label><input type="checkbox" checked="@IsWordWrapEnabled(message.Id)" @onchange="args => SetWordWrap(message.Id, args.Value is true)" /> Word wrap</label>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="chat-attachment-file-card">
+                                                <svg class="chat-attachment-file-icon" viewBox="0 0 32 40" aria-hidden="true" focusable="false"><path d="M4 1h16l10 10v26a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="currentColor"/><path d="M20 1v9a2 2 0 0 0 2 2h8" fill="#fff" opacity=".78"/></svg>
+                                                <div class="chat-attachment-file-details">
+                                                    <a class="chat-attachment-file-name chat-attachment-file-name-link" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName">@attachment.FileName</a>
+                                                    <span class="chat-attachment-file-size">@FormatFileSize(attachment.Size)</span>
+                                                </div>
+                                                <a class="chat-attachment-download" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                                </a>
+                                            </div>
+                                        }
+                                    </div>
                                 }
                                 @if (!message.IsDeleted && editingMessageId != message.Id)
                                 {
@@ -572,6 +726,10 @@
                                                 <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 8V4L2 12l8 8v-4c6.5 0 10 2 12 5-.5-8-4-13-12-13Z" /></svg>
                                                 Reply
                                             </button>
+                                            @if (thread.Conversation.Kind == ConversationKind.Channel && thread.ChannelThread is null && message.ReplyToMessageId is not null)
+                                            {
+                                                <button type="button" role="menuitem" @onclick="() => OfferThreadFromReply(message)">Start Thread from Reply</button>
+                                            }
                                             <div class="chat-message-more-divider" role="separator"></div>
                                             <button type="button" role="menuitem" @onclick="() => CopyMessageTextAsync(message)">
                                                 <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 3h10a2 2 0 0 1 2 2v12h-2V5H8V3Zm-4 4h10a2 2 0 0 1 2 2v12H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Zm0 2v10h10V9H4Z" /></svg>
@@ -671,21 +829,39 @@
                     <form class="chat-compose" @onsubmit="SendAsync" @onsubmit:preventDefault>
                         <label class="sr-only" for="chat-message-body">Message</label>
                         <div class="chat-compose-input">
-                        @if (replyingTo is { } reply)
-                        {
-                            <div class="chat-reply-draft">
-                                <span>Replying to <strong>@reply.SenderName</strong></span>
-                                <span class="chat-reply-draft-body">@reply.Body</span>
-                                <button type="button" title="Cancel reply" aria-label="Cancel reply" @onclick="CancelReply">×</button>
-                            </div>
-                        }
+                         @if (replyingTo is { } reply)
+                         {
+                             <div class="chat-reply-draft">
+                                 <span>Replying to <strong>@reply.SenderName</strong></span>
+                                 <span class="chat-reply-draft-body">@reply.Body</span>
+                                 <button type="button" title="Cancel reply" aria-label="Cancel reply" @onclick="CancelReply">×</button>
+                             </div>
+                             @if (showThreadReplyOffer)
+                             {
+                                 <div class="chat-thread-reply-offer">
+                                     <span>This is already a reply.</span>
+                                     <button type="button" @onclick="() => OfferThreadFromReply(reply)">Start a Thread</button>
+                                     <button type="button" @onclick="() => showThreadReplyOffer = false">Reply here</button>
+                                 </div>
+                             }
+                             }
+                            <div class="chat-compose-editor-wrap">
                             <div class="chat-markdown-editor chat-draft-editor @(thread.Conversation.Kind == ConversationKind.Channel ? "chat-draft-overlay-active" : "")">
+                                <div class="chat-compose-add" data-chat-compose-menu>
+                                    <button type="button" class="chat-attach-button" title="Add to message" aria-label="Add to message" aria-haspopup="menu" aria-expanded="@showComposeMenu" @onclick="ToggleComposeMenu">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+                                    </button>
+                                    <InputFile id="chat-attachment-picker" @key="attachmentInputVersion" class="chat-hidden-file-input" OnChange="SelectAttachmentAsync" aria-label="Upload a file" />
+                                </div>
+                                <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@composerEmojiPickerOpen" aria-controls="chat-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="ToggleComposerEmojiPickerAsync">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.2c.8 1.2 2 1.8 3.5 1.8s2.7-.6 3.5-1.8M9 9.5h.01M15 9.5h.01" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                                </button>
                                 <div class="chat-draft-source">
                                     @if (thread.Conversation.Kind == ConversationKind.Channel)
                                     {
                                         <div id="chat-draft-preview" class="chat-draft-preview" aria-hidden="true">@RenderDraftBody()</div>
                                     }
-                                    <textarea id="chat-message-body" @ref="messageBodyInput" rows="2" maxlength="4000" placeholder="Write a message" value="@draft"
+                                    <textarea id="chat-message-body" @ref="messageBodyInput" rows="1" maxlength="4000" placeholder="Write a message" value="@draft"
                                               @oninput="HandleDraftInputAsync" @onkeyup="HandleDraftCaretAsync"
                                               @onfocus="MarkCurrentConversationReadAsync" @onclick="HandleDraftClickAsync"
                                               aria-controls="chat-mention-menu" aria-expanded="@mentionMenuOpen"></textarea>
@@ -694,6 +870,39 @@
                                 {
                                     <div class="chat-message-body chat-markdown-preview" role="region" aria-label="Markdown preview">@((MarkupString)draftPreviewHtml)</div>
                                 }
+                            </div>
+                            @if (showComposeMenu)
+                            {
+                                <div class="chat-compose-add-menu" data-chat-compose-menu role="menu">
+                                    <label role="menuitem" for="chat-attachment-picker" tabindex="0" @onkeydown="HandleAttachmentLabelKeyDown">Upload a File</label>
+                                    @if (thread.Conversation.Kind == ConversationKind.Channel)
+                                    {
+                                        <button type="button" role="menuitem" @onclick="BeginCreateThread">Create Thread</button>
+                                    }
+                                </div>
+                            }
+                            @if (composerEmojiPickerOpen)
+                            {
+                                <div id="chat-compose-emoji-picker" class="chat-emoji-picker chat-compose-emoji-picker" role="dialog" aria-label="Insert an emoji" @onkeydown="HandleComposerEmojiPickerKeyDown" @onclick:stopPropagation>
+                                    <label class="sr-only" for="chat-compose-emoji-search">Find an emoji</label>
+                                    <input id="chat-compose-emoji-search" placeholder="Find an Emoji" @bind="emojiSearch" @bind:event="oninput" />
+                                    <div class="chat-emoji-groups" aria-label="Emoji categories">
+                                        @foreach (var group in ChatEmojiCatalog.Groups)
+                                        {
+                                            <button type="button" class="@(emojiGroup == group ? "selected" : "")" title="@group" aria-label="@group" aria-pressed="@(emojiGroup == group)" @onclick="() => SelectEmojiGroup(group)">
+                                                <svg aria-hidden="true" focusable="false"><use href="@GetEmojiGroupIcon(group)" /></svg>
+                                            </button>
+                                        }
+                                    </div>
+                                    <div class="chat-emoji-grid">
+                                        @foreach (var family in VisibleEmojiFamilies)
+                                        {
+                                            <button type="button" title="Insert @family.Default.Name" aria-label="Insert @family.Default.Name" @onclick="() => InsertComposerEmojiAsync(PreferredEmoji(family.Default.Emoji))">@PreferredEmoji(family.Default.Emoji)</button>
+                                        }
+                                    </div>
+                                    @if (!VisibleEmojiFamilies.Any()) { <p class="chat-emoji-empty">No matching emoji.</p> }
+                                </div>
+                            }
                             </div>
                             @if (mentionMenuOpen && thread.Conversation.Kind == ConversationKind.Channel)
                             {
@@ -711,11 +920,144 @@
                                     @if (mentionOptions.Count == 0) { <p>No matching members.</p> }
                                 </div>
                             }
+                        @if (pendingAttachment is { } pendingFile)
+                        {
+                            <div class="chat-pending-attachment"><span>@pendingFile.FileName (@FormatFileSize(pendingFile.Content.Length))</span><button type="button" aria-label="Remove attachment" @onclick="ClearAttachment">×</button></div>
+                        }
                         </div>
-                        <button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(draft)">Send</button>
+                        <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(draft) && pendingAttachment is null)">Send</button>
                     </form>
                 }
             </div>
+            @if (isCreatingChannelThread && fullChannelThreadId is null)
+            {
+                <aside class="chat-channel-thread-sidebar chat-channel-thread-create-sidebar" aria-label="Create a channel thread">
+                    <header>
+                        <strong>New Thread</strong>
+                        <button type="button" aria-label="Cancel creating thread" @onclick="CancelCreateThread">×</button>
+                    </header>
+                    @if (threadSourceMessageId is long sourceId
+                        && thread?.Messages.FirstOrDefault(message => message.Id == sourceId)?.Body is { } sourceBody)
+                    {
+                        <p class="chat-thread-source">Starting from this reply: @sourceBody</p>
+                    }
+                    <form class="chat-channel-thread-create-form" @onsubmit="CreateThreadAsync" @onsubmit:preventDefault>
+                        <label for="chat-thread-title-input">Thread name</label>
+                        <input id="chat-thread-title-input" maxlength="120" placeholder="Thread name" @bind="newThreadTitle" @bind:event="oninput" />
+                        <label for="chat-thread-first-message">First message</label>
+                        <textarea id="chat-thread-first-message" rows="4" maxlength="4000" placeholder="Add the first message" @bind="newThreadMessage" @bind:event="oninput"></textarea>
+                        <div class="chat-channel-thread-create-actions">
+                            <button type="button" class="button button-secondary" @onclick="CancelCreateThread">Cancel</button>
+                            <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(newThreadTitle) || string.IsNullOrWhiteSpace(newThreadMessage))">Start Thread</button>
+                        </div>
+                    </form>
+                </aside>
+            }
+            else if (sidebarThread is { } selectedChannelThread && fullChannelThreadId is null)
+            {
+                <aside class="chat-channel-thread-sidebar" aria-label="Thread: @selectedChannelThread.ChannelThread?.Title">
+                    <header>
+                        <button type="button" class="chat-channel-thread-sidebar-title" title="Open thread in full view" @onclick="() => OpenChannelThreadFullAsync(selectedChannelThread.ChannelThread!.Id)">
+                            <svg class="chat-thread-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 4v16M6 8h9a3 3 0 0 1 0 6h-5"/><circle cx="6" cy="4" r="1"/><circle cx="10" cy="14" r="1"/></svg> @selectedChannelThread.ChannelThread?.Title <span aria-hidden="true">↗</span>
+                        </button>
+                        <button type="button" aria-label="Close thread" @onclick="CloseChannelThreadSidebar">×</button>
+                    </header>
+                    @if (selectedChannelThread.ChannelThread?.StartedFromMessage is { } sourceMessage)
+                    {
+                        <p class="chat-thread-source">Started from a reply: @sourceMessage</p>
+                    }
+                    <div class="chat-channel-thread-sidebar-actions">
+                        <button type="button" aria-expanded="@showSidebarPins" @onclick="() => showSidebarPins = !showSidebarPins">Pinned (@selectedChannelThread.PinnedMessages.Count)</button>
+                    </div>
+                    @if (showSidebarPins)
+                    {
+                        <div class="chat-channel-thread-pins">
+                            @if (selectedChannelThread.PinnedMessages.Count == 0) { <p>No pinned messages.</p> }
+                            @foreach (var pinned in selectedChannelThread.PinnedMessages)
+                            {
+                                <div><strong>@pinned.SenderName</strong><p>@pinned.Body</p><button type="button" @onclick="args => RequestPinMessageAsync(pinned.Id, false, args.ShiftKey)">Unpin</button></div>
+                            }
+                        </div>
+                    }
+                    <div class="chat-channel-thread-sidebar-messages" role="log" aria-label="Thread messages">
+                        @foreach (var entry in selectedChannelThread.Messages)
+                        {
+                            @if (entry.Type == ChatMessageType.Text)
+                            {
+                                <article @key="entry.Id" class="chat-channel-thread-entry">
+                                    <div><strong>@entry.SenderName</strong><time datetime="@entry.SentAtUtc.ToString("O")">@entry.SentAtUtc.ToLocalTime().ToString("g")</time></div>
+                                    @if (entry.ReplyToBody is { } replyBody) { <small>↳ @replyBody</small> }
+                                    <div class="chat-message-body">@RenderMessageBody(entry)</div>
+                                    @if (entry.Attachment is { } attachment)
+                                    {
+                                        <a href="@AttachmentDownloadUrl(entry.Id)" download="@attachment.FileName" data-enhance-nav="false">@attachment.FileName</a>
+                                    }
+                                    <div class="chat-channel-thread-entry-actions">
+                                        <button type="button" @onclick="() => sidebarReplyingTo = entry">Reply</button>
+                                        <button type="button" @onclick="args => RequestPinMessageAsync(entry.Id, entry.PinnedAtUtc is null, args.ShiftKey)">@(entry.PinnedAtUtc is null ? "Pin" : "Unpin")</button>
+                                    </div>
+                                </article>
+                            }
+                        }
+                    </div>
+                    <form id="chat-sidebar-thread-compose" class="chat-compose chat-channel-thread-compose" @onsubmit="SendSidebarThreadAsync" @onsubmit:preventDefault>
+                        <div class="chat-compose-input">
+                            @if (sidebarReplyingTo is { } sideReply)
+                            {
+                                <div class="chat-reply-draft">Replying to @sideReply.SenderName: @sideReply.Body <button type="button" @onclick="() => sidebarReplyingTo = null">×</button></div>
+                            }
+                            <label class="sr-only" for="chat-sidebar-thread-draft">Message</label>
+                            <div class="chat-compose-editor-wrap">
+                                <div class="chat-markdown-editor chat-draft-editor">
+                                    <div class="chat-compose-add" data-chat-compose-menu>
+                                        <button type="button" class="chat-attach-button" title="Add to message" aria-label="Add to message" aria-haspopup="menu" aria-expanded="@showSidebarComposeMenu" @onclick="ToggleSidebarComposeMenu">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+                                        </button>
+                                        <InputFile id="chat-sidebar-attachment-picker" @key="sidebarAttachmentInputVersion" class="chat-hidden-file-input" OnChange="SelectSidebarAttachmentAsync" aria-label="Upload a file" />
+                                    </div>
+                                    <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@sidebarComposerEmojiPickerOpen" aria-controls="chat-sidebar-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="ToggleSidebarComposerEmojiPickerAsync">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.2c.8 1.2 2 1.8 3.5 1.8s2.7-.6 3.5-1.8M9 9.5h.01M15 9.5h.01" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                                    </button>
+                                    <textarea id="chat-sidebar-thread-draft" rows="1" maxlength="4000" placeholder="Reply in thread" value="@sidebarDraft" @oninput="HandleSidebarDraftInput"></textarea>
+                                </div>
+                                @if (showSidebarComposeMenu)
+                                {
+                                    <div class="chat-compose-add-menu" data-chat-compose-menu role="menu">
+                                        <label role="menuitem" for="chat-sidebar-attachment-picker" tabindex="0" @onkeydown="HandleSidebarAttachmentLabelKeyDown">Upload a File</label>
+                                    </div>
+                                }
+                                @if (sidebarComposerEmojiPickerOpen)
+                                {
+                                    <div id="chat-sidebar-compose-emoji-picker" class="chat-emoji-picker chat-compose-emoji-picker" role="dialog" aria-label="Insert an emoji" @onkeydown="HandleSidebarComposerEmojiPickerKeyDown" @onclick:stopPropagation>
+                                        <label class="sr-only" for="chat-sidebar-compose-emoji-search">Find an emoji</label>
+                                        <input id="chat-sidebar-compose-emoji-search" placeholder="Find an Emoji" @bind="emojiSearch" @bind:event="oninput" />
+                                        <div class="chat-emoji-groups" aria-label="Emoji categories">
+                                            @foreach (var group in ChatEmojiCatalog.Groups)
+                                            {
+                                                <button type="button" class="@(emojiGroup == group ? "selected" : "")" title="@group" aria-label="@group" aria-pressed="@(emojiGroup == group)" @onclick="() => SelectEmojiGroup(group)">
+                                                    <svg aria-hidden="true" focusable="false"><use href="@GetEmojiGroupIcon(group)" /></svg>
+                                                </button>
+                                            }
+                                        </div>
+                                        <div class="chat-emoji-grid">
+                                            @foreach (var family in VisibleEmojiFamilies)
+                                            {
+                                                <button type="button" title="Insert @family.Default.Name" aria-label="Insert @family.Default.Name" @onclick="() => InsertSidebarComposerEmojiAsync(PreferredEmoji(family.Default.Emoji))">@PreferredEmoji(family.Default.Emoji)</button>
+                                            }
+                                        </div>
+                                        @if (!VisibleEmojiFamilies.Any()) { <p class="chat-emoji-empty">No matching emoji.</p> }
+                                    </div>
+                                }
+                            </div>
+                            @if (sidebarPendingAttachment is { } sidebarFile)
+                            {
+                                <div class="chat-pending-attachment"><span>@sidebarFile.FileName (@FormatFileSize(sidebarFile.Content.Length))</span><button type="button" aria-label="Remove attachment" @onclick="ClearSidebarAttachment">×</button></div>
+                            }
+                        </div>
+                        <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachment is null)">Send</button>
+                    </form>
+                </aside>
+            }
             @if (showMembers && thread is not null && thread.Conversation.Kind == ConversationKind.Channel)
             {
                 <aside id="chat-members-sidebar" class="chat-members-sidebar" aria-label="Channel members">
@@ -865,6 +1207,86 @@
             </div>
         }
     </section>
+    @if (expandedAttachment is { } expanded)
+    {
+        <div class="chat-attachment-backdrop" @onclick="CloseExpandedAttachment">
+            <section class="chat-attachment-dialog" role="dialog" aria-modal="true" aria-label="@expanded.Attachment.FileName" @onclick:stopPropagation @onkeydown="HandleAttachmentDialogKeyDown">
+                <header>
+                    <strong>@expanded.Attachment.FileName</strong>
+                    @if (expanded.Attachment.Kind == ChatAttachmentKind.Image)
+                    {
+                        <div class="chat-attachment-image-tools">
+                            <button type="button" title="@(expandedImageZoomed ? "Zoom out" : "Zoom in")" aria-label="@(expandedImageZoomed ? "Zoom out" : "Zoom in")" @onclick="ToggleExpandedImageZoom">
+                                @if (expandedImageZoomed)
+                                {
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5M8 10.5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                }
+                                else
+                                {
+                                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5M8 10.5h5m-2.5-2.5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                }
+                            </button>
+                            <a href="@AttachmentUrl(expanded.MessageId)" target="_blank" rel="noopener noreferrer" aria-label="Open image in new tab" title="Open image in new tab">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6m0-6-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </a>
+                            <a href="@AttachmentDownloadUrl(expanded.MessageId)" download="@expanded.Attachment.FileName" data-enhance-nav="false" aria-label="Download image" title="Download image">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                            </a>
+                        </div>
+                    }
+                    else if (expanded.Attachment.Kind == ChatAttachmentKind.Text)
+                    {
+                        var expandedLanguage = GetTextLanguage(expanded.MessageId, expanded.Attachment.FileName);
+                        <div class="chat-attachment-dialog-text-tools">
+                            <button type="button" title="Language: @ChatTextHighlighter.Label(expandedLanguage)" aria-label="Change language, currently @ChatTextHighlighter.Label(expandedLanguage)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Language && textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(expanded.MessageId, TextAttachmentMenu.Language, true)"><span aria-hidden="true">&lt;&gt;</span></button>
+                            <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Options && textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(expanded.MessageId, TextAttachmentMenu.Options, true)">⋯</button>
+                            @if (textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Language && textMenuInExpandedViewer)
+                            {
+                                <div class="chat-code-menu chat-code-language-menu" role="menu" data-chat-text-menu>
+                                    <strong>Language</strong>
+                                    @foreach (var choice in ChatTextHighlighter.Languages)
+                                    {
+                                        <button type="button" role="menuitemradio" aria-checked="@(expandedLanguage == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(expanded.MessageId, choice.Language)">@choice.Label</button>
+                                    }
+                                </div>
+                            }
+                            else if (textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Options && textMenuInExpandedViewer)
+                            {
+                                <div class="chat-code-menu chat-code-options-menu" role="menu" data-chat-text-menu>
+                                    <a role="menuitem" href="@AttachmentDownloadUrl(expanded.MessageId)" download="@expanded.Attachment.FileName" data-enhance-nav="false">Download file</a>
+                                    <label><input type="checkbox" checked="@IsWordWrapEnabled(expanded.MessageId)" @onchange="args => SetWordWrap(expanded.MessageId, args.Value is true)" /> Word wrap</label>
+                                </div>
+                            }
+                        </div>
+                    }
+                    <button type="button" @ref="attachmentDialogCloseButton" aria-label="Close expanded file" @onclick="CloseExpandedAttachment">×</button>
+                </header>
+                @if (expanded.Attachment.Kind == ChatAttachmentKind.Image)
+                {
+                    <div class="chat-attachment-image-viewport @(expandedImageZoomed ? "zoomed" : null)">
+                        <img src="@AttachmentUrl(expanded.MessageId)" alt="@expanded.Attachment.FileName"
+                             role="button" tabindex="0" aria-label="@(expandedImageZoomed ? "Zoom out" : "Zoom in")"
+                             @onclick="ToggleExpandedImageZoom" @onkeydown="HandleExpandedImageKeyDown" />
+                    </div>
+                }
+                else if (expanded.Attachment.Kind == ChatAttachmentKind.Video)
+                {
+                    <video src="@AttachmentUrl(expanded.MessageId)" controls autoplay playsinline></video>
+                }
+                else if (expanded.Attachment.Kind == ChatAttachmentKind.Text)
+                {
+                    <pre class="chat-attachment-full-text @(IsWordWrapEnabled(expanded.MessageId) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(expanded.Attachment.Text, GetTextLanguage(expanded.MessageId, expanded.Attachment.FileName)))</code></pre>
+                }
+                @if (expanded.Attachment.Kind == ChatAttachmentKind.Video)
+                {
+                    <a class="chat-attachment-dialog-download" href="@AttachmentDownloadUrl(expanded.MessageId)" download="@expanded.Attachment.FileName" data-enhance-nav="false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                        Download file
+                    </a>
+                }
+            </section>
+        </div>
+    }
     @if (pendingDeleteMessageId is not null)
     {
         <div class="chat-delete-backdrop" @onclick="CancelDeleteMessage">
@@ -885,7 +1307,7 @@
             <section class="chat-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="chat-pin-title"
                      aria-describedby="chat-pin-description" @onclick:stopPropagation @onkeydown="HandlePinDialogKeyDown">
                 <h2 id="chat-pin-title">@(pendingPinValue ? "Pin message?" : "Unpin message?")</h2>
-                <p id="chat-pin-description">@(pendingPinValue ? "This message will appear in the conversation's pinned messages." : "This message will be removed from the conversation's pinned messages.")</p>
+                <p id="chat-pin-description">This message will @(pendingPinValue ? "appear in" : "be removed from") the @((sidebarChannelThreadId is not null || fullChannelThreadId is not null) ? "thread's" : thread?.Conversation.Kind == ConversationKind.Channel ? "channel's" : "conversation's") pinned messages.</p>
                 <div class="chat-delete-actions">
                     <button type="button" class="button button-secondary" @onclick="CancelPinMessage">Cancel</button>
                     <button type="button" class="button button-primary" @ref="confirmPinButton" @onclick="ConfirmPinMessageAsync">@(pendingPinValue ? "Pin" : "Unpin")</button>
@@ -1004,6 +1426,27 @@
     private DotNetObjectReference<ChatPanel>? channelDragReference;
     private bool channelDragAttached;
     private long? selectedId;
+    private long? fullChannelThreadId;
+    private long? sidebarChannelThreadId;
+    private ChatThread? sidebarThread;
+    private IReadOnlyList<ChatChannelThreadRow> channelThreads = [];
+    private IReadOnlyList<ChatChannelThreadRow> activeChannelThreads = [];
+    private bool showThreadsMenu;
+    private bool showComposeMenu;
+    private DotNetObjectReference<ChatPanel>? threadControlsReference;
+    private bool threadControlsAttached;
+    private bool isCreatingChannelThread;
+    private bool showSidebarPins;
+    private string newThreadTitle = string.Empty;
+    private string newThreadMessage = string.Empty;
+    private long? threadSourceMessageId;
+    private string sidebarDraft = string.Empty;
+    private ChatMessageRow? sidebarReplyingTo;
+    private (string FileName, byte[] Content)? sidebarPendingAttachment;
+    private int sidebarAttachmentInputVersion;
+    private bool showSidebarComposeMenu;
+    private bool sidebarComposerEmojiPickerOpen;
+    private bool sidebarDraftTextareaNeedsResize;
     private string? error;
     private string directUserId = string.Empty;
     private string channelName = string.Empty;
@@ -1013,6 +1456,21 @@
     private readonly CancellationTokenSource refreshLifetime = new();
     private string addMemberId = string.Empty;
     private string draft = string.Empty;
+    private (string FileName, byte[] Content)? pendingAttachment;
+    private (long MessageId, ChatAttachmentRow Attachment)? expandedAttachment;
+    private bool expandedImageZoomed;
+    private enum TextAttachmentMenu { Language, Options }
+    private readonly HashSet<long> expandedTextAttachmentIds = [];
+    private readonly HashSet<long> textNoWrapIds = [];
+    private readonly Dictionary<long, ChatTextLanguage> textLanguages = [];
+    private long? textMenuMessageId;
+    private TextAttachmentMenu? textMenuKind;
+    private bool textMenuInExpandedViewer;
+    private DotNetObjectReference<ChatPanel>? textMenuReference;
+    private bool textMenuOutsideClickAttached;
+    private ElementReference attachmentDialogCloseButton;
+    private bool focusAttachmentDialog;
+    private long attachmentInputVersion;
     private long draftInputVersion;
     private bool mentionMenuOpen;
     private string mentionQuery = string.Empty;
@@ -1080,21 +1538,23 @@
             (string.IsNullOrWhiteSpace(emojiSearch)
                 ? x.Default.Group == emojiGroup
                 : x.Tones.Any(tone => tone.Name.Contains(emojiSearch, StringComparison.OrdinalIgnoreCase))));
-    private bool activityDatesNeedFormatting;
     private bool messageTimesNeedFormatting;
     private bool composeKeyHandlerAttached;
+    private bool composerEmojiPickerOpen;
+    private bool resetDraftTextareaAfterRender;
     private bool scrollToLatestAfterRender;
     private long? jumpToMessageAfterRender;
     private bool viewingOlderMessages;
     private ChatMessageRow? replyingTo;
+    private bool showThreadReplyOffer;
     private ElementReference messageBodyInput;
     private bool restoreThreadScrollAfterRender;
     private readonly Dictionary<long, long> pendingNewMessageIds = [];
-    private long? NewMessageId => selectedId is long id && pendingNewMessageIds.TryGetValue(id, out var messageId)
+    private long? NewMessageId => fullChannelThreadId is null && selectedId is long id
+        && pendingNewMessageIds.TryGetValue(id, out var messageId)
         ? messageId : null;
     private bool markingCurrentConversationRead;
     private long conversationRefreshVersion;
-    private Dictionary<long, string> localActivityDates = [];
     private Dictionary<long, string> localMessageTimes = [];
     private Dictionary<long, (string Key, string Label, string HoverTime)> localMessageDates = [];
     private Dictionary<long, string> localPinnedMessageTimes = [];
@@ -1106,6 +1566,43 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (isOpen && !threadControlsAttached)
+        {
+            threadControlsReference ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("confastChatTime.watchThreadControls", threadControlsReference);
+                threadControlsAttached = true;
+            }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not watch chat thread menus."); }
+        }
+        if (sidebarThread is not null)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.enableEnterToSend", "chat-sidebar-thread-draft"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not set the thread compose key handler."); }
+        }
+        if (sidebarDraftTextareaNeedsResize)
+        {
+            sidebarDraftTextareaNeedsResize = false;
+            try { await JS.InvokeVoidAsync("confastChatTime.resizeDraftTextarea", "chat-sidebar-thread-draft"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not resize the thread compose box."); }
+        }
+        if (resetDraftTextareaAfterRender)
+        {
+            resetDraftTextareaAfterRender = false;
+            try { await JS.InvokeVoidAsync("confastChatTime.resizeDraftTextarea"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not resize the chat compose box."); }
+        }
+        if (focusAttachmentDialog && expandedAttachment is not null)
+        {
+            focusAttachmentDialog = false;
+            try { await attachmentDialogCloseButton.FocusAsync(); }
+            catch (JSDisconnectedException) { return; }
+        }
         if (focusDeleteAfterRender && pendingDeleteMessageId is not null)
         {
             focusDeleteAfterRender = false;
@@ -1362,6 +1859,25 @@
             moreActionsOutsideClickAttached = false;
         }
 
+        if (isOpen && textMenuMessageId is not null && !textMenuOutsideClickAttached)
+        {
+            textMenuReference ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("confastChatTime.watchTextAttachmentMenuOutsideClick", textMenuReference);
+                textMenuOutsideClickAttached = true;
+            }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not watch the text attachment menu."); }
+        }
+        else if ((textMenuMessageId is null || !isOpen) && textMenuOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingTextAttachmentMenuOutsideClick"); }
+            catch (JSDisconnectedException) { return; }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not stop watching the text attachment menu."); }
+            textMenuOutsideClickAttached = false;
+        }
+
         if (isOpen && showPresenceEditor)
         {
             if (!profileEditorOutsideClickAttached)
@@ -1441,18 +1957,10 @@
             tonePickerOutsideAttached = false;
         }
 
-        if (!activityDatesNeedFormatting && !messageTimesNeedFormatting) return;
+        if (!messageTimesNeedFormatting) return;
 
         try
         {
-            if (activityDatesNeedFormatting)
-            {
-                activityDatesNeedFormatting = false;
-                var utcValues = conversations.Select(x => x.ActivityAtUtc.ToString("O", System.Globalization.CultureInfo.InvariantCulture)).ToArray();
-                var formatted = await JS.InvokeAsync<string[]>("confastChatTime.formatActivityDates", new object?[] { utcValues });
-                localActivityDates = conversations.Select((row, index) => (row.Id, formatted[index]))
-                    .ToDictionary(x => x.Id, x => x.Item2);
-            }
             if (messageTimesNeedFormatting && thread is not null)
             {
                 messageTimesNeedFormatting = false;
@@ -1472,7 +1980,6 @@
         }
         catch (JSDisconnectedException)
         {
-            activityDatesNeedFormatting = true;
             messageTimesNeedFormatting = thread is not null;
         }
     }
@@ -1505,6 +2012,13 @@
         subscription = Notifications.Subscribe(resolvedUserId, () => _ = InvokeAsync(RefreshFromNotificationAsync));
         selectedId = null;
         thread = null;
+        CancelCreateThread();
+        sidebarReplyingTo = null;
+        fullChannelThreadId = null;
+        sidebarChannelThreadId = null;
+        sidebarThread = null;
+        channelThreads = [];
+        activeChannelThreads = [];
         manuallyMarkedUnreadConversationId = null;
         manuallyMarkedUnreadOtherConversationVisited = false;
         collapsedFolderIds.Clear();
@@ -1537,6 +2051,8 @@
                 catch (JSException ex) { Logger.LogWarning(ex, "Could not read the chat scroll position."); }
 
                 if (selectedId == id) await LoadThreadAsync(id);
+                if (sidebarChannelThreadId is long sideId && selectedId == id)
+                    await LoadSidebarThreadAsync(sideId);
                 if (selectedId == id && thread?.Conversation.Id == id &&
                     thread.Messages.LastOrDefault()?.Id is long latestMessageId && latestMessageId > previousMessageId)
                 {
@@ -1545,7 +2061,7 @@
                         pendingNewMessageIds.Remove(id);
                         scrollToLatestAfterRender = true;
                     }
-                    else pendingNewMessageIds[id] = latestMessageId;
+                    else if (fullChannelThreadId is null) pendingNewMessageIds[id] = latestMessageId;
                 }
             }
             StateHasChanged();
@@ -1564,6 +2080,7 @@
         var version = ++conversationRefreshVersion;
         var userId = currentUserId;
         var refreshedConversations = await Chat.GetConversationsAsync();
+        var refreshedActiveThreads = await Chat.GetActiveChannelThreadsAsync();
         var refreshedAdministrator = await Chat.IsCurrentUserAdministratorAsync();
         var refreshedGroups = await Chat.GetChannelGroupsAsync();
         var refreshedPresence = await Presence.GetVisibleAsync();
@@ -1571,6 +2088,7 @@
         if (disposed || version != conversationRefreshVersion || userId != currentUserId) return;
 
         conversations = refreshedConversations;
+        activeChannelThreads = refreshedActiveThreads;
         currentUserIsAdministrator = refreshedAdministrator;
         channelGroups = refreshedGroups;
         collapsedFolderIds.RemoveWhere(id => channelGroups.All(x => x.Id != id));
@@ -1582,7 +2100,6 @@
         unreadTotal = conversations.Sum(x => x.UnreadCount);
         hasUnreadAlert = conversations.Any(x => x.HasUnreadMention ||
             (x.Kind == ConversationKind.Direct && x.UnreadCount > 0));
-        activityDatesNeedFormatting = true;
     }
 
     private async Task RefreshUnreadCountPeriodicallyAsync()
@@ -1630,13 +2147,12 @@
         }
 
         isOpen = true;
-        selectedId = null;
-        thread = null;
         await EnsureEmojiSupportAsync();
         users = await Chat.GetActiveUsersAsync();
         tonePreferences = (await Chat.GetEmojiTonePreferencesAsync()).ToDictionary();
         lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
         await RefreshAsync();
+        await RestoreSelectedThreadAsync(restoreView: true);
     }
 
     private async Task ClosePanel()
@@ -1651,6 +2167,8 @@
             sidebarResizeAttached = false;
         }
         isOpen = false;
+        expandedAttachment = null;
+        CloseTextMenu();
         moreActionsMessageId = null;
         pendingDeleteMessageId = null;
         pendingPinMessageId = null;
@@ -1673,11 +2191,16 @@
     }
     private void BackToList()
     {
+        CancelCreateThread();
+        sidebarThread = null;
+        sidebarChannelThreadId = null;
+        sidebarReplyingTo = null;
         channelActionsId = null;
         moreActionsMessageId = null;
         pendingDeleteMessageId = null;
         pendingPinMessageId = null;
         draftInputVersion++;
+        composerEmojiPickerOpen = false;
         CloseTonePicker();
         CloseMessageProfile();
         mentionMenuOpen = false;
@@ -1688,11 +2211,54 @@
         composeKeyHandlerAttached = false;
     }
 
-    private void ChangeView(ChatView next)
+    private async Task ChangeViewAsync(ChatView next)
     {
-        if (view != next && (next is ChatView.Conversations or ChatView.Channels)) BackToList();
+        if (view != next && (next is ChatView.Conversations or ChatView.Channels))
+        {
+            BackToList();
+            view = next;
+            await RestoreSelectedThreadAsync(restoreView: false);
+            return;
+        }
         view = next;
         error = null;
+    }
+
+    private async Task RestoreSelectedThreadAsync(bool restoreView)
+    {
+        if (currentUserId is not { } userId) return;
+
+        try
+        {
+            if (restoreView)
+            {
+                var savedView = await JS.InvokeAsync<string?>("confastChatTime.selectedChatView", userId);
+                view = savedView switch
+                {
+                    "channels" => ChatView.Channels,
+                    "conversations" => ChatView.Conversations,
+                    _ => view is ChatView.Channels or ChatView.NewChannel
+                        ? ChatView.Channels : ChatView.Conversations
+                };
+            }
+
+            var storageView = view == ChatView.Channels ? "channels" : "conversations";
+            await JS.InvokeVoidAsync("confastChatTime.rememberChatView", userId, storageView);
+            var savedId = await JS.InvokeAsync<long?>("confastChatTime.selectedChatThread", userId, storageView);
+            if (savedId is not long id) return;
+
+            var kind = view == ChatView.Channels ? ConversationKind.Channel : ConversationKind.Direct;
+            if (conversations.Any(row => row.Id == id && row.Kind == kind))
+            {
+                await OpenThreadAsync(id);
+                if (selectedId != id)
+                    await JS.InvokeVoidAsync("confastChatTime.forgetChatThread", userId, storageView);
+            }
+            else
+                await JS.InvokeVoidAsync("confastChatTime.forgetChatThread", userId, storageView);
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not restore the selected chat thread."); }
     }
 
     private sealed record ChannelLayoutItem(ChatChannelGroupRow? Group, ChatConversationRow? Channel,
@@ -1872,30 +2438,37 @@
             StateHasChanged();
         });
 
-    private void CancelNewDirect()
+    private async Task CancelNewDirect()
     {
         directUserId = string.Empty;
-        ChangeView(ChatView.Conversations);
+        await ChangeViewAsync(ChatView.Conversations);
     }
 
-    private void CancelNewChannel()
+    private async Task CancelNewChannel()
     {
         channelName = string.Empty;
         newChannelGroupId = null;
         channelVisibility = ChannelVisibility.Public;
         initialMembers.Clear();
-        ChangeView(ChatView.Channels);
+        await ChangeViewAsync(ChatView.Channels);
     }
 
-    private void StartNewChannel(long? groupId)
+    private async Task StartNewChannel(long? groupId)
     {
         newChannelGroupId = groupId;
-        ChangeView(ChatView.NewChannel);
+        await ChangeViewAsync(ChatView.NewChannel);
     }
 
     private async Task OpenThreadAsync(long id)
     {
+        CancelCreateThread();
+        fullChannelThreadId = null;
+        sidebarChannelThreadId = null;
+        sidebarThread = null;
+        showThreadsMenu = false;
+        showComposeMenu = false;
         replyingTo = null;
+        CloseTextMenu();
         moreActionsMessageId = null;
         pendingDeleteMessageId = null;
         pendingPinMessageId = null;
@@ -1926,7 +2499,17 @@
             finally { readStateGate.Release(); }
         }
         await LoadThreadAsync(id);
-        if (selectedId == id) UpdatePinnedChannelsForSelection(id);
+        if (selectedId == id && thread?.Conversation.Id == id)
+        {
+            UpdatePinnedChannelsForSelection(id);
+            if (currentUserId is { } userId)
+            {
+                var storageView = thread.Conversation.Kind == ConversationKind.Channel ? "channels" : "conversations";
+                try { await JS.InvokeVoidAsync("confastChatTime.rememberChatThread", userId, storageView, id); }
+                catch (JSDisconnectedException) { }
+                catch (JSException ex) { Logger.LogWarning(ex, "Could not remember the selected chat thread."); }
+            }
+        }
     }
 
     private async Task LoadThreadAsync(long id)
@@ -1934,10 +2517,13 @@
         try
         {
             viewingOlderMessages = false;
-            thread = await Chat.GetThreadAsync(id);
+            thread = await Chat.GetThreadAsync(id, channelThreadId: fullChannelThreadId);
+            channelThreads = thread.Conversation.Kind == ConversationKind.Channel
+                ? await Chat.GetChannelThreadsAsync(id) : [];
             messageTimesNeedFormatting = true;
             restoreThreadScrollAfterRender = true;
-            if (thread.Conversation.UnreadCount > 0 && thread.Messages.LastOrDefault()?.Id is long latestMessageId)
+            if (fullChannelThreadId is null && thread.Conversation.UnreadCount > 0
+                && thread.Messages.LastOrDefault()?.Id is long latestMessageId)
                 pendingNewMessageIds[id] = latestMessageId;
             await RefreshAsync();
         }
@@ -1945,13 +2531,271 @@
         {
             selectedId = null;
             thread = null;
+            sidebarThread = null;
+            sidebarChannelThreadId = null;
             error = "You no longer have access to that conversation.";
             await RefreshAsync();
         }
     }
 
+    private bool IsActiveThread(ChatChannelThreadRow row) =>
+        row.LastMessageAtUtc >= DateTime.UtcNow - ChatService.ChannelThreadActiveFor;
+
+    private void ToggleThreadsMenu()
+    {
+        showThreadsMenu = !showThreadsMenu;
+        if (showThreadsMenu) showPinnedMessages = false;
+    }
+
+    private void OpenThreadsMenu()
+    {
+        showThreadsMenu = true;
+        showPinnedMessages = false;
+    }
+
+    private void ToggleComposeMenu() => showComposeMenu = !showComposeMenu;
+
+    [JSInvokable]
+    public Task DismissThreadControlsAsync() => InvokeAsync(() =>
+    {
+        if (!showThreadsMenu && !showComposeMenu && !showSidebarComposeMenu) return;
+        showThreadsMenu = false;
+        showComposeMenu = false;
+        showSidebarComposeMenu = false;
+        StateHasChanged();
+    });
+
+    private Task BeginCreateThread() => RunAsync(async () =>
+    {
+        if (thread?.Conversation.Kind != ConversationKind.Channel) return;
+        if (fullChannelThreadId is not null && selectedId is long channelId)
+        {
+            fullChannelThreadId = null;
+            await LoadThreadAsync(channelId);
+        }
+        showComposeMenu = false;
+        showThreadsMenu = false;
+        sidebarThread = null;
+        sidebarChannelThreadId = null;
+        showSidebarPins = false;
+        isCreatingChannelThread = true;
+        newThreadTitle = string.Empty;
+        newThreadMessage = string.Empty;
+        threadSourceMessageId = null;
+    });
+
+    private void OfferThreadFromReply(ChatMessageRow message)
+    {
+        if (thread?.Conversation.Kind != ConversationKind.Channel || thread.ChannelThread is not null
+            || message.ReplyToMessageId is null) return;
+        moreActionsMessageId = null;
+        sidebarThread = null;
+        sidebarChannelThreadId = null;
+        showSidebarPins = false;
+        isCreatingChannelThread = true;
+        threadSourceMessageId = message.Id;
+        newThreadTitle = message.Body is { } body
+            ? new string(body.Take(120).ToArray()) : string.Empty;
+        newThreadMessage = string.Empty;
+    }
+
+    private void CancelCreateThread()
+    {
+        isCreatingChannelThread = false;
+        newThreadTitle = string.Empty;
+        newThreadMessage = string.Empty;
+        threadSourceMessageId = null;
+    }
+
+    private Task CreateThreadAsync() => RunAsync(async () =>
+    {
+        if (selectedId is not long channelId) return;
+        var newId = await Chat.CreateChannelThreadAsync(channelId, newThreadTitle, newThreadMessage,
+            startedFromMessageId: threadSourceMessageId);
+        isCreatingChannelThread = false;
+        threadSourceMessageId = null;
+        newThreadTitle = string.Empty;
+        newThreadMessage = string.Empty;
+        CancelReply();
+        await LoadThreadAsync(channelId);
+        await OpenChannelThreadSidebarAsync(newId);
+    });
+
+    private async Task LoadSidebarThreadAsync(long channelThreadId)
+    {
+        if (selectedId is not long channelId) return;
+        sidebarThread = await Chat.GetThreadAsync(channelId, channelThreadId: channelThreadId);
+        sidebarChannelThreadId = channelThreadId;
+    }
+
+    private Task OpenChannelThreadSidebarAsync(long channelThreadId, long? channelIdToOpen = null) => RunAsync(async () =>
+    {
+        if (channelIdToOpen is long targetChannelId && selectedId != targetChannelId)
+            await OpenThreadAsync(targetChannelId);
+        if (selectedId is not long channelId) return;
+        if (fullChannelThreadId is not null)
+        {
+            fullChannelThreadId = null;
+            await LoadThreadAsync(channelId);
+        }
+        await LoadSidebarThreadAsync(channelThreadId);
+        showMembers = false;
+        showThreadsMenu = false;
+        showPinnedMessages = false;
+        showSidebarPins = false;
+        sidebarReplyingTo = null;
+    });
+
+    private Task OpenChannelThreadFullAsync(long channelThreadId, long? channelIdToOpen = null) => RunAsync(async () =>
+    {
+        if (channelIdToOpen is long targetChannelId && selectedId != targetChannelId)
+            await OpenThreadAsync(targetChannelId);
+        if (selectedId is not long channelId) return;
+        CancelCreateThread();
+        fullChannelThreadId = channelThreadId;
+        sidebarThread = null;
+        sidebarChannelThreadId = null;
+        sidebarReplyingTo = null;
+        showThreadsMenu = false;
+        showMembers = false;
+        showPinnedMessages = false;
+        replyingTo = null;
+        draft = string.Empty;
+        await LoadThreadAsync(channelId);
+    });
+
+    private Task ReturnToChannelAsync() => RunAsync(async () =>
+    {
+        if (selectedId is not long channelId) return;
+        fullChannelThreadId = null;
+        replyingTo = null;
+        draft = string.Empty;
+        await LoadThreadAsync(channelId);
+    });
+
+    private void CloseChannelThreadSidebar()
+    {
+        if (isCreatingChannelThread)
+        {
+            CancelCreateThread();
+            return;
+        }
+        sidebarChannelThreadId = null;
+        sidebarThread = null;
+        sidebarReplyingTo = null;
+        sidebarDraft = string.Empty;
+        sidebarPendingAttachment = null;
+        showSidebarComposeMenu = false;
+        sidebarComposerEmojiPickerOpen = false;
+    }
+
+    private Task SendSidebarThreadAsync() => RunAsync(async () =>
+    {
+        if (selectedId is not long channelId || sidebarChannelThreadId is not long channelThreadId
+            || string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachment is null) return;
+        await Chat.SendAsync(channelId, sidebarDraft, replyToMessageId: sidebarReplyingTo?.Id,
+            attachmentFileName: sidebarPendingAttachment?.FileName,
+            attachmentContent: sidebarPendingAttachment?.Content,
+            channelThreadId: channelThreadId);
+        sidebarDraft = string.Empty;
+        sidebarPendingAttachment = null;
+        sidebarAttachmentInputVersion++;
+        sidebarDraftTextareaNeedsResize = true;
+        sidebarReplyingTo = null;
+        sidebarComposerEmojiPickerOpen = false;
+        await LoadSidebarThreadAsync(channelThreadId);
+        await LoadThreadAsync(channelId);
+    });
+
+    private void HandleSidebarDraftInput(ChangeEventArgs args) => sidebarDraft = args.Value?.ToString() ?? string.Empty;
+
+    private void ToggleSidebarComposeMenu() => showSidebarComposeMenu = !showSidebarComposeMenu;
+
+    private async Task ToggleSidebarComposerEmojiPickerAsync()
+    {
+        if (sidebarComposerEmojiPickerOpen)
+        {
+            sidebarComposerEmojiPickerOpen = false;
+            try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer", "chat-sidebar-thread-draft"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the thread compose box."); }
+            return;
+        }
+
+        await EnsureEmojiSupportAsync();
+        emojiSearch = string.Empty;
+        sidebarComposerEmojiPickerOpen = true;
+    }
+
+    private async Task InsertSidebarComposerEmojiAsync(string emoji)
+    {
+        try
+        {
+            if (await JS.InvokeAsync<bool>("confastChatTime.insertDraftEmoji", emoji, "chat-sidebar-thread-draft"))
+                sidebarComposerEmojiPickerOpen = false;
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not insert an emoji into the thread compose box."); }
+    }
+
+    private async Task HandleSidebarComposerEmojiPickerKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key != "Escape") return;
+        sidebarComposerEmojiPickerOpen = false;
+        try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer", "chat-sidebar-thread-draft"); }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the thread compose box."); }
+    }
+
+    private void HandleSidebarAttachmentLabelKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ")
+            _ = JS.InvokeVoidAsync("confastChatTime.clickAttachmentPicker", "chat-sidebar-attachment-picker");
+    }
+
+    private async Task SelectSidebarAttachmentAsync(InputFileChangeEventArgs args)
+    {
+        showSidebarComposeMenu = false;
+        try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer", "chat-sidebar-thread-draft"); }
+        catch (JSDisconnectedException) { return; }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the thread compose box after selecting a file."); }
+        error = null;
+        sidebarPendingAttachment = null;
+        var file = args.File;
+        if (file.Size is < 1 or > ChatAttachmentTypes.MaximumBytes)
+        {
+            error = "Files must be between 1 byte and 25 MB.";
+            return;
+        }
+        try
+        {
+            await using var stream = file.OpenReadStream(ChatAttachmentTypes.MaximumBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            sidebarPendingAttachment = (file.Name, buffer.ToArray());
+        }
+        catch (IOException ex)
+        {
+            Logger.LogWarning(ex, "Could not read selected thread attachment.");
+            error = "The selected file could not be read.";
+        }
+    }
+
+    private void ClearSidebarAttachment()
+    {
+        sidebarPendingAttachment = null;
+        sidebarAttachmentInputVersion++;
+    }
+
+    private void HandleAttachmentLabelKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ")
+            _ = JS.InvokeVoidAsync("confastChatTime.clickAttachmentPicker");
+    }
+
     private async Task MarkCurrentConversationReadAsync()
     {
+        if (fullChannelThreadId is not null) return;
         if (!isOpen || selectedId is not long id || thread?.Conversation.Id != id || markingCurrentConversationRead)
             return;
         if (manuallyMarkedUnreadConversationId == id) return;
@@ -2007,6 +2851,8 @@
     private async Task StartReply(ChatMessageRow message)
     {
         replyingTo = message;
+        showThreadReplyOffer = thread?.Conversation.Kind == ConversationKind.Channel
+            && thread.ChannelThread is null && message.ReplyToMessageId is not null;
         moreActionsMessageId = null;
         reactionPickerMessageId = null;
         CloseTonePicker();
@@ -2015,13 +2861,18 @@
         catch (JSException ex) { Logger.LogWarning(ex, "Could not focus the reply composer."); }
     }
 
-    private void CancelReply() => replyingTo = null;
+    private void CancelReply()
+    {
+        replyingTo = null;
+        showThreadReplyOffer = false;
+    }
 
     private Task JumpToMessageAsync(long messageId) => RunAsync(async () =>
     {
         if (await JS.InvokeAsync<bool>("confastChatTime.jumpToMessage", messageId)) return;
         if (selectedId is not long conversationId) return;
-        thread = await Chat.GetThreadAsync(conversationId, throughMessageId: messageId);
+        thread = await Chat.GetThreadAsync(conversationId, throughMessageId: messageId,
+            channelThreadId: fullChannelThreadId);
         viewingOlderMessages = true;
         messageTimesNeedFormatting = true;
         restoreThreadScrollAfterRender = false;
@@ -2270,10 +3121,17 @@
         await readStateGate.WaitAsync();
         try
         {
-            await Chat.SendAsync(conversationId, draft, replyToMessageId: replyingTo?.Id);
+            await Chat.SendAsync(conversationId, draft, replyToMessageId: replyingTo?.Id,
+                attachmentFileName: pendingAttachment?.FileName,
+                attachmentContent: pendingAttachment?.Content,
+                channelThreadId: fullChannelThreadId);
             replyingTo = null;
+            showThreadReplyOffer = false;
+            ClearAttachment();
             draftInputVersion++;
             draft = string.Empty;
+            resetDraftTextareaAfterRender = true;
+            composerEmojiPickerOpen = false;
             mentionMenuOpen = false;
             if (manuallyMarkedUnreadConversationId == conversationId)
             {
@@ -2405,6 +3263,123 @@
         await LoadThreadAsync(selectedId!.Value);
     });
 
+    private async Task SelectAttachmentAsync(InputFileChangeEventArgs args)
+    {
+        showComposeMenu = false;
+        try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer"); }
+        catch (JSDisconnectedException) { return; }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the chat compose box after selecting a file."); }
+        error = null;
+        pendingAttachment = null;
+        var file = args.File;
+        if (file.Size is < 1 or > ChatAttachmentTypes.MaximumBytes)
+        {
+            error = "Files must be between 1 byte and 25 MB.";
+            return;
+        }
+        try
+        {
+            await using var stream = file.OpenReadStream(ChatAttachmentTypes.MaximumBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            pendingAttachment = (file.Name, buffer.ToArray());
+        }
+        catch (IOException ex)
+        {
+            Logger.LogWarning(ex, "Could not read selected chat attachment.");
+            error = "The selected file could not be read.";
+        }
+    }
+
+    private void ClearAttachment()
+    {
+        pendingAttachment = null;
+        attachmentInputVersion++;
+    }
+
+    private static string AttachmentUrl(long messageId) => $"/chat/attachments/{messageId}";
+    private static string AttachmentDownloadUrl(long messageId) => $"/chat/attachments/{messageId}/download";
+    private static string PreviewText(string? value) => value is null ? string.Empty
+        : value.Length <= 1800 ? value : value[..1800] + "…";
+    private static string FormatFileSize(int bytes) => bytes >= 1024 * 1024
+        ? $"{bytes / (1024.0 * 1024):0.#} MB"
+        : bytes >= 1024 ? $"{bytes / 1024.0:0.#} KB" : $"{bytes} B";
+    private void OpenExpandedAttachment(long messageId, ChatAttachmentRow attachment)
+    {
+        CloseTextMenu();
+        expandedImageZoomed = false;
+        expandedAttachment = (messageId, attachment);
+        focusAttachmentDialog = true;
+    }
+    private void CloseExpandedAttachment()
+    {
+        CloseTextMenu();
+        expandedImageZoomed = false;
+        expandedAttachment = null;
+    }
+    private void ToggleExpandedImageZoom() => expandedImageZoomed = !expandedImageZoomed;
+    private void HandleExpandedImageKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ") ToggleExpandedImageZoom();
+    }
+    private void HandleAttachmentDialogKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key != "Escape") return;
+        if (textMenuInExpandedViewer && textMenuMessageId is not null) CloseTextMenu();
+        else CloseExpandedAttachment();
+    }
+
+    private ChatTextLanguage GetTextLanguage(long messageId, string fileName) =>
+        textLanguages.GetValueOrDefault(messageId, ChatTextHighlighter.GuessLanguage(fileName));
+
+    private bool IsTextExpanded(long messageId) => expandedTextAttachmentIds.Contains(messageId);
+    private bool IsWordWrapEnabled(long messageId) => !textNoWrapIds.Contains(messageId);
+
+    private void ToggleTextExpanded(long messageId)
+    {
+        if (!expandedTextAttachmentIds.Add(messageId)) expandedTextAttachmentIds.Remove(messageId);
+        CloseTextMenu();
+    }
+
+    private void ToggleTextMenu(long messageId, TextAttachmentMenu menu, bool inExpandedViewer = false)
+    {
+        if (textMenuMessageId == messageId && textMenuKind == menu && textMenuInExpandedViewer == inExpandedViewer)
+            CloseTextMenu();
+        else
+        {
+            textMenuMessageId = messageId;
+            textMenuKind = menu;
+            textMenuInExpandedViewer = inExpandedViewer;
+        }
+    }
+
+    private void SetTextLanguage(long messageId, ChatTextLanguage language)
+    {
+        textLanguages[messageId] = language;
+        CloseTextMenu();
+    }
+
+    private void SetWordWrap(long messageId, bool enabled)
+    {
+        if (enabled) textNoWrapIds.Remove(messageId);
+        else textNoWrapIds.Add(messageId);
+    }
+
+    private void CloseTextMenu()
+    {
+        textMenuMessageId = null;
+        textMenuKind = null;
+        textMenuInExpandedViewer = false;
+    }
+
+    [JSInvokable]
+    public Task DismissTextAttachmentMenuAsync() => InvokeAsync(() =>
+    {
+        if (textMenuMessageId is null) return;
+        CloseTextMenu();
+        StateHasChanged();
+    });
+
     private Task RequestPinMessageAsync(long id, bool pinned, bool shiftKey)
     {
         moreActionsMessageId = null;
@@ -2433,6 +3408,7 @@
     {
         await Chat.SetMessagePinnedAsync(id, pinned);
         if (selectedId is long conversationId) await LoadThreadAsync(conversationId);
+        if (sidebarChannelThreadId is long channelThreadId) await LoadSidebarThreadAsync(channelThreadId);
     });
 
     private Task AddMenuReactionAsync(long messageId, string emoji)
@@ -2500,6 +3476,44 @@
         await EnsureEmojiSupportAsync();
         reactionPickerMessageId = messageId;
         emojiSearch = string.Empty;
+    }
+
+    private async Task ToggleComposerEmojiPickerAsync()
+    {
+        if (composerEmojiPickerOpen)
+        {
+            composerEmojiPickerOpen = false;
+            try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the chat compose box."); }
+            return;
+        }
+
+        await EnsureEmojiSupportAsync();
+        reactionPickerMessageId = null;
+        CloseTonePicker();
+        emojiSearch = string.Empty;
+        composerEmojiPickerOpen = true;
+    }
+
+    private async Task InsertComposerEmojiAsync(string emoji)
+    {
+        try
+        {
+            if (await JS.InvokeAsync<bool>("confastChatTime.insertDraftEmoji", emoji))
+                composerEmojiPickerOpen = false;
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not insert an emoji into the chat compose box."); }
+    }
+
+    private async Task HandleComposerEmojiPickerKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
+    {
+        if (args.Key != "Escape") return;
+        composerEmojiPickerOpen = false;
+        try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer"); }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the chat compose box."); }
     }
 
     private async Task EnsureEmojiSupportAsync()
@@ -2777,9 +3791,6 @@
         else initialMembers.Remove(id);
     }
 
-    private string GetActivityDate(ChatConversationRow row) =>
-        localActivityDates.GetValueOrDefault(row.Id, row.ActivityAtUtc.ToString("MMM d"));
-
     private string GetMessageTime(ChatMessageRow message) =>
         localMessageTimes.GetValueOrDefault(message.Id,
             message.SentAtUtc.ToString("MMM d, h:mm tt"));
@@ -3019,6 +4030,12 @@
             catch (JSDisconnectedException) { }
             catch (JSException) { }
         }
+        if (textMenuOutsideClickAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingTextAttachmentMenuOutsideClick"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException) { }
+        }
         if (messageProfileOutsideClickAttached)
         {
             try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingMessageProfileOutsideClick"); }
@@ -3061,8 +4078,16 @@
             catch (JSDisconnectedException) { }
             catch (JSException) { }
         }
+        if (threadControlsAttached)
+        {
+            try { await JS.InvokeVoidAsync("confastChatTime.stopWatchingThreadControls"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException) { }
+        }
+        threadControlsReference?.Dispose();
         reactionPickerReference?.Dispose();
         moreActionsReference?.Dispose();
+        textMenuReference?.Dispose();
         tonePickerReference?.Dispose();
         messageProfileReference?.Dispose();
         channelSettingsReference?.Dispose();

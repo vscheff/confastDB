@@ -14,14 +14,21 @@ public sealed record ChatConversationRow(long Id, ConversationKind Kind, Channel
     string Name, DateTime ActivityAtUtc, int UnreadCount, bool HasUnreadMention, bool IsOwner,
     long? ChannelGroupId, int ChannelSortOrder, string? OtherUserId, bool IsManuallyUnread);
 public sealed record ChatChannelGroupRow(long Id, string Name, long? ParentGroupId, int SortOrder, bool CanManage);
+public sealed record ChatChannelThreadRow(long Id, long ConversationId, string Title, string CreatedByName,
+    DateTime CreatedAtUtc, DateTime LastMessageAtUtc, int MessageCount, string? LatestMessage,
+    long? StartedFromMessageId, string? StartedFromMessage);
 public sealed record ChatMessageRow(long Id, ChatMessageType Type, string? SenderUserId, string SenderName, string? Body,
     DateTime SentAtUtc, DateTime? EditedAtUtc, bool IsDeleted, DateTime? PinnedAtUtc,
     IReadOnlyList<ChatReactionRow> Reactions, IReadOnlyList<ChatMessagePart> Parts,
-    long? ReplyToMessageId, string? ReplyToSenderUserId, string? ReplyToSenderName, string? ReplyToBody);
+    long? ReplyToMessageId, string? ReplyToSenderUserId, string? ReplyToSenderName, string? ReplyToBody,
+    ChatAttachmentRow? Attachment, long? ChannelThreadId = null);
+public sealed record ChatAttachmentRow(string FileName, ChatAttachmentKind Kind, int Size, string? Text);
+public sealed record ChatAttachmentFile(string FileName, string ContentType, ChatAttachmentKind Kind, byte[] Content);
 public sealed record ChatReactionRow(string Emoji, IReadOnlyList<ChatUser> Users);
 public sealed record ChatPinnedMessageRow(long Id, string SenderName, string Body, DateTime SentAtUtc);
 public sealed record ChatThread(ChatConversationRow Conversation, IReadOnlyList<ChatMessageRow> Messages,
-    IReadOnlyList<ChatUser> Members, IReadOnlyList<ChatPinnedMessageRow> PinnedMessages);
+    IReadOnlyList<ChatUser> Members, IReadOnlyList<ChatPinnedMessageRow> PinnedMessages,
+    ChatChannelThreadRow? ChannelThread = null);
 
 // Blazor Interactive Server uses SignalR to deliver these callbacks to connected circuits.
 // A reconnect always reloads persisted state; events are hints, not the source of truth.
@@ -64,6 +71,7 @@ public sealed class ChatService(
     ChatNotifications notifications,
     TimeProvider clock)
 {
+    public static readonly TimeSpan ChannelThreadActiveFor = TimeSpan.FromDays(3);
     private sealed record ResolvedMentions(string Body, IReadOnlySet<string> Recipients, IReadOnlyList<ChatMentionToken> Tags);
 
     private const string UnsupportedDatabaseEncodingMessage =
@@ -286,13 +294,15 @@ public sealed class ChatService(
                 Math.Max(m.IsManuallyUnread ? 1 : 0,
                     db.ChatMessages.Count(x => x.ConversationId == m.ConversationId
                         && x.Id > (m.LastReadMessageId ?? 0) && x.SenderUserId != userId
-                        && x.DeletedAtUtc == null)),
+                        && x.DeletedAtUtc == null
+                        && (x.ChannelThreadId == null || x.Type == ChatMessageType.ThreadNotice))),
                 db.ChatMessageMentions.Any(x => x.UserId == userId && x.Message.ConversationId == m.ConversationId
                     && x.Message.Id > (m.LastReadMessageId ?? 0) && x.Message.SenderUserId != userId
-                    && x.Message.DeletedAtUtc == null)
+                    && x.Message.DeletedAtUtc == null && x.Message.ChannelThreadId == null)
                 || db.ChatMessages.Any(x => x.ConversationId == m.ConversationId
                     && x.Id > (m.LastReadMessageId ?? 0) && x.SenderUserId != userId
-                    && x.DeletedAtUtc == null && x.Type == ChatMessageType.Text && x.ReplyToMessage != null
+                    && x.DeletedAtUtc == null && x.ChannelThreadId == null
+                    && x.Type == ChatMessageType.Text && x.ReplyToMessage != null
                     && x.ReplyToMessage.SenderUserId == userId),
                 m.IsOwner, m.Conversation.ChannelGroupId, m.Conversation.ChannelSortOrder,
                 m.Conversation.Kind == ConversationKind.Direct
@@ -582,7 +592,9 @@ public sealed class ChatService(
         var userId = await RequireUserAsync(db, cancellationToken);
         var total = await db.ChatConversationMembers.AsNoTracking()
             .Where(m => m.UserId == userId)
-            .Join(db.ChatMessages.AsNoTracking().Where(x => x.SenderUserId != userId && x.DeletedAtUtc == null),
+            .Join(db.ChatMessages.AsNoTracking().Where(x => x.SenderUserId != userId
+                    && x.DeletedAtUtc == null
+                    && (x.ChannelThreadId == null || x.Type == ChatMessageType.ThreadNotice)),
                 member => member.ConversationId,
                 message => message.ConversationId,
                 (member, message) => new { message.Id, member.LastReadMessageId })
@@ -591,7 +603,8 @@ public sealed class ChatService(
             .Where(m => m.UserId == userId && m.IsManuallyUnread)
             .CountAsync(m => !db.ChatMessages.Any(message => message.ConversationId == m.ConversationId
                 && message.Id > (m.LastReadMessageId ?? 0) && message.SenderUserId != userId
-                && message.DeletedAtUtc == null),
+                && message.DeletedAtUtc == null
+                && (message.ChannelThreadId == null || message.Type == ChatMessageType.ThreadNotice)),
                 cancellationToken);
         return (int)Math.Min(total + manualOnly, int.MaxValue);
     }
@@ -605,7 +618,8 @@ public sealed class ChatService(
                 && mention.Message.ConversationId == member.ConversationId
                 && mention.Message.Id > (member.LastReadMessageId ?? 0)
                 && mention.Message.SenderUserId != userId
-                && mention.Message.DeletedAtUtc == null), cancellationToken);
+                && mention.Message.DeletedAtUtc == null
+                && mention.Message.ChannelThreadId == null), cancellationToken);
     }
 
     public async Task<bool> HasUnreadAlertAsync(CancellationToken cancellationToken = default)
@@ -623,10 +637,12 @@ public sealed class ChatService(
                     && mention.Message.ConversationId == member.ConversationId
                     && mention.Message.Id > (member.LastReadMessageId ?? 0)
                     && mention.Message.SenderUserId != userId
-                    && mention.Message.DeletedAtUtc == null)
+                    && mention.Message.DeletedAtUtc == null
+                    && mention.Message.ChannelThreadId == null)
                 || db.ChatMessages.Any(message => message.ConversationId == member.ConversationId
                     && message.Id > (member.LastReadMessageId ?? 0)
                     && message.SenderUserId != userId && message.DeletedAtUtc == null
+                    && message.ChannelThreadId == null
                     && message.Type == ChatMessageType.Text
                     && message.ReplyToMessage != null
                     && message.ReplyToMessage.SenderUserId == userId), cancellationToken);
@@ -715,19 +731,147 @@ public sealed class ChatService(
             throw new UnauthorizedAccessException("Only the private channel owner can manage members.");
     }
 
+    public async Task<long> CreateChannelThreadAsync(long conversationId, string title, string initialMessage,
+        CancellationToken cancellationToken = default, long? startedFromMessageId = null)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        title = title.Trim();
+        if (title.Length is < 1 or > 120)
+            throw new InvalidOperationException("Thread title must be 1 to 120 characters.");
+        initialMessage = initialMessage.Trim();
+        if (initialMessage.Length is < 1 or > 4000)
+            throw new InvalidOperationException("The first thread message must be 1 to 4000 characters.");
+        if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
+            && x.UserId == userId && x.Conversation.Kind == ConversationKind.Channel, cancellationToken))
+            throw new UnauthorizedAccessException("You do not belong to this channel.");
+        if (startedFromMessageId is long sourceId && !await db.ChatMessages.AnyAsync(x =>
+                x.Id == sourceId && x.ConversationId == conversationId && x.ChannelThreadId == null
+                && x.Type == ChatMessageType.Text && x.ReplyToMessageId != null
+                && x.DeletedAtUtc == null, cancellationToken))
+            throw new InvalidOperationException("Choose an existing channel reply to start this thread.");
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var channelThread = new ChatChannelThread
+        {
+            ConversationId = conversationId, Title = title, CreatedByUserId = userId,
+            CreatedAtUtc = now, LastMessageAtUtc = now, StartedFromMessageId = startedFromMessageId
+        };
+        db.ChatChannelThreads.Add(channelThread);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException exception) when (IsCharacterEncodingFailure(exception))
+        {
+            throw new InvalidOperationException(UnsupportedDatabaseEncodingMessage, exception);
+        }
+        var mentions = await ResolveMentionsAsync(db, conversationId, userId, initialMessage, now, cancellationToken);
+        if (mentions.Body.Length is < 1 or > 4000)
+            throw new InvalidOperationException("The first thread message must be 1 to 4000 characters.");
+        db.ChatMessages.AddRange(new ChatMessage
+        {
+            ConversationId = conversationId, ChannelThreadId = channelThread.Id,
+            SenderUserId = userId, Type = ChatMessageType.ThreadNotice,
+            Body = "started a thread", SentAtUtc = now
+        }, new ChatMessage
+        {
+            ConversationId = conversationId, ChannelThreadId = channelThread.Id,
+            SenderUserId = userId, Type = ChatMessageType.Text,
+            Body = mentions.Body, SentAtUtc = now,
+            Mentions = mentions.Recipients.Select(id => new ChatMessageMention { UserId = id }).ToList(),
+            Tags = mentions.Tags.Select(token => new ChatMessageTag
+            {
+                Start = token.Start, Length = token.Length, Kind = token.Kind, UserId = token.UserId
+            }).ToList()
+        });
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException exception) when (IsCharacterEncodingFailure(exception))
+        {
+            throw new InvalidOperationException(UnsupportedDatabaseEncodingMessage, exception);
+        }
+        await db.ChatConversations.Where(x => x.Id == conversationId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.LastActivityAtUtc,
+                x => x.LastActivityAtUtc > now ? x.LastActivityAtUtc : now), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        var recipients = await db.ChatConversationMembers.AsNoTracking()
+            .Where(x => x.ConversationId == conversationId).Select(x => x.UserId)
+            .ToListAsync(cancellationToken);
+        notifications.Publish(recipients);
+        return channelThread.Id;
+    }
+
+    public async Task<IReadOnlyList<ChatChannelThreadRow>> GetChannelThreadsAsync(long conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
+            && x.UserId == userId && x.Conversation.Kind == ConversationKind.Channel, cancellationToken))
+            throw new UnauthorizedAccessException("You do not belong to this channel.");
+        return await db.ChatChannelThreads.AsNoTracking()
+            .Where(x => x.ConversationId == conversationId)
+            .OrderByDescending(x => x.LastMessageAtUtc).ThenByDescending(x => x.Id)
+            .Select(x => new ChatChannelThreadRow(x.Id, x.ConversationId, x.Title,
+                x.CreatedByUser.DisplayName, x.CreatedAtUtc, x.LastMessageAtUtc,
+                db.ChatMessages.Count(message => message.ChannelThreadId == x.Id
+                    && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null),
+                db.ChatMessages.Where(message => message.ChannelThreadId == x.Id
+                        && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null)
+                    .OrderByDescending(message => message.Id).Select(message => message.Body)
+                    .FirstOrDefault(), x.StartedFromMessageId,
+                x.StartedFromMessage == null || x.StartedFromMessage.DeletedAtUtc != null
+                    ? null : x.StartedFromMessage.Body))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ChatChannelThreadRow>> GetActiveChannelThreadsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        var cutoff = clock.GetUtcNow().UtcDateTime - ChannelThreadActiveFor;
+        return await db.ChatChannelThreads.AsNoTracking()
+            .Where(x => x.LastMessageAtUtc >= cutoff && db.ChatConversationMembers.Any(member =>
+                member.ConversationId == x.ConversationId && member.UserId == userId))
+            .OrderByDescending(x => x.LastMessageAtUtc).ThenByDescending(x => x.Id)
+            .Select(x => new ChatChannelThreadRow(x.Id, x.ConversationId, x.Title,
+                x.CreatedByUser.DisplayName, x.CreatedAtUtc, x.LastMessageAtUtc,
+                db.ChatMessages.Count(message => message.ChannelThreadId == x.Id
+                    && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null),
+                db.ChatMessages.Where(message => message.ChannelThreadId == x.Id
+                        && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null)
+                    .OrderByDescending(message => message.Id).Select(message => message.Body)
+                    .FirstOrDefault(), x.StartedFromMessageId,
+                x.StartedFromMessage == null || x.StartedFromMessage.DeletedAtUtc != null
+                    ? null : x.StartedFromMessage.Body))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<ChatThread> GetThreadAsync(long conversationId, CancellationToken cancellationToken = default,
-        long? throughMessageId = null)
+        long? throughMessageId = null, long? channelThreadId = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
             throw new UnauthorizedAccessException("You do not belong to this conversation.");
         var conversation = (await GetConversationsAsync(cancellationToken)).Single(x => x.Id == conversationId);
+        ChatChannelThreadRow? channelThread = null;
+        if (channelThreadId is long requestedThreadId)
+        {
+            if (conversation.Kind != ConversationKind.Channel)
+                throw new InvalidOperationException("Direct conversations do not have threads.");
+            channelThread = (await GetChannelThreadsAsync(conversationId, cancellationToken))
+                .SingleOrDefault(x => x.Id == requestedThreadId)
+                ?? throw new InvalidOperationException("That thread does not belong to this channel.");
+        }
         if (throughMessageId is long targetId && !await db.ChatMessages.AnyAsync(
-                x => x.ConversationId == conversationId && x.Id == targetId && x.DeletedAtUtc == null, cancellationToken))
+                x => x.ConversationId == conversationId && x.ChannelThreadId == channelThreadId
+                    && x.Id == targetId && x.DeletedAtUtc == null, cancellationToken))
             throw new InvalidOperationException("The original message is no longer available.");
         var messages = await db.ChatMessages.AsNoTracking().Where(x => x.ConversationId == conversationId
                 && x.DeletedAtUtc == null
+                && (channelThreadId == null
+                    ? x.ChannelThreadId == null || x.Type == ChatMessageType.ThreadNotice
+                    : x.ChannelThreadId == channelThreadId && x.Type != ChatMessageType.ThreadNotice)
                 && (throughMessageId == null || x.Id <= throughMessageId))
             .OrderByDescending(x => x.Id).Take(100).OrderBy(x => x.Id)
             .Select(x => new ChatMessageRow(x.Id, x.Type, x.SenderUserId,
@@ -739,9 +883,36 @@ public sealed class ChatService(
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUser == null
                     ? "System" : x.ReplyToMessage.SenderUser.DisplayName,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.DeletedAtUtc == null
-                    ? x.ReplyToMessage.Body : null))
+                    ? x.ReplyToMessage.Body : null, null, x.ChannelThreadId))
             .ToListAsync(cancellationToken);
         var messageIds = messages.Select(x => x.Id).ToArray();
+        var attachmentRows = await db.ChatAttachments.AsNoTracking()
+            .Where(x => messageIds.Contains(x.MessageId))
+            .Select(x => new { x.MessageId, x.FileName, x.Kind,
+                Size = x.Content.Length,
+                TextContent = x.Kind == ChatAttachmentKind.Text ? x.Content : null })
+            .ToListAsync(cancellationToken);
+        var attachmentsByMessage = attachmentRows.ToDictionary(x => x.MessageId,
+            x => new ChatAttachmentRow(x.FileName, x.Kind, x.Size,
+                x.TextContent is null ? null : ChatAttachmentTypes.DecodeText(x.TextContent)));
+        var olderTextIds = attachmentRows
+            .Where(x => x.Kind == ChatAttachmentKind.Download && x.Size <= ChatAttachmentTypes.MaximumTextBytes
+                && ChatAttachmentTypes.IsSupportedTextFileName(x.FileName))
+            .Select(x => x.MessageId).ToArray();
+        if (olderTextIds.Length > 0)
+        {
+            // Source files uploaded before their extensions were supported remain tagged as downloads.
+            var olderTextFiles = await db.ChatAttachments.AsNoTracking()
+                .Where(x => olderTextIds.Contains(x.MessageId))
+                .Select(x => new { x.MessageId, x.FileName, x.Content })
+                .ToListAsync(cancellationToken);
+            foreach (var file in olderTextFiles)
+            {
+                if (ChatAttachmentTypes.Classify(file.FileName, file.Content).Kind != ChatAttachmentKind.Text) continue;
+                attachmentsByMessage[file.MessageId] = new ChatAttachmentRow(file.FileName,
+                    ChatAttachmentKind.Text, file.Content.Length, ChatAttachmentTypes.DecodeText(file.Content));
+            }
+        }
         var reactionRows = await db.ChatMessageReactions.AsNoTracking()
             .Where(x => messageIds.Contains(x.MessageId))
             .OrderBy(x => x.ReactedAtUtc).ThenBy(x => x.User.DisplayName)
@@ -795,32 +966,55 @@ public sealed class ChatService(
             return x with
             {
                 Reactions = reactionsByMessage.GetValueOrDefault(x.Id) ?? [],
+                Attachment = attachmentsByMessage.GetValueOrDefault(x.Id),
                 Parts = x.Body is null ? [] : conversation.Kind == ConversationKind.Channel
                     ? ChatMentionParser.GetParts(x.Body, tags ?? [])
                     : [new ChatMessagePart(x.Body, false)]
             };
         }).ToList();
         var pinnedMessages = await db.ChatMessages.AsNoTracking()
-            .Where(x => x.ConversationId == conversationId && x.PinnedAtUtc != null && x.DeletedAtUtc == null)
+            .Where(x => x.ConversationId == conversationId && x.ChannelThreadId == channelThreadId
+                && x.PinnedAtUtc != null && x.DeletedAtUtc == null)
             .OrderByDescending(x => x.PinnedAtUtc).ThenByDescending(x => x.Id)
             .Select(x => new ChatPinnedMessageRow(x.Id,
                 x.SenderUser == null ? "System" : x.SenderUser.DisplayName, x.Body, x.SentAtUtc))
             .ToListAsync(cancellationToken);
-        return new ChatThread(conversation, messages, members, pinnedMessages);
+        return new ChatThread(conversation, messages, members, pinnedMessages, channelThread);
     }
 
     public async Task<long> SendAsync(long conversationId, string body, CancellationToken cancellationToken = default,
-        long? replyToMessageId = null)
+        long? replyToMessageId = null, string? attachmentFileName = null, byte[]? attachmentContent = null,
+        long? channelThreadId = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         body = body.Trim();
+        if ((attachmentFileName is null) != (attachmentContent is null))
+            throw new InvalidOperationException("Choose a file before sending it.");
+        ChatAttachment? attachment = null;
+        if (attachmentFileName is not null && attachmentContent is not null)
+        {
+            var safeName = attachmentFileName.Replace('\\', '/').Split('/').Last();
+            if (string.IsNullOrWhiteSpace(safeName) || safeName.Length > 255 || safeName.Any(char.IsControl))
+                throw new InvalidOperationException("The file name is invalid or exceeds 255 characters.");
+            var (kind, contentType) = ChatAttachmentTypes.Classify(safeName, attachmentContent);
+            attachment = new ChatAttachment
+            {
+                FileName = safeName, Content = attachmentContent, Kind = kind, ContentType = contentType
+            };
+            if (body.Length == 0) body = "Shared a file";
+        }
         if (body.Length is < 1 or > 4000) throw new InvalidOperationException("Message must be 1 to 4000 characters.");
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
             throw new UnauthorizedAccessException("Join this conversation before sending a message.");
+        if (channelThreadId is long requestedThreadId && !await db.ChatChannelThreads.AnyAsync(x =>
+                x.Id == requestedThreadId && x.ConversationId == conversationId
+                && x.Conversation.Kind == ConversationKind.Channel, cancellationToken))
+            throw new InvalidOperationException("That thread does not belong to this channel.");
         if (replyToMessageId is long targetId && !await db.ChatMessages.AnyAsync(x =>
-                x.Id == targetId && x.ConversationId == conversationId && x.Type == ChatMessageType.Text
+                x.Id == targetId && x.ConversationId == conversationId
+                    && x.ChannelThreadId == channelThreadId && x.Type == ChatMessageType.Text
                     && x.DeletedAtUtc == null,
                 cancellationToken))
             throw new InvalidOperationException("Reply to an existing message in this conversation.");
@@ -829,9 +1023,11 @@ public sealed class ChatService(
         if (mentions.Body.Length > 4000) throw new InvalidOperationException("Message must be 1 to 4000 characters.");
         var message = new ChatMessage
         {
-            ConversationId = conversationId, SenderUserId = userId, Body = mentions.Body,
+            ConversationId = conversationId, ChannelThreadId = channelThreadId,
+            SenderUserId = userId, Body = mentions.Body,
             ReplyToMessageId = replyToMessageId,
             SentAtUtc = now, Type = ChatMessageType.Text,
+            Attachment = attachment,
             Mentions = mentions.Recipients.Select(id => new ChatMessageMention { UserId = id }).ToList(),
             Tags = mentions.Tags.Select(token => new ChatMessageTag
             {
@@ -857,12 +1053,45 @@ public sealed class ChatService(
         await db.ChatConversations.Where(x => x.Id == conversationId)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.LastActivityAtUtc,
                 x => x.LastActivityAtUtc > now ? x.LastActivityAtUtc : now), cancellationToken);
+        if (channelThreadId is long threadId)
+            await db.ChatChannelThreads.Where(x => x.Id == threadId && x.ConversationId == conversationId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.LastMessageAtUtc,
+                    x => x.LastMessageAtUtc > now ? x.LastMessageAtUtc : now), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         var recipients = await db.ChatConversationMembers.AsNoTracking()
             .Where(x => x.ConversationId == conversationId).Select(x => x.UserId)
             .ToListAsync(cancellationToken);
         notifications.Publish(recipients);
         return message.Id;
+    }
+
+    public async Task<ChatAttachmentFile?> GetAttachmentAsync(long messageId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        return await FindAttachmentAsync(db, messageId, userId, cancellationToken);
+    }
+
+    // Ordinary HTTP file requests have an authenticated HttpContext, but no Blazor circuit.
+    internal async Task<ChatAttachmentFile?> GetAttachmentForHttpUserAsync(long messageId,
+        string userId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        if (!await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
+            throw new UnauthorizedAccessException("An active account is required for chat.");
+        await EnsurePublicChannelMembershipsAsync(db, userId, clock.GetUtcNow().UtcDateTime, cancellationToken);
+        return await FindAttachmentAsync(db, messageId, userId, cancellationToken);
+    }
+
+    private static Task<ChatAttachmentFile?> FindAttachmentAsync(AppDbContext db, long messageId,
+        string userId, CancellationToken cancellationToken)
+    {
+        return db.ChatAttachments.AsNoTracking()
+            .Where(x => x.MessageId == messageId && x.Message.DeletedAtUtc == null &&
+                db.ChatConversationMembers.Any(m => m.ConversationId == x.Message.ConversationId && m.UserId == userId))
+            .Select(x => new ChatAttachmentFile(x.FileName, x.ContentType, x.Kind, x.Content))
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private static async Task<ResolvedMentions> ResolveMentionsAsync(AppDbContext db,
@@ -1076,7 +1305,7 @@ public sealed class ChatService(
         var userId = await RequireUserAsync(db, cancellationToken);
         var message = await db.ChatMessages.AsNoTracking()
             .Where(x => x.Id == messageId)
-            .Select(x => new { x.ConversationId, x.Type, x.DeletedAtUtc, x.PinnedAtUtc })
+            .Select(x => new { x.ConversationId, x.ChannelThreadId, x.Type, x.DeletedAtUtc, x.PinnedAtUtc })
             .SingleOrDefaultAsync(cancellationToken);
         if (message is null || !await db.ChatConversationMembers.AnyAsync(
                 x => x.ConversationId == message.ConversationId && x.UserId == userId, cancellationToken))
@@ -1107,7 +1336,8 @@ public sealed class ChatService(
         {
             db.ChatMessages.Add(new ChatMessage
             {
-                ConversationId = message.ConversationId, SenderUserId = userId,
+                ConversationId = message.ConversationId, ChannelThreadId = message.ChannelThreadId,
+                SenderUserId = userId,
                 Type = ChatMessageType.PinNotice, Body = "pinned a message",
                 ReplyToMessageId = messageId, SentAtUtc = now
             });

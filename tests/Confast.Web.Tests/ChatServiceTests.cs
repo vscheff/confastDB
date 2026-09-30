@@ -15,6 +15,15 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
     private ChatService Service(string userId) =>
         new(database, new TestCurrentUser(userId), notifications, TimeProvider.System);
 
+    private ChatService Service(string userId, TimeProvider timeProvider) =>
+        new(database, new TestCurrentUser(userId), notifications, timeProvider);
+
+    private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
     private async Task<(string Owner, string Member, string Outsider)> UsersAsync()
     {
         var ids = (Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
@@ -25,6 +34,109 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
             new ApplicationUser { Id = ids.Item3, UserName = "outsider", DisplayName = "Outsider", IsActive = true });
         await db.SaveChangesAsync();
         return ids;
+    }
+
+    [Fact]
+    public async Task ChannelThreads_AreScopedToChannelAndKeepPinsSeparate()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var chat = Service(owner);
+        var channelId = await chat.CreateChannelAsync("Engineering", ChannelVisibility.Private, [member]);
+        var otherChannelId = await chat.CreateChannelAsync("Other", ChannelVisibility.Private, [member]);
+        var directId = await chat.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(outsider).CreateChannelThreadAsync(channelId, "Forbidden", "No access"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(outsider).GetChannelThreadsAsync(channelId));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            Service(outsider).GetThreadAsync(channelId, channelThreadId: 123));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            chat.CreateChannelThreadAsync(directId, "Wrong place", "No channel"));
+
+        var firstId = await chat.CreateChannelThreadAsync(channelId, "First thread", "First message");
+        var secondId = await chat.CreateChannelThreadAsync(channelId, "Second thread", "Second message");
+        var channelMessageId = await chat.SendAsync(channelId, "In the channel");
+        var firstMessageId = await chat.SendAsync(channelId, "In the first thread", channelThreadId: firstId);
+        var secondMessageId = await chat.SendAsync(channelId, "In the second thread", channelThreadId: secondId);
+        await chat.SetMessagePinnedAsync(channelMessageId, true);
+        await chat.SetMessagePinnedAsync(firstMessageId, true);
+        await chat.SetMessagePinnedAsync(secondMessageId, true);
+
+        var channel = await Service(member).GetThreadAsync(channelId);
+        Assert.Equal(2, channel.Messages.Count(x => x.Type == ChatMessageType.ThreadNotice));
+        Assert.DoesNotContain(channel.Messages, x => x.Id == firstMessageId || x.Id == secondMessageId);
+        Assert.Equal(channelMessageId, Assert.Single(channel.PinnedMessages).Id);
+        var first = await Service(member).GetThreadAsync(channelId, channelThreadId: firstId);
+        Assert.Equal("First thread", first.ChannelThread?.Title);
+        Assert.Contains(first.Messages, x => x.Id == firstMessageId);
+        Assert.DoesNotContain(first.Messages, x => x.Id == secondMessageId);
+        Assert.Equal(firstMessageId, Assert.Single(first.PinnedMessages).Id);
+        Assert.Equal(secondMessageId, Assert.Single((await chat.GetThreadAsync(channelId,
+            channelThreadId: secondId)).PinnedMessages).Id);
+        var memberChat = Service(member);
+        Assert.Equal((await memberChat.GetConversationsAsync()).Sum(x => x.UnreadCount),
+            await memberChat.GetTotalUnreadCountAsync());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            chat.SendAsync(channelId, "cross thread", replyToMessageId: secondMessageId,
+                channelThreadId: firstId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            chat.SendAsync(otherChannelId, "cross channel", channelThreadId: firstId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            chat.GetThreadAsync(otherChannelId, channelThreadId: firstId));
+    }
+
+    [Fact]
+    public async Task ChannelThreads_ExpireAfterThreeDaysAndReviveOnReply()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var chat = Service(owner, time);
+        var channelId = await chat.CreateChannelAsync("Operations", ChannelVisibility.Private, [member]);
+        var threadId = await chat.CreateChannelThreadAsync(channelId, "Shift handoff", "Initial handoff");
+        Assert.Equal(threadId, Assert.Single(await chat.GetActiveChannelThreadsAsync()).Id);
+
+        time.Now = time.Now.AddDays(3).AddSeconds(1);
+        Assert.Empty(await chat.GetActiveChannelThreadsAsync());
+        Assert.Equal(threadId, Assert.Single(await chat.GetChannelThreadsAsync(channelId)).Id);
+        await Service(member, time).SendAsync(channelId, "New update", channelThreadId: threadId);
+        Assert.Equal(threadId, Assert.Single(await chat.GetActiveChannelThreadsAsync()).Id);
+    }
+
+    [Fact]
+    public async Task ChannelThread_CanStartFromAnExistingChannelReply()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var chat = Service(owner);
+        var channelId = await chat.CreateChannelAsync("Production", ChannelVisibility.Private, [member]);
+        var originalId = await chat.SendAsync(channelId, "Original");
+        var replyId = await chat.SendAsync(channelId, "The follow-up", replyToMessageId: originalId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            chat.CreateChannelThreadAsync(channelId, "Invalid source", "Initial message", startedFromMessageId: originalId));
+        var threadId = await chat.CreateChannelThreadAsync(channelId, "Follow-up", "More detail",
+            startedFromMessageId: replyId);
+        var thread = await Service(member).GetThreadAsync(channelId, channelThreadId: threadId);
+        Assert.Equal(replyId, thread.ChannelThread?.StartedFromMessageId);
+        Assert.Equal("The follow-up", thread.ChannelThread?.StartedFromMessage);
+    }
+
+    [Fact]
+    public async Task Attachment_RequiresMembershipAndDisappearsWhenMessageIsDeleted()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var conversationId = await sender.CreateChannelAsync("Files", ChannelVisibility.Private, [member]);
+        var bytes = System.Text.Encoding.UTF8.GetBytes("A short note\nSecond line");
+        var messageId = await sender.SendAsync(conversationId, "", attachmentFileName: "note.txt",
+            attachmentContent: bytes);
+
+        var message = Assert.Single((await Service(member).GetThreadAsync(conversationId)).Messages);
+        Assert.Equal(ChatAttachmentKind.Text, message.Attachment?.Kind);
+        Assert.Equal("A short note\nSecond line", message.Attachment?.Text);
+        Assert.Equal(bytes, (await Service(member).GetAttachmentAsync(messageId))?.Content);
+        Assert.Null(await Service(outsider).GetAttachmentAsync(messageId));
+        await sender.DeleteOwnMessageAsync(messageId);
+        Assert.Null(await Service(member).GetAttachmentAsync(messageId));
     }
 
     [Fact]
