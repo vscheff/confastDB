@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261001123225_AllowMultipleChatAttachments")]
+    partial class AllowMultipleChatAttachments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -359,96 +362,6 @@ namespace Confast.Web.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_chat_message_tags_shape", "start >= 0 AND length > 0 AND ((kind = 0 AND user_id IS NOT NULL) OR (kind IN (1, 2) AND user_id IS NULL))");
                         });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPoll", b =>
-                {
-                    b.Property<long>("MessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("message_id");
-
-                    b.Property<bool>("AllowMultipleAnswers")
-                        .HasColumnType("boolean")
-                        .HasColumnName("allow_multiple_answers");
-
-                    b.Property<DateTime>("EndsAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("ends_at_utc");
-
-                    b.Property<DateTime>("StartsAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("starts_at_utc");
-
-                    b.HasKey("MessageId");
-
-                    b.ToTable("chat_polls", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_chat_polls_duration", "ends_at_utc - starts_at_utc IN (interval '1 hour', interval '4 hours', interval '8 hours', interval '24 hours', interval '3 days', interval '7 days', interval '14 days')");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPollAnswer", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Emoji")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("emoji");
-
-                    b.Property<long>("PollMessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("poll_message_id");
-
-                    b.Property<int>("Position")
-                        .HasColumnType("integer")
-                        .HasColumnName("position");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PollMessageId", "Position")
-                        .IsUnique();
-
-                    b.ToTable("chat_poll_answers", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_chat_poll_answers_position", "position >= 0");
-
-                            t.HasCheckConstraint("CK_chat_poll_answers_text", "btrim(text) <> ''");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPollVote", b =>
-                {
-                    b.Property<long>("PollMessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("poll_message_id");
-
-                    b.Property<string>("UserId")
-                        .HasColumnType("text")
-                        .HasColumnName("user_id");
-
-                    b.Property<long>("AnswerId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("answer_id");
-
-                    b.HasKey("PollMessageId", "UserId", "AnswerId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("PollMessageId", "AnswerId");
-
-                    b.ToTable("chat_poll_votes", (string)null);
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>
@@ -3913,48 +3826,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPoll", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Chat.ChatMessage", "Message")
-                        .WithOne()
-                        .HasForeignKey("Confast.Web.Features.Chat.ChatPoll", "MessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Message");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPollAnswer", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Chat.ChatPoll", "Poll")
-                        .WithMany("Answers")
-                        .HasForeignKey("PollMessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Poll");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPollVote", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Confast.Web.Features.Chat.ChatPollAnswer", "Answer")
-                        .WithMany("Votes")
-                        .HasForeignKey("PollMessageId", "AnswerId")
-                        .HasPrincipalKey("PollMessageId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Answer");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>
                 {
                     b.HasOne("Confast.Web.Features.Chat.ChatChannelGroup", "ChannelGroup")
@@ -4858,16 +4729,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("Mentions");
 
                     b.Navigation("Tags");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPoll", b =>
-                {
-                    b.Navigation("Answers");
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatPollAnswer", b =>
-                {
-                    b.Navigation("Votes");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.Conversation", b =>

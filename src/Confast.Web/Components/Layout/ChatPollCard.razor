@@ -1,0 +1,29 @@
+@using Confast.Web.Features.Chat
+@inject IJSRuntime JS
+<section class="poll-card" aria-label="Poll">
+    <strong>@Message.Body</strong>
+    <p>@(Poll.HasStarted ? Poll.IsOpen ? "Open" : "Closed" : "Scheduled") · @(Poll.AllowMultipleAnswers ? "Select multiple answers" : "Select one answer")</p>
+    @foreach (var answer in Poll.Answers)
+    {
+        <button type="button" class="poll-answer @(answer.Selected ? "selected" : null)" disabled="@(!Poll.IsOpen || Busy)" aria-pressed="@answer.Selected" @onclick="() => Vote.InvokeAsync(answer.Id)">
+            <span>@(answer.Selected ? "✓ " : "")@answer.Emoji @answer.Text</span><span>@answer.Votes</span>
+        </button>
+    }
+    <small>@Poll.Voters @(Poll.Voters == 1 ? "voter" : "voters") · @(Poll.HasStarted ? Poll.IsOpen ? "Closes" : "Closed" : "Starts") <span>@localTime</span></small>
+</section>
+@code {
+    [Parameter, EditorRequired] public ChatMessageRow Message { get; set; } = null!;
+    [Parameter] public EventCallback<long> Vote { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    private ChatPollRow Poll => Message.Poll!;
+    private string localTime = "";
+    private DateTime? formattedTime;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var time = Poll.HasStarted ? Poll.EndsAtUtc : Poll.StartsAtUtc;
+        if (formattedTime == time) return;
+        formattedTime = time;
+        try { localTime = await JS.InvokeAsync<string>("confastPoll.localTime", time.ToString("O")); StateHasChanged(); }
+        catch (JSDisconnectedException) { }
+    }
+}

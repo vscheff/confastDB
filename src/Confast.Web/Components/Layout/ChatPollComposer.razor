@@ -1,0 +1,154 @@
+@using Confast.Web.Features.Chat
+@inject ChatService Chat
+@inject IJSRuntime JS
+@inject ILogger<ChatPollComposer> Logger
+<div class="poll-backdrop" @onclick="CancelAsync">
+<section class="poll-dialog" role="dialog" aria-modal="@(!scheduleOpen)" aria-labelledby="poll-title" inert="@(scheduleOpen ? string.Empty : null)" @onclick:stopPropagation @onkeydown="KeyDown">
+    <div class="poll-header">
+        <h3 id="poll-title">Create Poll</h3>
+        <button type="button" class="poll-close" aria-label="Close Create Poll" disabled="@busy" @onclick="CancelAsync">×</button>
+    </div>
+    @if (error is not null) { <p role="alert" class="validation-message">@error</p> }
+    <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
+        <label for="poll-question">Question</label>
+        <textarea id="poll-question" @ref="questionInput" maxlength="4000" required @bind="question" @bind:event="oninput" rows="2"></textarea>
+        <label>Answers</label>
+        @foreach (var answer in answers)
+        {
+            <div class="poll-edit-answer" @key="answer">
+                <input aria-label="Answer text" placeholder="Answer" maxlength="200" required @bind="answer.Text" @bind:event="oninput" />
+                <button type="button" aria-label="Choose answer emoji" @onclick="() => emojiAnswer = emojiAnswer == answer ? null : answer">@(answer.Emoji ?? "☺")</button>
+                @if (answer.Emoji is not null) { <button type="button" aria-label="Remove emoji" @onclick="() => answer.Emoji = null">×</button> }
+                <button type="button" aria-label="Delete answer" disabled="@(answers.Count <= 2)" @onclick="() => RemoveAnswer(answer)">Delete</button>
+            </div>
+        }
+        @if (emojiAnswer is not null)
+        {
+            <div class="poll-emoji-picker">
+                <input aria-label="Find an emoji" placeholder="Find an Emoji" @bind="emojiSearch" @bind:event="oninput" />
+                <div class="poll-emoji-grid">
+                @foreach (var emoji in ChatEmojiCatalog.All.Where(x => string.IsNullOrWhiteSpace(emojiSearch) || x.Name.Contains(emojiSearch, StringComparison.OrdinalIgnoreCase)).Take(200))
+                {
+                    <button type="button" title="@emoji.Name" @onclick="() => ChooseEmoji(emoji.Emoji)">@emoji.Emoji</button>
+                }
+                </div>
+            </div>
+        }
+        <button type="button" class="poll-add-answer" disabled="@(answers.Count >= 20)" @onclick="() => answers.Add(new())">Add Answer</button>
+        <label for="poll-duration">Duration</label>
+        <select id="poll-duration" @bind="duration">
+            <option value="1">1 hour</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option><option value="72">3 days</option><option value="168">1 week</option><option value="336">2 weeks</option>
+        </select>
+        <label class="poll-checkbox"><input type="checkbox" @bind="multiple" /> Allow multiple answers</label>
+        @if (startLocal is DateTime scheduled)
+        {
+            <div class="poll-schedule-summary">
+                <small>Scheduled for @scheduled.ToString("g")</small>
+                <button type="button" aria-label="Remove schedule" disabled="@busy" @onclick="() => startLocal = null">×</button>
+            </div>
+        }
+        <div class="poll-actions">
+            <button type="button" class="poll-schedule-button @(startLocal is not null ? "scheduled" : null)" aria-label="Schedule poll" title="Schedule poll" aria-haspopup="dialog" disabled="@busy" @ref="scheduleButton" @onclick="OpenSchedule">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg>
+            </button>
+            <button type="submit" disabled="@busy">Post</button>
+        </div>
+    </form>
+</section>
+@if (scheduleOpen)
+{
+    <div class="poll-schedule-backdrop" @onclick="CancelScheduleAsync" @onclick:stopPropagation>
+        <section class="poll-dialog poll-schedule-dialog" role="dialog" aria-modal="true" aria-labelledby="poll-schedule-title" @onclick:stopPropagation @onkeydown="ScheduleKeyDown" @onkeydown:stopPropagation>
+            <h3 id="poll-schedule-title">Schedule Poll</h3>
+            @if (scheduleError is not null) { <p role="alert" class="validation-message">@scheduleError</p> }
+            <form @onsubmit="SetScheduleAsync" @onsubmit:preventDefault>
+                <div class="poll-schedule-fields">
+                    <div><label for="poll-schedule-date">Date</label><input id="poll-schedule-date" type="date" required @ref="scheduleDateInput" @bind="scheduleDate" /></div>
+                    <div><label for="poll-schedule-time">Time</label><input id="poll-schedule-time" type="time" required @bind="scheduleTime" /></div>
+                </div>
+                <div class="poll-actions"><button type="button" @onclick="CancelScheduleAsync">Cancel</button><button type="submit">Set Schedule</button></div>
+            </form>
+        </section>
+    </div>
+}
+</div>
+@code {
+    [Parameter] public long ConversationId { get; set; }
+    [Parameter] public long? ChannelThreadId { get; set; }
+    [Parameter] public EventCallback Cancel { get; set; }
+    [Parameter] public EventCallback Created { get; set; }
+    private sealed class Answer { public string Text { get; set; } = ""; public string? Emoji { get; set; } }
+    private readonly List<Answer> answers = [new(), new()];
+    private string question = "", emojiSearch = "";
+    private string? error;
+    private DateTime? startLocal;
+    private DateTime? scheduleDate;
+    private TimeOnly? scheduleTime;
+    private string? scheduleError;
+    private bool scheduleOpen, focusScheduleDate, focusScheduleButton;
+    private int duration = 24;
+    private bool multiple, busy;
+    private Answer? emojiAnswer;
+    private ElementReference questionInput;
+    private ElementReference scheduleDateInput, scheduleButton;
+    private void RemoveAnswer(Answer answer) { if (emojiAnswer == answer) emojiAnswer = null; answers.Remove(answer); }
+    private void ChooseEmoji(string emoji) { if (emojiAnswer is not null) emojiAnswer.Emoji = emoji; emojiAnswer = null; }
+    private Task CancelAsync() => busy ? Task.CompletedTask : Cancel.InvokeAsync();
+    private async Task KeyDown(KeyboardEventArgs args) { if (args.Key == "Escape" && !busy) await Cancel.InvokeAsync(); }
+    private void OpenSchedule()
+    {
+        scheduleDate = startLocal?.Date;
+        scheduleTime = startLocal is DateTime local ? TimeOnly.FromDateTime(local) : null;
+        scheduleError = null;
+        scheduleOpen = true;
+        focusScheduleDate = true;
+    }
+    private Task CancelScheduleAsync()
+    {
+        scheduleOpen = false;
+        focusScheduleButton = true;
+        return Task.CompletedTask;
+    }
+    private Task ScheduleKeyDown(KeyboardEventArgs args) => args.Key == "Escape" ? CancelScheduleAsync() : Task.CompletedTask;
+    private Task SetScheduleAsync()
+    {
+        if (scheduleDate is not DateTime date || scheduleTime is not TimeOnly time)
+        {
+            scheduleError = "Choose a date and time.";
+            return Task.CompletedTask;
+        }
+        startLocal = date.Date.Add(time.ToTimeSpan());
+        return CancelScheduleAsync();
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await questionInput.FocusAsync();
+        if (focusScheduleDate) { focusScheduleDate = false; await scheduleDateInput.FocusAsync(); }
+        if (focusScheduleButton) { focusScheduleButton = false; await scheduleButton.FocusAsync(); }
+    }
+    private async Task CreateAsync()
+    {
+        if (busy) return;
+        busy = true; error = null;
+        try
+        {
+            DateTime? utc = startLocal is DateTime local ? DateTime.Parse(await JS.InvokeAsync<string>("confastPoll.toUtc", local.ToString("yyyy-MM-ddTHH:mm")), null, System.Globalization.DateTimeStyles.RoundtripKind) : null;
+            await Chat.CreatePollAsync(ConversationId, question, answers.Select(x => new ChatPollAnswerInput(x.Text, x.Emoji)).ToArray(), duration, multiple, utc, ChannelThreadId);
+            await Created.InvokeAsync();
+        }
+        catch (InvalidOperationException ex) { error = ex.Message; }
+        catch (UnauthorizedAccessException ex) { error = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        {
+            Logger.LogError(ex, "Could not create a poll in conversation {ConversationId}.", ConversationId);
+            error = "The poll could not be saved. Please try again.";
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Could not convert the poll start date to UTC.");
+            error = "Choose a valid start date and time.";
+        }
+        finally { busy = false; }
+    }
+}

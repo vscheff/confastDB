@@ -4,7 +4,7 @@ namespace Confast.Web.Features.Chat;
 
 public enum ConversationKind { Direct, Channel }
 public enum ChannelVisibility { Public, Private }
-public enum ChatMessageType { Text, PinNotice, ThreadNotice }
+public enum ChatMessageType { Text, PinNotice, ThreadNotice, Poll }
 
 public sealed class ChatChannelThread
 {
@@ -89,13 +89,14 @@ public sealed class ChatMessage
     public ApplicationUser? PinnedByUser { get; set; }
     public List<ChatMessageMention> Mentions { get; set; } = [];
     public List<ChatMessageTag> Tags { get; set; } = [];
-    public ChatAttachment? Attachment { get; set; }
+    public List<ChatAttachment> Attachments { get; set; } = [];
 }
 
 public enum ChatAttachmentKind { Download, Image, Video, Text }
 
 public sealed class ChatAttachment
 {
+    public long Id { get; set; }
     public long MessageId { get; set; }
     public ChatMessage Message { get; set; } = null!;
     public string FileName { get; set; } = string.Empty;

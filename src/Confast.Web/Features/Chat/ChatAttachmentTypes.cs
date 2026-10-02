@@ -5,6 +5,8 @@ namespace Confast.Web.Features.Chat;
 public static class ChatAttachmentTypes
 {
     public const int MaximumBytes = 25 * 1024 * 1024;
+    public const int MaximumFilesPerMessage = 10;
+    public const int MaximumMessageBytes = MaximumBytes;
     public const int MaximumTextBytes = 1024 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)

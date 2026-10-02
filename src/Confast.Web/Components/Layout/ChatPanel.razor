@@ -80,16 +80,8 @@
                     }
                     @foreach (var row in conversations.Where(x => x.Kind == ConversationKind.Direct))
                     {
-                        <button @key="row.Id" type="button" class="chat-conversation chat-direct-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                            <span class="chat-avatar" aria-hidden="true">
-                                @if (PictureUrl(row.OtherUserId) is { } pictureUrl) { <img src="@pictureUrl" alt="" /> }
-                                else { @Initials(row.Name) }
-                            </span>
+                        <button @key="row.Id" type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
                             <span class="chat-conversation-top"><strong class="@(row.UnreadCount > 0 ? "unread" : "")"><span class="chat-presence-dot @PresenceClass(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span> @row.Name</strong>@if (row.UnreadCount > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count attention">@row.UnreadCount</b></span> }</span>
-                            @if (PresenceOf(row.OtherUserId) is { } contact && (contact.StatusEmoji is not null || contact.StatusMessage is not null))
-                            {
-                                <span class="chat-user-status">@contact.StatusEmoji @contact.StatusMessage</span>
-                            }
                         </button>
                     }
                 }
@@ -105,6 +97,12 @@
                     {
                         @if (item.Group is { } group)
                         {
+                            var folderCollapsed = collapsedFolderIds.Contains(group.Id);
+                            (int Count, bool HasMention) folderUnread = folderCollapsed ? GetFolderUnreadSummary(group.Id) : (0, false);
+                            var folderAction = folderCollapsed ? "Expand" : "Collapse";
+                            var folderLabel = folderUnread.Count > 0
+                                ? $"{folderAction} folder {group.Name}, {folderUnread.Count} unread messages"
+                                : $"{folderAction} folder {group.Name}";
                             <div @key="(nameof(ChatChannelGroup), group.Id)" class="chat-folder-row chat-layout-row"
                                  data-chat-item-kind="folder" data-chat-drag-kind="@(group.CanManage ? "folder" : null)" data-chat-drag-id="@group.Id"
                                  data-chat-parent="@group.ParentGroupId" data-chat-depth="@item.Depth"
@@ -122,10 +120,13 @@
                                     }
                                     else
                                     {
-                                        <button type="button" class="chat-folder-label" aria-label="@(collapsedFolderIds.Contains(group.Id) ? "Expand" : "Collapse") folder @group.Name"
-                                                title="@(collapsedFolderIds.Contains(group.Id) ? "Expand" : "Collapse") folder @group.Name"
-                                                aria-expanded="@(collapsedFolderIds.Contains(group.Id) ? "false" : "true")" @onclick="() => ToggleFolderCollapsed(group.Id)">
+                                        <button type="button" class="chat-folder-label" aria-label="@folderLabel" title="@folderLabel"
+                                                aria-expanded="@(folderCollapsed ? "false" : "true")" @onclick="() => ToggleFolderCollapsed(group.Id)">
                                             <strong>@group.Name</strong>
+                                            @if (folderUnread.Count > 0)
+                                            {
+                                                <span class="chat-unread-count @(folderUnread.HasMention ? "attention" : "")" aria-hidden="true">@(folderUnread.Count > 99 ? "99+" : folderUnread.Count)</span>
+                                            }
                                             <span class="chat-folder-chevron" aria-hidden="true">
                                                 @if (collapsedFolderIds.Contains(group.Id))
                                                 {
@@ -541,10 +542,14 @@
                                 }
                                 else if (message.SenderUserId is not null)
                                 {
-                                    <span class="chat-avatar chat-message-avatar" aria-hidden="true">
+                                    <button type="button" class="chat-avatar chat-message-avatar chat-profile-picture-button"
+                                            aria-label="Open profile for @message.SenderName" aria-haspopup="dialog" aria-controls="chat-user-popover"
+                                            data-chat-profile-anchor="@SenderAvatarAnchorKey(message.Id)"
+                                            aria-expanded="@(profileAnchorKey == SenderAvatarAnchorKey(message.Id))"
+                                            @onclick="() => ToggleMessageProfile(message.SenderUserId, message.SenderName, SenderAvatarAnchorKey(message.Id))">
                                         @if (PictureUrl(message.SenderUserId) is { } senderPictureUrl) { <img src="@senderPictureUrl" alt="" /> }
                                         else { @Initials(message.SenderName) }
-                                    </span>
+                                    </button>
                                 }
                                 @if (message.ReplyToMessageId is long originalId && message.ReplyToBody is not null)
                                 {
@@ -561,7 +566,7 @@
                                 @if (!isGrouped)
                                 {
                                 <div class="chat-message-meta">
-                                    @if (message.SenderUserId is { } senderId && senderId != currentUserId)
+                                    @if (message.SenderUserId is { } senderId)
                                     {
                                         <button type="button" class="chat-sender-link" title="@PresenceDescription(senderId)"
                                                 data-chat-profile-anchor="@SenderAnchorKey(message.Id)" aria-haspopup="dialog" aria-controls="chat-user-popover"
@@ -594,62 +599,62 @@
                                 }
                                 else
                                 {
-                                    @if (message.Attachment is null || !string.Equals(message.Body, "Shared a file", StringComparison.Ordinal))
+                                    @if (message.Attachments.Count == 0 || !string.Equals(message.Body, "Shared a file", StringComparison.Ordinal))
                                     {
-                                        <div class="chat-message-body">@RenderMessageBody(message)</div>
+                                        <div class="chat-message-body">@if (message.Poll is not null) { <ChatPollCard Message="message" Vote="answerId => VotePollAsync(message.Id, answerId)" /> } else { @RenderMessageBody(message) }</div>
                                     }
                                 }
-                                @if (message.Attachment is { } attachment)
+                                @foreach (var attachment in message.Attachments)
                                 {
                                     <div class="chat-attachment">
                                         @if (attachment.Kind == ChatAttachmentKind.Image)
                                         {
                                             <div class="chat-attachment-media">
-                                                <button type="button" class="chat-attachment-image-button" aria-label="Expand @attachment.FileName" @onclick="() => OpenExpandedAttachment(message.Id, attachment)">
-                                                    <img src="@AttachmentUrl(message.Id)" alt="@attachment.FileName" loading="lazy" />
+                                                <button type="button" class="chat-attachment-image-button" aria-label="Expand @attachment.FileName" @onclick="() => OpenExpandedAttachment(attachment)">
+                                                    <img src="@AttachmentUrl(attachment.Id)" alt="@attachment.FileName" loading="lazy" />
                                                 </button>
                                             </div>
                                         }
                                         else if (attachment.Kind == ChatAttachmentKind.Video)
                                         {
                                             <div class="chat-attachment-media">
-                                                <video src="@AttachmentUrl(message.Id)" controls preload="metadata" playsinline aria-label="@attachment.FileName"></video>
-                                                <a class="chat-attachment-download" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
+                                                <video src="@AttachmentUrl(attachment.Id)" controls preload="metadata" playsinline aria-label="@attachment.FileName"></video>
+                                                <a class="chat-attachment-download" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
                                                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                                                 </a>
                                             </div>
                                         }
                                         else if (attachment.Kind == ChatAttachmentKind.Text)
                                         {
-                                            var language = GetTextLanguage(message.Id, attachment.FileName);
+                                            var language = GetTextLanguage(attachment.Id, attachment.FileName);
                                             <div class="chat-attachment-code-card">
-                                                <pre id="chat-code-@message.Id" class="chat-attachment-code-preview @(IsTextExpanded(message.Id) ? "expanded" : "") @(IsWordWrapEnabled(message.Id) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(IsTextExpanded(message.Id) ? attachment.Text : PreviewText(attachment.Text), language))</code></pre>
+                                                <pre id="chat-code-@message.Id" class="chat-attachment-code-preview @(IsTextExpanded(attachment.Id) ? "expanded" : "") @(IsWordWrapEnabled(attachment.Id) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(IsTextExpanded(attachment.Id) ? attachment.Text : PreviewText(attachment.Text), language))</code></pre>
                                                 <div class="chat-attachment-code-toolbar">
-                                                    <button type="button" class="chat-code-caret" title="@(IsTextExpanded(message.Id) ? "Collapse preview" : "Show all lines")" aria-label="@(IsTextExpanded(message.Id) ? "Collapse preview" : "Show all lines")" aria-expanded="@(IsTextExpanded(message.Id) ? "true" : "false")" aria-controls="chat-code-@message.Id" @onclick="() => ToggleTextExpanded(message.Id)">
+                                                    <button type="button" class="chat-code-caret" title="@(IsTextExpanded(attachment.Id) ? "Collapse preview" : "Show all lines")" aria-label="@(IsTextExpanded(attachment.Id) ? "Collapse preview" : "Show all lines")" aria-expanded="@(IsTextExpanded(attachment.Id) ? "true" : "false")" aria-controls="chat-code-@message.Id" @onclick="() => ToggleTextExpanded(attachment.Id)">
                                                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                                                     </button>
                                                     <div class="chat-code-file-details"><span title="@attachment.FileName">@attachment.FileName</span><small>@FormatFileSize(attachment.Size)</small></div>
                                                     <div class="chat-code-actions">
-                                                        <button type="button" title="Language: @ChatTextHighlighter.Label(language)" aria-label="Change language, currently @ChatTextHighlighter.Label(language)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(message.Id, TextAttachmentMenu.Language)"><span aria-hidden="true">&lt;&gt;</span></button>
-                                                        <button type="button" title="Open full text viewer" aria-label="Open full text viewer" @onclick="() => OpenExpandedAttachment(message.Id, attachment)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H4v4m0-4 6 6m6 10h4v-4m0 4-6-6M16 4h4v4m0-4-6 6M8 20H4v-4m0 4 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
-                                                        <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(message.Id, TextAttachmentMenu.Options)">⋯</button>
+                                                        <button type="button" title="Language: @ChatTextHighlighter.Label(language)" aria-label="Change language, currently @ChatTextHighlighter.Label(language)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(attachment.Id, TextAttachmentMenu.Language)"><span aria-hidden="true">&lt;&gt;</span></button>
+                                                        <button type="button" title="Open full text viewer" aria-label="Open full text viewer" @onclick="() => OpenExpandedAttachment(attachment)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H4v4m0-4 6 6m6 10h4v-4m0 4-6-6M16 4h4v4m0-4-6 6M8 20H4v-4m0 4 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                                                        <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(attachment.Id, TextAttachmentMenu.Options)">⋯</button>
                                                     </div>
                                                 </div>
-                                                @if (textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer)
+                                                @if (textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer)
                                                 {
                                                     <div class="chat-code-menu chat-code-language-menu" role="menu" data-chat-text-menu>
                                                         <strong>Language</strong>
                                                         @foreach (var choice in ChatTextHighlighter.Languages)
                                                         {
-                                                            <button type="button" role="menuitemradio" aria-checked="@(language == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(message.Id, choice.Language)">@choice.Label</button>
+                                                            <button type="button" role="menuitemradio" aria-checked="@(language == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(attachment.Id, choice.Language)">@choice.Label</button>
                                                         }
                                                     </div>
                                                 }
-                                                else if (textMenuMessageId == message.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer)
+                                                else if (textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer)
                                                 {
                                                     <div class="chat-code-menu chat-code-options-menu" role="menu" data-chat-text-menu>
-                                                        <a role="menuitem" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false">Download file</a>
-                                                        <label><input type="checkbox" checked="@IsWordWrapEnabled(message.Id)" @onchange="args => SetWordWrap(message.Id, args.Value is true)" /> Word wrap</label>
+                                                        <a role="menuitem" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false">Download file</a>
+                                                        <label><input type="checkbox" checked="@IsWordWrapEnabled(attachment.Id)" @onchange="args => SetWordWrap(attachment.Id, args.Value is true)" /> Word wrap</label>
                                                     </div>
                                                 }
                                             </div>
@@ -659,17 +664,17 @@
                                             <div class="chat-attachment-file-card">
                                                 <svg class="chat-attachment-file-icon" viewBox="0 0 32 40" aria-hidden="true" focusable="false"><path d="M4 1h16l10 10v26a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="currentColor"/><path d="M20 1v9a2 2 0 0 0 2 2h8" fill="#fff" opacity=".78"/></svg>
                                                 <div class="chat-attachment-file-details">
-                                                    <a class="chat-attachment-file-name chat-attachment-file-name-link" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName">@attachment.FileName</a>
+                                                    <a class="chat-attachment-file-name chat-attachment-file-name-link" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName">@attachment.FileName</a>
                                                     <span class="chat-attachment-file-size">@FormatFileSize(attachment.Size)</span>
                                                 </div>
-                                                <a class="chat-attachment-download" href="@AttachmentDownloadUrl(message.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
+                                                <a class="chat-attachment-download" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
                                                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                                                 </a>
                                             </div>
                                         }
                                     </div>
                                 }
-                                @if (!message.IsDeleted && editingMessageId != message.Id)
+                                @if (!message.IsDeleted && message.Type == ChatMessageType.Text && editingMessageId != message.Id)
                                 {
                                     <div class="chat-reaction-actions" aria-label="Message actions">
                                         @foreach (var reaction in QuickReactions)
@@ -851,8 +856,34 @@
                                     <button type="button" class="chat-attach-button" title="Add to message" aria-label="Add to message" aria-haspopup="menu" aria-expanded="@showComposeMenu" @onclick="ToggleComposeMenu">
                                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
                                     </button>
-                                    <InputFile id="chat-attachment-picker" @key="attachmentInputVersion" class="chat-hidden-file-input" OnChange="SelectAttachmentAsync" aria-label="Upload a file" />
+                                    <InputFile id="chat-attachment-picker" @key="attachmentInputVersion" class="chat-hidden-file-input" multiple OnChange="SelectAttachmentAsync" aria-label="Upload files" />
                                 </div>
+                                @if (pendingAttachments.Count > 0)
+                                {
+                                    <div class="chat-compose-attachment-previews" aria-label="Attached files">
+                                        @for (var index = 0; index < pendingAttachments.Count; index++)
+                                        {
+                                            var attachmentIndex = index;
+                                            var pendingFile = pendingAttachments[index];
+                                            <div class="chat-compose-attachment-card" title="@pendingFile.FileName">
+                                                @if (pendingFile.Kind == ChatAttachmentKind.Image && pendingFile.PreviewUrl.Length > 0)
+                                                {
+                                                    <img src="@pendingFile.PreviewUrl" alt="@pendingFile.FileName" />
+                                                }
+                                                else if (pendingFile.Kind == ChatAttachmentKind.Video && pendingFile.PreviewUrl.Length > 0)
+                                                {
+                                                    <video src="@pendingFile.PreviewUrl" preload="metadata" muted playsinline aria-label="@pendingFile.FileName"></video>
+                                                }
+                                                else
+                                                {
+                                                    <svg class="chat-compose-file-icon" viewBox="0 0 32 40" aria-hidden="true" focusable="false"><path d="M4 1h16l10 10v26a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="currentColor"/><path d="M20 1v9a2 2 0 0 0 2 2h8" fill="#fff" opacity=".78"/></svg>
+                                                }
+                                                <span class="chat-compose-attachment-name">@pendingFile.FileName</span>
+                                                <button type="button" aria-label="Remove @pendingFile.FileName" @onclick="() => RemovePendingAttachment(attachmentIndex)">×</button>
+                                            </div>
+                                        }
+                                    </div>
+                                }
                                 <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@composerEmojiPickerOpen" aria-controls="chat-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="ToggleComposerEmojiPickerAsync">
                                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.2c.8 1.2 2 1.8 3.5 1.8s2.7-.6 3.5-1.8M9 9.5h.01M15 9.5h.01" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                                 </button>
@@ -874,6 +905,7 @@
                             @if (showComposeMenu)
                             {
                                 <div class="chat-compose-add-menu" data-chat-compose-menu role="menu">
+                                    <button type="button" role="menuitem" @onclick="() => BeginPoll(false)">Create Poll</button>
                                     <label role="menuitem" for="chat-attachment-picker" tabindex="0" @onkeydown="HandleAttachmentLabelKeyDown">Upload a File</label>
                                     @if (thread.Conversation.Kind == ConversationKind.Channel)
                                     {
@@ -920,12 +952,8 @@
                                     @if (mentionOptions.Count == 0) { <p>No matching members.</p> }
                                 </div>
                             }
-                        @if (pendingAttachment is { } pendingFile)
-                        {
-                            <div class="chat-pending-attachment"><span>@pendingFile.FileName (@FormatFileSize(pendingFile.Content.Length))</span><button type="button" aria-label="Remove attachment" @onclick="ClearAttachment">×</button></div>
-                        }
                         </div>
-                        <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(draft) && pendingAttachment is null)">Send</button>
+                        <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(draft) && pendingAttachments.Count == 0)">Send</button>
                     </form>
                 }
             </div>
@@ -982,20 +1010,92 @@
                     <div class="chat-channel-thread-sidebar-messages" role="log" aria-label="Thread messages">
                         @foreach (var entry in selectedChannelThread.Messages)
                         {
-                            @if (entry.Type == ChatMessageType.Text)
+                            @if (entry.Type is ChatMessageType.Text or ChatMessageType.Poll)
                             {
                                 <article @key="entry.Id" class="chat-channel-thread-entry">
                                     <div><strong>@entry.SenderName</strong><time datetime="@entry.SentAtUtc.ToString("O")">@entry.SentAtUtc.ToLocalTime().ToString("g")</time></div>
                                     @if (entry.ReplyToBody is { } replyBody) { <small>↳ @replyBody</small> }
-                                    <div class="chat-message-body">@RenderMessageBody(entry)</div>
-                                    @if (entry.Attachment is { } attachment)
+                                    @if (entry.Attachments.Count == 0 || !string.Equals(entry.Body, "Shared a file", StringComparison.Ordinal))
                                     {
-                                        <a href="@AttachmentDownloadUrl(entry.Id)" download="@attachment.FileName" data-enhance-nav="false">@attachment.FileName</a>
+                                        <div class="chat-message-body">@if (entry.Poll is not null) { <ChatPollCard Message="entry" Vote="answerId => VotePollAsync(entry.Id, answerId)" /> } else { @RenderMessageBody(entry) }</div>
                                     }
+                                    @foreach (var attachment in entry.Attachments)
+                                    {
+                                        <div class="chat-attachment">
+                                            @if (attachment.Kind == ChatAttachmentKind.Image)
+                                            {
+                                                <div class="chat-attachment-media">
+                                                    <button type="button" class="chat-attachment-image-button" aria-label="Expand @attachment.FileName" @onclick="() => OpenExpandedAttachment(attachment)">
+                                                        <img src="@AttachmentUrl(attachment.Id)" alt="@attachment.FileName" loading="lazy" />
+                                                    </button>
+                                                </div>
+                                            }
+                                            else if (attachment.Kind == ChatAttachmentKind.Video)
+                                            {
+                                                <div class="chat-attachment-media">
+                                                    <video src="@AttachmentUrl(attachment.Id)" controls preload="metadata" playsinline aria-label="@attachment.FileName"></video>
+                                                    <a class="chat-attachment-download" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                                    </a>
+                                                </div>
+                                            }
+                                            else if (attachment.Kind == ChatAttachmentKind.Text)
+                                            {
+                                                var language = GetTextLanguage(attachment.Id, attachment.FileName);
+                                                <div class="chat-attachment-code-card">
+                                                    <pre id="chat-code-@entry.Id" class="chat-attachment-code-preview @(IsTextExpanded(attachment.Id) ? "expanded" : "") @(IsWordWrapEnabled(attachment.Id) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(IsTextExpanded(attachment.Id) ? attachment.Text : PreviewText(attachment.Text), language))</code></pre>
+                                                    <div class="chat-attachment-code-toolbar">
+                                                        <button type="button" class="chat-code-caret" title="@(IsTextExpanded(attachment.Id) ? "Collapse preview" : "Show all lines")" aria-label="@(IsTextExpanded(attachment.Id) ? "Collapse preview" : "Show all lines")" aria-expanded="@(IsTextExpanded(attachment.Id) ? "true" : "false")" aria-controls="chat-code-@entry.Id" @onclick="() => ToggleTextExpanded(attachment.Id)">
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                                        </button>
+                                                        <div class="chat-code-file-details"><span title="@attachment.FileName">@attachment.FileName</span><small>@FormatFileSize(attachment.Size)</small></div>
+                                                        <div class="chat-code-actions">
+                                                            <button type="button" title="Language: @ChatTextHighlighter.Label(language)" aria-label="Change language, currently @ChatTextHighlighter.Label(language)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(attachment.Id, TextAttachmentMenu.Language)"><span aria-hidden="true">&lt;&gt;</span></button>
+                                                            <button type="button" title="Open full text viewer" aria-label="Open full text viewer" @onclick="() => OpenExpandedAttachment(attachment)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4H4v4m0-4 6 6m6 10h4v-4m0 4-6-6M16 4h4v4m0-4-6 6M8 20H4v-4m0 4 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+                                                            <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(attachment.Id, TextAttachmentMenu.Options)">⋯</button>
+                                                        </div>
+                                                    </div>
+                                                    @if (textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Language && !textMenuInExpandedViewer)
+                                                    {
+                                                        <div class="chat-code-menu chat-code-language-menu" role="menu" data-chat-text-menu>
+                                                            <strong>Language</strong>
+                                                            @foreach (var choice in ChatTextHighlighter.Languages)
+                                                            {
+                                                                <button type="button" role="menuitemradio" aria-checked="@(language == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(attachment.Id, choice.Language)">@choice.Label</button>
+                                                            }
+                                                        </div>
+                                                    }
+                                                    else if (textMenuMessageId == attachment.Id && textMenuKind == TextAttachmentMenu.Options && !textMenuInExpandedViewer)
+                                                    {
+                                                        <div class="chat-code-menu chat-code-options-menu" role="menu" data-chat-text-menu>
+                                                            <a role="menuitem" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false">Download file</a>
+                                                            <label><input type="checkbox" checked="@IsWordWrapEnabled(attachment.Id)" @onchange="args => SetWordWrap(attachment.Id, args.Value is true)" /> Word wrap</label>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="chat-attachment-file-card">
+                                                    <svg class="chat-attachment-file-icon" viewBox="0 0 32 40" aria-hidden="true" focusable="false"><path d="M4 1h16l10 10v26a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="currentColor"/><path d="M20 1v9a2 2 0 0 0 2 2h8" fill="#fff" opacity=".78"/></svg>
+                                                    <div class="chat-attachment-file-details">
+                                                        <a class="chat-attachment-file-name chat-attachment-file-name-link" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName">@attachment.FileName</a>
+                                                        <span class="chat-attachment-file-size">@FormatFileSize(attachment.Size)</span>
+                                                    </div>
+                                                    <a class="chat-attachment-download" href="@AttachmentDownloadUrl(attachment.Id)" download="@attachment.FileName" data-enhance-nav="false" title="Download @attachment.FileName" aria-label="Download @attachment.FileName">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                                    </a>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    @if (entry.Type == ChatMessageType.Text)
+                                    {
                                     <div class="chat-channel-thread-entry-actions">
                                         <button type="button" @onclick="() => sidebarReplyingTo = entry">Reply</button>
                                         <button type="button" @onclick="args => RequestPinMessageAsync(entry.Id, entry.PinnedAtUtc is null, args.ShiftKey)">@(entry.PinnedAtUtc is null ? "Pin" : "Unpin")</button>
                                     </div>
+                                    }
                                 </article>
                             }
                         }
@@ -1013,8 +1113,34 @@
                                         <button type="button" class="chat-attach-button" title="Add to message" aria-label="Add to message" aria-haspopup="menu" aria-expanded="@showSidebarComposeMenu" @onclick="ToggleSidebarComposeMenu">
                                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
                                         </button>
-                                        <InputFile id="chat-sidebar-attachment-picker" @key="sidebarAttachmentInputVersion" class="chat-hidden-file-input" OnChange="SelectSidebarAttachmentAsync" aria-label="Upload a file" />
+                                        <InputFile id="chat-sidebar-attachment-picker" @key="sidebarAttachmentInputVersion" class="chat-hidden-file-input" multiple OnChange="SelectSidebarAttachmentAsync" aria-label="Upload files" />
                                     </div>
+                                    @if (sidebarPendingAttachments.Count > 0)
+                                    {
+                                        <div class="chat-compose-attachment-previews" aria-label="Attached files">
+                                            @for (var index = 0; index < sidebarPendingAttachments.Count; index++)
+                                            {
+                                                var attachmentIndex = index;
+                                                var sidebarFile = sidebarPendingAttachments[index];
+                                                <div class="chat-compose-attachment-card" title="@sidebarFile.FileName">
+                                                    @if (sidebarFile.Kind == ChatAttachmentKind.Image && sidebarFile.PreviewUrl.Length > 0)
+                                                    {
+                                                        <img src="@sidebarFile.PreviewUrl" alt="@sidebarFile.FileName" />
+                                                    }
+                                                    else if (sidebarFile.Kind == ChatAttachmentKind.Video && sidebarFile.PreviewUrl.Length > 0)
+                                                    {
+                                                        <video src="@sidebarFile.PreviewUrl" preload="metadata" muted playsinline aria-label="@sidebarFile.FileName"></video>
+                                                    }
+                                                    else
+                                                    {
+                                                        <svg class="chat-compose-file-icon" viewBox="0 0 32 40" aria-hidden="true" focusable="false"><path d="M4 1h16l10 10v26a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" fill="currentColor"/><path d="M20 1v9a2 2 0 0 0 2 2h8" fill="#fff" opacity=".78"/></svg>
+                                                    }
+                                                    <span class="chat-compose-attachment-name">@sidebarFile.FileName</span>
+                                                    <button type="button" aria-label="Remove @sidebarFile.FileName" @onclick="() => RemoveSidebarAttachment(attachmentIndex)">×</button>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
                                     <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@sidebarComposerEmojiPickerOpen" aria-controls="chat-sidebar-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="ToggleSidebarComposerEmojiPickerAsync">
                                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.2c.8 1.2 2 1.8 3.5 1.8s2.7-.6 3.5-1.8M9 9.5h.01M15 9.5h.01" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                                     </button>
@@ -1023,6 +1149,7 @@
                                 @if (showSidebarComposeMenu)
                                 {
                                     <div class="chat-compose-add-menu" data-chat-compose-menu role="menu">
+                                        <button type="button" role="menuitem" @onclick="() => BeginPoll(true)">Create Poll</button>
                                         <label role="menuitem" for="chat-sidebar-attachment-picker" tabindex="0" @onkeydown="HandleSidebarAttachmentLabelKeyDown">Upload a File</label>
                                     </div>
                                 }
@@ -1049,12 +1176,8 @@
                                     </div>
                                 }
                             </div>
-                            @if (sidebarPendingAttachment is { } sidebarFile)
-                            {
-                                <div class="chat-pending-attachment"><span>@sidebarFile.FileName (@FormatFileSize(sidebarFile.Content.Length))</span><button type="button" aria-label="Remove attachment" @onclick="ClearSidebarAttachment">×</button></div>
-                            }
                         </div>
-                        <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachment is null)">Send</button>
+                        <button type="submit" class="button button-primary" disabled="@(string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachments.Count == 0)">Send</button>
                     </form>
                 </aside>
             }
@@ -1071,15 +1194,17 @@
                             @foreach (var member in thread.Members.Where(member => IsMemberOnline(member.Id)))
                             {
                                 <div class="chat-member-card">
-                                    <span class="chat-avatar chat-member-avatar" aria-hidden="true">
+                                    <button type="button" class="chat-avatar chat-member-avatar chat-profile-picture-button"
+                                            aria-label="Open profile for @member.Name" aria-haspopup="dialog" aria-controls="chat-user-popover"
+                                            data-chat-profile-anchor="@MemberAvatarAnchorKey(member.Id)"
+                                            aria-expanded="@(profileAnchorKey == MemberAvatarAnchorKey(member.Id))"
+                                            @onclick="() => ToggleMessageProfile(member.Id, member.Name, MemberAvatarAnchorKey(member.Id))">
                                         @if (PictureUrl(member.Id) is { } memberPictureUrl) { <img src="@memberPictureUrl" alt="" /> }
                                         else { @Initials(member.Name) }
                                         <span class="chat-presence-dot @PresenceClass(member.Id)" title="@PresenceDescription(member.Id)"></span>
-                                    </span>
+                                    </button>
                                     <span class="chat-member-copy">
-                                        @if (member.Id != currentUserId)
-                                        {
-                                            <button type="button"
+                                        <button type="button"
                                                     class="chat-member-link"
                                                     title="@PresenceDescription(member.Id)"
                                                     data-chat-profile-anchor="@MemberAnchorKey(member.Id)"
@@ -1092,11 +1217,6 @@
                                                         MemberAnchorKey(member.Id))">
                                                 @member.Name
                                             </button>
-                                        }
-                                        else
-                                        {
-                                            <strong>@member.Name</strong>
-                                        }
 
                                         <span>
                                             @PresenceOf(member.Id)?.StatusEmoji @PresenceOf(member.Id)?.StatusMessage
@@ -1114,7 +1234,11 @@
                             @foreach (var member in thread.Members.Where(member => !IsMemberOnline(member.Id)))
                             {
                                 <div class="chat-member-card">
-                                    <span class="chat-avatar chat-member-avatar" aria-hidden="true">
+                                    <button type="button" class="chat-avatar chat-member-avatar chat-profile-picture-button"
+                                            aria-label="Open profile for @member.Name" aria-haspopup="dialog" aria-controls="chat-user-popover"
+                                            data-chat-profile-anchor="@MemberAvatarAnchorKey(member.Id)"
+                                            aria-expanded="@(profileAnchorKey == MemberAvatarAnchorKey(member.Id))"
+                                            @onclick="() => ToggleMessageProfile(member.Id, member.Name, MemberAvatarAnchorKey(member.Id))">
                                         @if (PictureUrl(member.Id) is { } memberPictureUrl)
                                         {
                                             <img src="@memberPictureUrl" alt="" />
@@ -1125,12 +1249,10 @@
                                         }
                                         <span class="chat-presence-dot @PresenceClass(member.Id)"
                                                 title="@PresenceDescription(member.Id)"></span>
-                                    </span>
+                                    </button>
 
                                     <span class="chat-member-copy">
-                                        @if (member.Id != currentUserId)
-                                        {
-                                            <button type="button"
+                                        <button type="button"
                                                     class="chat-member-link"
                                                     title="@PresenceDescription(member.Id)"
                                                     data-chat-profile-anchor="@MemberAnchorKey(member.Id)"
@@ -1143,11 +1265,6 @@
                                                         MemberAnchorKey(member.Id))">
                                                 @member.Name
                                             </button>
-                                        }
-                                        else
-                                        {
-                                            <strong>@member.Name</strong>
-                                        }
 
                                         <span>
                                             @PresenceOf(member.Id)?.StatusEmoji @PresenceOf(member.Id)?.StatusMessage
@@ -1210,10 +1327,10 @@
     @if (expandedAttachment is { } expanded)
     {
         <div class="chat-attachment-backdrop" @onclick="CloseExpandedAttachment">
-            <section class="chat-attachment-dialog" role="dialog" aria-modal="true" aria-label="@expanded.Attachment.FileName" @onclick:stopPropagation @onkeydown="HandleAttachmentDialogKeyDown">
+            <section class="chat-attachment-dialog" role="dialog" aria-modal="true" aria-label="@expanded.FileName" @onclick:stopPropagation @onkeydown="HandleAttachmentDialogKeyDown">
                 <header>
-                    <strong>@expanded.Attachment.FileName</strong>
-                    @if (expanded.Attachment.Kind == ChatAttachmentKind.Image)
+                    <strong>@expanded.FileName</strong>
+                    @if (expanded.Kind == ChatAttachmentKind.Image)
                     {
                         <div class="chat-attachment-image-tools">
                             <button type="button" title="@(expandedImageZoomed ? "Zoom out" : "Zoom in")" aria-label="@(expandedImageZoomed ? "Zoom out" : "Zoom in")" @onclick="ToggleExpandedImageZoom">
@@ -1226,60 +1343,60 @@
                                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5M8 10.5h5m-2.5-2.5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                                 }
                             </button>
-                            <a href="@AttachmentUrl(expanded.MessageId)" target="_blank" rel="noopener noreferrer" aria-label="Open image in new tab" title="Open image in new tab">
+                            <a href="@AttachmentUrl(expanded.Id)" target="_blank" rel="noopener noreferrer" aria-label="Open image in new tab" title="Open image in new tab">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6m0-6-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </a>
-                            <a href="@AttachmentDownloadUrl(expanded.MessageId)" download="@expanded.Attachment.FileName" data-enhance-nav="false" aria-label="Download image" title="Download image">
+                            <a href="@AttachmentDownloadUrl(expanded.Id)" download="@expanded.FileName" data-enhance-nav="false" aria-label="Download image" title="Download image">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                             </a>
                         </div>
                     }
-                    else if (expanded.Attachment.Kind == ChatAttachmentKind.Text)
+                    else if (expanded.Kind == ChatAttachmentKind.Text)
                     {
-                        var expandedLanguage = GetTextLanguage(expanded.MessageId, expanded.Attachment.FileName);
+                        var expandedLanguage = GetTextLanguage(expanded.Id, expanded.FileName);
                         <div class="chat-attachment-dialog-text-tools">
-                            <button type="button" title="Language: @ChatTextHighlighter.Label(expandedLanguage)" aria-label="Change language, currently @ChatTextHighlighter.Label(expandedLanguage)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Language && textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(expanded.MessageId, TextAttachmentMenu.Language, true)"><span aria-hidden="true">&lt;&gt;</span></button>
-                            <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Options && textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(expanded.MessageId, TextAttachmentMenu.Options, true)">⋯</button>
-                            @if (textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Language && textMenuInExpandedViewer)
+                            <button type="button" title="Language: @ChatTextHighlighter.Label(expandedLanguage)" aria-label="Change language, currently @ChatTextHighlighter.Label(expandedLanguage)" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == expanded.Id && textMenuKind == TextAttachmentMenu.Language && textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(expanded.Id, TextAttachmentMenu.Language, true)"><span aria-hidden="true">&lt;&gt;</span></button>
+                            <button type="button" title="File options" aria-label="File options" aria-haspopup="menu" aria-expanded="@(textMenuMessageId == expanded.Id && textMenuKind == TextAttachmentMenu.Options && textMenuInExpandedViewer ? "true" : "false")" data-chat-text-menu-trigger @onclick="() => ToggleTextMenu(expanded.Id, TextAttachmentMenu.Options, true)">⋯</button>
+                            @if (textMenuMessageId == expanded.Id && textMenuKind == TextAttachmentMenu.Language && textMenuInExpandedViewer)
                             {
                                 <div class="chat-code-menu chat-code-language-menu" role="menu" data-chat-text-menu>
                                     <strong>Language</strong>
                                     @foreach (var choice in ChatTextHighlighter.Languages)
                                     {
-                                        <button type="button" role="menuitemradio" aria-checked="@(expandedLanguage == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(expanded.MessageId, choice.Language)">@choice.Label</button>
+                                        <button type="button" role="menuitemradio" aria-checked="@(expandedLanguage == choice.Language ? "true" : "false")" @onclick="() => SetTextLanguage(expanded.Id, choice.Language)">@choice.Label</button>
                                     }
                                 </div>
                             }
-                            else if (textMenuMessageId == expanded.MessageId && textMenuKind == TextAttachmentMenu.Options && textMenuInExpandedViewer)
+                            else if (textMenuMessageId == expanded.Id && textMenuKind == TextAttachmentMenu.Options && textMenuInExpandedViewer)
                             {
                                 <div class="chat-code-menu chat-code-options-menu" role="menu" data-chat-text-menu>
-                                    <a role="menuitem" href="@AttachmentDownloadUrl(expanded.MessageId)" download="@expanded.Attachment.FileName" data-enhance-nav="false">Download file</a>
-                                    <label><input type="checkbox" checked="@IsWordWrapEnabled(expanded.MessageId)" @onchange="args => SetWordWrap(expanded.MessageId, args.Value is true)" /> Word wrap</label>
+                                    <a role="menuitem" href="@AttachmentDownloadUrl(expanded.Id)" download="@expanded.FileName" data-enhance-nav="false">Download file</a>
+                                    <label><input type="checkbox" checked="@IsWordWrapEnabled(expanded.Id)" @onchange="args => SetWordWrap(expanded.Id, args.Value is true)" /> Word wrap</label>
                                 </div>
                             }
                         </div>
                     }
                     <button type="button" @ref="attachmentDialogCloseButton" aria-label="Close expanded file" @onclick="CloseExpandedAttachment">×</button>
                 </header>
-                @if (expanded.Attachment.Kind == ChatAttachmentKind.Image)
+                @if (expanded.Kind == ChatAttachmentKind.Image)
                 {
                     <div class="chat-attachment-image-viewport @(expandedImageZoomed ? "zoomed" : null)">
-                        <img src="@AttachmentUrl(expanded.MessageId)" alt="@expanded.Attachment.FileName"
+                        <img src="@AttachmentUrl(expanded.Id)" alt="@expanded.FileName"
                              role="button" tabindex="0" aria-label="@(expandedImageZoomed ? "Zoom out" : "Zoom in")"
                              @onclick="ToggleExpandedImageZoom" @onkeydown="HandleExpandedImageKeyDown" />
                     </div>
                 }
-                else if (expanded.Attachment.Kind == ChatAttachmentKind.Video)
+                else if (expanded.Kind == ChatAttachmentKind.Video)
                 {
-                    <video src="@AttachmentUrl(expanded.MessageId)" controls autoplay playsinline></video>
+                    <video src="@AttachmentUrl(expanded.Id)" controls autoplay playsinline></video>
                 }
-                else if (expanded.Attachment.Kind == ChatAttachmentKind.Text)
+                else if (expanded.Kind == ChatAttachmentKind.Text)
                 {
-                    <pre class="chat-attachment-full-text @(IsWordWrapEnabled(expanded.MessageId) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(expanded.Attachment.Text, GetTextLanguage(expanded.MessageId, expanded.Attachment.FileName)))</code></pre>
+                    <pre class="chat-attachment-full-text @(IsWordWrapEnabled(expanded.Id) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(expanded.Text, GetTextLanguage(expanded.Id, expanded.FileName)))</code></pre>
                 }
-                @if (expanded.Attachment.Kind == ChatAttachmentKind.Video)
+                @if (expanded.Kind == ChatAttachmentKind.Video)
                 {
-                    <a class="chat-attachment-dialog-download" href="@AttachmentDownloadUrl(expanded.MessageId)" download="@expanded.Attachment.FileName" data-enhance-nav="false">
+                    <a class="chat-attachment-dialog-download" href="@AttachmentDownloadUrl(expanded.Id)" download="@expanded.FileName" data-enhance-nav="false">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                         Download file
                     </a>
@@ -1349,7 +1466,43 @@
     }
 }
 
+@if (creatingPoll && pollConversationId is long pollId)
+{
+    <ChatPollComposer ConversationId="pollId" ChannelThreadId="pollThreadId" Cancel="ClosePoll" Created="PollCreatedAsync" />
+}
+
 @code {
+    private bool creatingPoll;
+    private long? pollConversationId, pollThreadId;
+    private void BeginPoll(bool sidebar)
+    {
+        pollConversationId = selectedId;
+        pollThreadId = sidebar ? sidebarChannelThreadId : fullChannelThreadId;
+        showComposeMenu = false;
+        showSidebarComposeMenu = false;
+        creatingPoll = true;
+    }
+    private void ClosePoll() => creatingPoll = false;
+    private Task PollCreatedAsync() => RunAsync(async () =>
+    {
+        creatingPoll = false;
+        if (selectedId is long channelId) await LoadThreadAsync(channelId);
+        if (sidebarChannelThreadId is long id) await LoadSidebarThreadAsync(id);
+    });
+    private static ChatThread? RefreshPollTimes(ChatThread? chatThread)
+    {
+        if (chatThread is null) return null;
+        var now = DateTime.UtcNow;
+        return chatThread with { Messages = chatThread.Messages.Select(message => message.Poll is { } poll
+            ? message with { Poll = poll with { HasStarted = now >= poll.StartsAtUtc,
+                IsOpen = now >= poll.StartsAtUtc && now < poll.EndsAtUtc } } : message).ToArray() };
+    }
+    private Task VotePollAsync(long messageId, long answerId) => RunAsync(async () =>
+    {
+        await Chat.TogglePollVoteAsync(messageId, answerId);
+        if (selectedId is long id) await LoadThreadAsync(id);
+        if (sidebarChannelThreadId is long sideId) await LoadSidebarThreadAsync(sideId);
+    });
     private enum ChatView { Conversations, Channels, NewDirect, NewChannel }
     private sealed record EmojiSupportResult(double MaxVersion, string[] UnsupportedEmoji);
     private sealed record PresenceActivity(double IdleSeconds);
@@ -1442,7 +1595,8 @@
     private long? threadSourceMessageId;
     private string sidebarDraft = string.Empty;
     private ChatMessageRow? sidebarReplyingTo;
-    private (string FileName, byte[] Content)? sidebarPendingAttachment;
+    private sealed record PendingAttachment(string FileName, byte[] Content, ChatAttachmentKind Kind, string PreviewUrl = "");
+    private readonly List<PendingAttachment> sidebarPendingAttachments = [];
     private int sidebarAttachmentInputVersion;
     private bool showSidebarComposeMenu;
     private bool sidebarComposerEmojiPickerOpen;
@@ -1456,8 +1610,8 @@
     private readonly CancellationTokenSource refreshLifetime = new();
     private string addMemberId = string.Empty;
     private string draft = string.Empty;
-    private (string FileName, byte[] Content)? pendingAttachment;
-    private (long MessageId, ChatAttachmentRow Attachment)? expandedAttachment;
+    private readonly List<PendingAttachment> pendingAttachments = [];
+    private ChatAttachmentRow? expandedAttachment;
     private bool expandedImageZoomed;
     private enum TextAttachmentMenu { Language, Options }
     private readonly HashSet<long> expandedTextAttachmentIds = [];
@@ -2115,7 +2269,11 @@
                     if (disposed) return;
                     await UpdatePresenceHeartbeatAsync();
                     if (isOpen)
+                    {
                         await RefreshAsync();
+                        thread = RefreshPollTimes(thread);
+                        sidebarThread = RefreshPollTimes(sidebarThread);
+                    }
                     else
                     {
                         await EnsureCurrentUserContextAsync();
@@ -2191,6 +2349,7 @@
     }
     private void BackToList()
     {
+        creatingPoll = false;
         CancelCreateThread();
         sidebarThread = null;
         sidebarChannelThreadId = null;
@@ -2310,6 +2469,20 @@
             parentId = channelGroups.FirstOrDefault(x => x.Id == id)?.ParentGroupId;
         }
         return false;
+    }
+
+    private (int Count, bool HasMention) GetFolderUnreadSummary(long folderId)
+    {
+        long? visibleSelectedChannelId = null;
+        if (collapsedFolderIds.Contains(folderId) && selectedId is long selectedChannelId &&
+            pinnedChannelsByFolder.TryGetValue(folderId, out var pinnedChannelId) && pinnedChannelId == selectedChannelId &&
+            conversations.Any(x => x.Id == selectedChannelId && x.Kind == ConversationKind.Channel) &&
+            IsChannelInFolder(selectedChannelId, folderId))
+            visibleSelectedChannelId = selectedChannelId;
+
+        var unreadChannels = conversations.Where(x => x.Kind == ConversationKind.Channel && x.UnreadCount > 0 &&
+            x.Id != visibleSelectedChannelId && IsChannelInFolder(x.Id, folderId)).ToArray();
+        return (unreadChannels.Sum(x => x.UnreadCount), unreadChannels.Any(x => x.HasUnreadMention));
     }
 
     private void ToggleFolderCollapsed(long folderId)
@@ -2673,7 +2846,7 @@
         await LoadThreadAsync(channelId);
     });
 
-    private void CloseChannelThreadSidebar()
+    private async Task CloseChannelThreadSidebar()
     {
         if (isCreatingChannelThread)
         {
@@ -2684,7 +2857,8 @@
         sidebarThread = null;
         sidebarReplyingTo = null;
         sidebarDraft = string.Empty;
-        sidebarPendingAttachment = null;
+        await RevokeAttachmentPreviewsAsync(sidebarPendingAttachments);
+        sidebarPendingAttachments.Clear();
         showSidebarComposeMenu = false;
         sidebarComposerEmojiPickerOpen = false;
     }
@@ -2692,13 +2866,13 @@
     private Task SendSidebarThreadAsync() => RunAsync(async () =>
     {
         if (selectedId is not long channelId || sidebarChannelThreadId is not long channelThreadId
-            || string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachment is null) return;
-        await Chat.SendAsync(channelId, sidebarDraft, replyToMessageId: sidebarReplyingTo?.Id,
-            attachmentFileName: sidebarPendingAttachment?.FileName,
-            attachmentContent: sidebarPendingAttachment?.Content,
-            channelThreadId: channelThreadId);
+            || string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachments.Count == 0) return;
+        await Chat.SendWithAttachmentsAsync(channelId, sidebarDraft,
+            sidebarPendingAttachments.Select(file => new ChatAttachmentUpload(file.FileName, file.Content)).ToArray(),
+            replyToMessageId: sidebarReplyingTo?.Id, channelThreadId: channelThreadId);
         sidebarDraft = string.Empty;
-        sidebarPendingAttachment = null;
+        await RevokeAttachmentPreviewsAsync(sidebarPendingAttachments);
+        sidebarPendingAttachments.Clear();
         sidebarAttachmentInputVersion++;
         sidebarDraftTextareaNeedsResize = true;
         sidebarReplyingTo = null;
@@ -2760,30 +2934,54 @@
         catch (JSDisconnectedException) { return; }
         catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the thread compose box after selecting a file."); }
         error = null;
-        sidebarPendingAttachment = null;
-        var file = args.File;
-        if (file.Size is < 1 or > ChatAttachmentTypes.MaximumBytes)
+        if (sidebarPendingAttachments.Count + args.FileCount > ChatAttachmentTypes.MaximumFilesPerMessage)
         {
-            error = "Files must be between 1 byte and 25 MB.";
+            error = $"A message can include at most {ChatAttachmentTypes.MaximumFilesPerMessage} files.";
+            sidebarAttachmentInputVersion++;
             return;
         }
+        var addedFiles = new List<PendingAttachment>();
+        var totalBytes = sidebarPendingAttachments.Sum(x => (long)x.Content.Length);
         try
         {
-            await using var stream = file.OpenReadStream(ChatAttachmentTypes.MaximumBytes);
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
-            sidebarPendingAttachment = (file.Name, buffer.ToArray());
+            foreach (var file in args.GetMultipleFiles(ChatAttachmentTypes.MaximumFilesPerMessage - sidebarPendingAttachments.Count))
+            {
+                if (file.Size is < 1 or > ChatAttachmentTypes.MaximumBytes)
+                {
+                    error = "Each file must be between 1 byte and 25 MB.";
+                    return;
+                }
+                totalBytes += file.Size;
+                if (totalBytes > ChatAttachmentTypes.MaximumMessageBytes)
+                {
+                    error = "Attachments in a message cannot total more than 25 MB.";
+                    return;
+                }
+                await using var stream = file.OpenReadStream(ChatAttachmentTypes.MaximumBytes);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                var content = buffer.ToArray();
+                var classification = ChatAttachmentTypes.Classify(file.Name, content);
+                addedFiles.Add(new PendingAttachment(file.Name, content, classification.Kind));
+            }
+            var previewUrls = await CreateAttachmentPreviewUrlsAsync("chat-sidebar-attachment-picker", addedFiles.Count);
+            for (var index = 0; index < addedFiles.Count; index++)
+                addedFiles[index] = addedFiles[index] with { PreviewUrl = previewUrls[index] };
+            sidebarPendingAttachments.AddRange(addedFiles);
         }
         catch (IOException ex)
         {
             Logger.LogWarning(ex, "Could not read selected thread attachment.");
             error = "The selected file could not be read.";
         }
+        finally { sidebarAttachmentInputVersion++; }
     }
 
-    private void ClearSidebarAttachment()
+    private async Task RemoveSidebarAttachment(int index)
     {
-        sidebarPendingAttachment = null;
+        if (index < 0 || index >= sidebarPendingAttachments.Count) return;
+        await RevokeAttachmentPreviewAsync(sidebarPendingAttachments[index].PreviewUrl);
+        sidebarPendingAttachments.RemoveAt(index);
         sidebarAttachmentInputVersion++;
     }
 
@@ -2950,6 +3148,8 @@
         CloseTonePicker();
     }
 
+    private static string SenderAvatarAnchorKey(long messageId) => $"sender-avatar-{messageId}";
+    private static string MemberAvatarAnchorKey(string userId) => $"member-avatar-{userId}";
     private static string SenderAnchorKey(long messageId) => $"sender-{messageId}";
     private static string MemberAnchorKey(string userId) => $"member-{userId}";
 
@@ -3121,13 +3321,12 @@
         await readStateGate.WaitAsync();
         try
         {
-            await Chat.SendAsync(conversationId, draft, replyToMessageId: replyingTo?.Id,
-                attachmentFileName: pendingAttachment?.FileName,
-                attachmentContent: pendingAttachment?.Content,
-                channelThreadId: fullChannelThreadId);
+            await Chat.SendWithAttachmentsAsync(conversationId, draft,
+                pendingAttachments.Select(file => new ChatAttachmentUpload(file.FileName, file.Content)).ToArray(),
+                replyToMessageId: replyingTo?.Id, channelThreadId: fullChannelThreadId);
             replyingTo = null;
             showThreadReplyOffer = false;
-            ClearAttachment();
+            await ClearAttachment();
             draftInputVersion++;
             draft = string.Empty;
             resetDraftTextareaAfterRender = true;
@@ -3270,45 +3469,106 @@
         catch (JSDisconnectedException) { return; }
         catch (JSException ex) { Logger.LogWarning(ex, "Could not return focus to the chat compose box after selecting a file."); }
         error = null;
-        pendingAttachment = null;
-        var file = args.File;
-        if (file.Size is < 1 or > ChatAttachmentTypes.MaximumBytes)
+        if (pendingAttachments.Count + args.FileCount > ChatAttachmentTypes.MaximumFilesPerMessage)
         {
-            error = "Files must be between 1 byte and 25 MB.";
+            error = $"A message can include at most {ChatAttachmentTypes.MaximumFilesPerMessage} files.";
+            attachmentInputVersion++;
             return;
         }
+        var addedFiles = new List<PendingAttachment>();
+        var totalBytes = pendingAttachments.Sum(x => (long)x.Content.Length);
         try
         {
-            await using var stream = file.OpenReadStream(ChatAttachmentTypes.MaximumBytes);
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
-            pendingAttachment = (file.Name, buffer.ToArray());
+            foreach (var file in args.GetMultipleFiles(ChatAttachmentTypes.MaximumFilesPerMessage - pendingAttachments.Count))
+            {
+                if (file.Size is < 1 or > ChatAttachmentTypes.MaximumBytes)
+                {
+                    error = "Each file must be between 1 byte and 25 MB.";
+                    return;
+                }
+                totalBytes += file.Size;
+                if (totalBytes > ChatAttachmentTypes.MaximumMessageBytes)
+                {
+                    error = "Attachments in a message cannot total more than 25 MB.";
+                    return;
+                }
+                await using var stream = file.OpenReadStream(ChatAttachmentTypes.MaximumBytes);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                var content = buffer.ToArray();
+                var classification = ChatAttachmentTypes.Classify(file.Name, content);
+                addedFiles.Add(new PendingAttachment(file.Name, content, classification.Kind));
+            }
+            var previewUrls = await CreateAttachmentPreviewUrlsAsync("chat-attachment-picker", addedFiles.Count);
+            for (var index = 0; index < addedFiles.Count; index++)
+                addedFiles[index] = addedFiles[index] with { PreviewUrl = previewUrls[index] };
+            pendingAttachments.AddRange(addedFiles);
         }
         catch (IOException ex)
         {
             Logger.LogWarning(ex, "Could not read selected chat attachment.");
             error = "The selected file could not be read.";
         }
+        finally { attachmentInputVersion++; }
     }
 
-    private void ClearAttachment()
+    private async Task ClearAttachment()
     {
-        pendingAttachment = null;
+        await RevokeAttachmentPreviewsAsync(pendingAttachments);
+        pendingAttachments.Clear();
         attachmentInputVersion++;
     }
 
-    private static string AttachmentUrl(long messageId) => $"/chat/attachments/{messageId}";
-    private static string AttachmentDownloadUrl(long messageId) => $"/chat/attachments/{messageId}/download";
+    private async Task RemovePendingAttachment(int index)
+    {
+        if (index < 0 || index >= pendingAttachments.Count) return;
+        await RevokeAttachmentPreviewAsync(pendingAttachments[index].PreviewUrl);
+        pendingAttachments.RemoveAt(index);
+        attachmentInputVersion++;
+    }
+
+    private async Task<string[]> CreateAttachmentPreviewUrlsAsync(string inputId, int count)
+    {
+        if (count == 0) return [];
+        try
+        {
+            var urls = await JS.InvokeAsync<string[]>("confastChatTime.createAttachmentPreviewUrls", inputId);
+            return Enumerable.Range(0, count).Select(index => index < urls.Length ? urls[index] : string.Empty).ToArray();
+        }
+        catch (JSDisconnectedException) { return Enumerable.Repeat(string.Empty, count).ToArray(); }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Could not create local attachment previews.");
+            return Enumerable.Repeat(string.Empty, count).ToArray();
+        }
+    }
+
+    private async Task RevokeAttachmentPreviewsAsync(IEnumerable<PendingAttachment> attachments)
+    {
+        foreach (var attachment in attachments)
+            await RevokeAttachmentPreviewAsync(attachment.PreviewUrl);
+    }
+
+    private async Task RevokeAttachmentPreviewAsync(string previewUrl)
+    {
+        if (string.IsNullOrEmpty(previewUrl)) return;
+        try { await JS.InvokeVoidAsync("confastChatTime.revokeAttachmentPreviewUrl", previewUrl); }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogDebug(ex, "Could not release a local attachment preview URL."); }
+    }
+
+    private static string AttachmentUrl(long attachmentId) => $"/chat/attachments/{attachmentId}";
+    private static string AttachmentDownloadUrl(long attachmentId) => $"/chat/attachments/{attachmentId}/download";
     private static string PreviewText(string? value) => value is null ? string.Empty
         : value.Length <= 1800 ? value : value[..1800] + "…";
     private static string FormatFileSize(int bytes) => bytes >= 1024 * 1024
         ? $"{bytes / (1024.0 * 1024):0.#} MB"
         : bytes >= 1024 ? $"{bytes / 1024.0:0.#} KB" : $"{bytes} B";
-    private void OpenExpandedAttachment(long messageId, ChatAttachmentRow attachment)
+    private void OpenExpandedAttachment(ChatAttachmentRow attachment)
     {
         CloseTextMenu();
         expandedImageZoomed = false;
-        expandedAttachment = (messageId, attachment);
+        expandedAttachment = attachment;
         focusAttachmentDialog = true;
     }
     private void CloseExpandedAttachment()

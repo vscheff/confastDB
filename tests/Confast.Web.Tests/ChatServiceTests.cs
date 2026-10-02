@@ -37,6 +37,82 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
     }
 
     [Fact]
+    public async Task Polls_EnforceSchedulePermissionsAndSingleChoice()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.UtcNow);
+        var chat = Service(owner, time);
+        var id = await chat.CreateChannelAsync("Polls", ChannelVisibility.Private, [member]);
+        var start = time.Now.AddHours(1).UtcDateTime;
+        var messageId = await chat.CreatePollAsync(id, "Lunch?", [new("Pizza", "🍕"), new("Soup")], 4, startsAtUtc: start);
+        var poll = Assert.Single((await chat.GetThreadAsync(id)).Messages).Poll!;
+        Assert.False(poll.IsOpen);
+        Assert.Null(poll.Answers[1].Emoji);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider, time).CreatePollAsync(id, "No", [new("A"), new("B")]));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider, time).TogglePollVoteAsync(messageId, poll.Answers[0].Id));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.TogglePollVoteAsync(messageId, poll.Answers[0].Id));
+        time.Now = new DateTimeOffset(start);
+        await chat.TogglePollVoteAsync(messageId, poll.Answers[0].Id);
+        await chat.TogglePollVoteAsync(messageId, poll.Answers[1].Id);
+        poll = Assert.Single((await chat.GetThreadAsync(id)).Messages).Poll!;
+        Assert.Equal(1, poll.Voters);
+        Assert.Equal(0, poll.Answers[0].Votes);
+        Assert.True(poll.Answers[1].Selected);
+        await Service(member, time).TogglePollVoteAsync(messageId, poll.Answers[0].Id);
+        time.Now = time.Now.AddHours(4);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.TogglePollVoteAsync(messageId, poll.Answers[0].Id));
+        poll = Assert.Single((await chat.GetThreadAsync(id)).Messages).Poll!;
+        Assert.False(poll.IsOpen);
+        Assert.Equal(2, poll.Voters);
+    }
+
+    [Fact]
+    public async Task Polls_SupportMultipleVotesAndThreadAndDirectScopes()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var chat = Service(owner);
+        var channel = await chat.CreateChannelAsync("Polls", ChannelVisibility.Private, [member]);
+        var thread = await chat.CreateChannelThreadAsync(channel, "Plans", "Let's decide");
+        var message = await chat.CreatePollAsync(channel, "Which days?", [new("Monday"), new("Tuesday"), new("Friday")], 168, true, channelThreadId: thread);
+        Assert.DoesNotContain((await chat.GetThreadAsync(channel)).Messages, x => x.Id == message);
+        var row = (await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages.Single(x => x.Id == message);
+        await Task.WhenAll(row.Poll!.Answers.Take(2).Select(x => chat.TogglePollVoteAsync(message, x.Id)));
+        row = (await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages.Single(x => x.Id == message);
+        Assert.Equal(2, row.Poll!.Answers.Count(x => x.Selected));
+        await chat.TogglePollVoteAsync(message, row.Poll.Answers[0].Id);
+        Assert.Equal(1, (await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages.Single(x => x.Id == message).Poll!.Answers.Count(x => x.Selected));
+        Assert.Equal(2, Assert.Single(await chat.GetChannelThreadsAsync(channel)).MessageCount);
+        var direct = await chat.OpenDirectAsync(member);
+        var directPoll = await chat.CreatePollAsync(direct, "Coffee?", [new("Yes"), new("No")]);
+        var directRow = Assert.Single((await Service(member).GetThreadAsync(direct)).Messages);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.TogglePollVoteAsync(message, directRow.Poll!.Answers[0].Id));
+        await Service(member).TogglePollVoteAsync(directPoll, directRow.Poll!.Answers[0].Id);
+        Assert.Equal(1, Assert.Single((await chat.GetThreadAsync(direct)).Messages).Poll!.Voters);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "Wrong thread", [new("A"), new("B")], channelThreadId: thread));
+    }
+
+    [Fact]
+    public async Task Polls_ValidateInputsAndSerializeSingleChoiceVotes()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var chat = Service(owner);
+        var direct = await chat.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "", [new("A"), new("B")]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "Question", [new("A")]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "Question", [new("A"), new(" ")]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "Question", [new("A", "abc"), new("B")]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "Question", [new("A"), new("B")], 2));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreatePollAsync(direct, "Question", [new("A"), new("B")], startsAtUtc: DateTime.UtcNow.AddMinutes(-1)));
+        var message = await chat.CreatePollAsync(direct, "Question", [new("A"), new("B")]);
+        var poll = Assert.Single((await chat.GetThreadAsync(direct)).Messages).Poll!;
+        await Task.WhenAll(poll.Answers.Select(x => chat.TogglePollVoteAsync(message, x.Id)));
+        Assert.Single(Assert.Single((await chat.GetThreadAsync(direct)).Messages).Poll!.Answers, x => x.Selected);
+        await using var db = database.CreateDbContext();
+        var selected = Assert.Single(Assert.Single((await chat.GetThreadAsync(direct)).Messages).Poll!.Answers, x => x.Selected);
+        db.Add(new ChatPollVote { PollMessageId = message, UserId = owner, AnswerId = poll.Answers.Single(x => x.Id != selected.Id).Id });
+        await Assert.ThrowsAsync<Microsoft.EntityFrameworkCore.DbUpdateException>(() => db.SaveChangesAsync());
+    }
+    [Fact]
     public async Task ChannelThreads_AreScopedToChannelAndKeepPinsSeparate()
     {
         var (owner, member, outsider) = await UsersAsync();
@@ -121,22 +197,31 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
     }
 
     [Fact]
-    public async Task Attachment_RequiresMembershipAndDisappearsWhenMessageIsDeleted()
+    public async Task Attachments_AllowMultipleFilesRequireMembershipAndDisappearWhenMessageIsDeleted()
     {
         var (owner, member, outsider) = await UsersAsync();
         var sender = Service(owner);
         var conversationId = await sender.CreateChannelAsync("Files", ChannelVisibility.Private, [member]);
         var bytes = System.Text.Encoding.UTF8.GetBytes("A short note\nSecond line");
-        var messageId = await sender.SendAsync(conversationId, "", attachmentFileName: "note.txt",
-            attachmentContent: bytes);
+        var secondBytes = System.Text.Encoding.UTF8.GetBytes("Another file");
+        var messageId = await sender.SendWithAttachmentsAsync(conversationId, "",
+        [
+            new ChatAttachmentUpload("note.txt", bytes),
+            new ChatAttachmentUpload("second.txt", secondBytes)
+        ]);
 
         var message = Assert.Single((await Service(member).GetThreadAsync(conversationId)).Messages);
-        Assert.Equal(ChatAttachmentKind.Text, message.Attachment?.Kind);
-        Assert.Equal("A short note\nSecond line", message.Attachment?.Text);
-        Assert.Equal(bytes, (await Service(member).GetAttachmentAsync(messageId))?.Content);
-        Assert.Null(await Service(outsider).GetAttachmentAsync(messageId));
+        Assert.Equal(2, message.Attachments.Count);
+        var note = message.Attachments.Single(x => x.FileName == "note.txt");
+        var second = message.Attachments.Single(x => x.FileName == "second.txt");
+        Assert.Equal(ChatAttachmentKind.Text, note.Kind);
+        Assert.Equal("A short note\nSecond line", note.Text);
+        Assert.Equal(bytes, (await Service(member).GetAttachmentAsync(note.Id))?.Content);
+        Assert.Equal(secondBytes, (await Service(member).GetAttachmentAsync(second.Id))?.Content);
+        Assert.Null(await Service(outsider).GetAttachmentAsync(note.Id));
         await sender.DeleteOwnMessageAsync(messageId);
-        Assert.Null(await Service(member).GetAttachmentAsync(messageId));
+        Assert.Null(await Service(member).GetAttachmentAsync(note.Id));
+        Assert.Null(await Service(member).GetAttachmentAsync(second.Id));
     }
 
     [Fact]
@@ -148,12 +233,34 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var ids = await Task.WhenAll(first.OpenDirectAsync(member), second.OpenDirectAsync(owner));
         Assert.Equal(ids[0], ids[1]);
         Assert.Equal(ids[0], await first.OpenDirectAsync(member));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => first.OpenDirectAsync(owner));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).GetThreadAsync(ids[0]));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SendAsync(ids[0], "forged"));
         await using var db = database.CreateDbContext();
         Assert.Single(db.ChatConversations);
         Assert.Equal(2, db.ChatConversationMembers.Count());
+    }
+
+    [Fact]
+    public async Task SelfConversation_ReusesOneMembershipAndKeepsMessagesPrivate()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var chat = Service(owner);
+        Assert.Contains(await chat.GetActiveUsersAsync(), user => user.Id == owner);
+        var ids = await Task.WhenAll(chat.OpenDirectAsync(owner), Service(owner).OpenDirectAsync(owner));
+        Assert.Equal(ids[0], ids[1]);
+        Assert.Equal(ids[0], await chat.OpenDirectAsync(owner));
+        var messageId = await chat.SendAsync(ids[0], "Note to myself");
+        var thread = await chat.GetThreadAsync(ids[0]);
+        Assert.Single(thread.Members);
+        Assert.Contains(thread.Messages, message => message.Id == messageId && message.Body == "Note to myself");
+        var row = Assert.Single(await chat.GetConversationsAsync());
+        Assert.Equal(thread.Members[0].Name, row.Name);
+        Assert.Equal(owner, row.OtherUserId);
+        Assert.Equal(0, row.UnreadCount);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(member).GetThreadAsync(ids[0]));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(member).SendAsync(ids[0], "forged"));
+        await using var db = database.CreateDbContext();
+        Assert.Single(db.ChatConversationMembers);
     }
 
     [Fact]

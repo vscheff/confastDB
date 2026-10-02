@@ -1,4 +1,12 @@
 window.confastChatTime = {
+    createAttachmentPreviewUrls(id) {
+        const input = document.getElementById(id);
+        if (!(input instanceof HTMLInputElement) || !input.files) return [];
+        return Array.from(input.files, file => URL.createObjectURL(file));
+    },
+    revokeAttachmentPreviewUrl(url) {
+        if (url) URL.revokeObjectURL(url);
+    },
     clickAttachmentPicker(id = "chat-attachment-picker") {
         document.getElementById(id)?.click();
     },
@@ -782,7 +790,7 @@ window.confastChatTime = {
     watchMessageProfileOutsideClick(dotNetReference) {
         if (this.messageProfileOutsideClick) return;
         this.messageProfileOutsideClick = event => {
-            if (event.target instanceof Element && event.target.closest(".chat-user-popover, .chat-sender-link, .chat-message-user-tag")) return;
+            if (event.target instanceof Element && event.target.closest(".chat-user-popover, [data-chat-profile-anchor]")) return;
             dotNetReference.invokeMethodAsync("DismissMessageProfileAsync");
         };
         this.messageProfileEscape = event => {
@@ -958,4 +966,8 @@ window.confastChatTime = {
             return { maxVersion: 18, unsupportedEmoji: [] };
         }
     }
+};
+window.confastPoll = {
+    toUtc: value => new Date(value).toISOString(),
+    localTime: value => new Date(value).toLocaleString()
 };

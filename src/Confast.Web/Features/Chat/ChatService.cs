@@ -21,8 +21,9 @@ public sealed record ChatMessageRow(long Id, ChatMessageType Type, string? Sende
     DateTime SentAtUtc, DateTime? EditedAtUtc, bool IsDeleted, DateTime? PinnedAtUtc,
     IReadOnlyList<ChatReactionRow> Reactions, IReadOnlyList<ChatMessagePart> Parts,
     long? ReplyToMessageId, string? ReplyToSenderUserId, string? ReplyToSenderName, string? ReplyToBody,
-    ChatAttachmentRow? Attachment, long? ChannelThreadId = null);
-public sealed record ChatAttachmentRow(string FileName, ChatAttachmentKind Kind, int Size, string? Text);
+    IReadOnlyList<ChatAttachmentRow> Attachments, long? ChannelThreadId = null, ChatPollRow? Poll = null);
+public sealed record ChatAttachmentRow(long Id, string FileName, ChatAttachmentKind Kind, int Size, string? Text);
+public sealed record ChatAttachmentUpload(string FileName, byte[] Content);
 public sealed record ChatAttachmentFile(string FileName, string ContentType, ChatAttachmentKind Kind, byte[] Content);
 public sealed record ChatReactionRow(string Emoji, IReadOnlyList<ChatUser> Users);
 public sealed record ChatPinnedMessageRow(long Id, string SenderName, string Body, DateTime SentAtUtc);
@@ -65,7 +66,7 @@ public sealed class ChatNotifications(ILogger<ChatNotifications> logger)
     }
 }
 
-public sealed class ChatService(
+public sealed partial class ChatService(
     IDbContextFactory<AppDbContext> dbFactory,
     ICurrentUser currentUser,
     ChatNotifications notifications,
@@ -176,8 +177,8 @@ public sealed class ChatService(
     public async Task<IReadOnlyList<ChatUser>> GetActiveUsersAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
-        return await db.Users.AsNoTracking().Where(x => x.IsActive && x.Id != userId)
+        await RequireUserAsync(db, cancellationToken);
+        return await db.Users.AsNoTracking().Where(x => x.IsActive)
             .OrderBy(x => x.DisplayName).Select(x => new ChatUser(x.Id, x.DisplayName))
             .ToListAsync(cancellationToken);
     }
@@ -186,7 +187,6 @@ public sealed class ChatService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
-        if (otherUserId == userId) throw new InvalidOperationException("You cannot message yourself.");
         if (!await db.Users.AnyAsync(x => x.Id == otherUserId && x.IsActive, cancellationToken))
             throw new InvalidOperationException("Select an active user.");
 
@@ -202,11 +202,8 @@ public sealed class ChatService(
         {
             Kind = ConversationKind.Direct, DirectPairKey = pairKey,
             CreatedByUserId = userId, CreatedAtUtc = now, LastActivityAtUtc = now,
-            Members =
-            [
-                new() { UserId = userId, JoinedAtUtc = now },
-                new() { UserId = otherUserId, JoinedAtUtc = now }
-            ]
+            Members = new[] { userId, otherUserId }.Distinct()
+                .Select(id => new ConversationMember { UserId = id, JoinedAtUtc = now }).ToList()
         };
         db.ChatConversations.Add(conversation);
         try
@@ -287,7 +284,7 @@ public sealed class ChatService(
             .Select(m => new ChatConversationRow(
                 m.ConversationId, m.Conversation.Kind, m.Conversation.Visibility,
                 m.Conversation.Kind == ConversationKind.Direct
-                    ? m.Conversation.Members.Where(x => x.UserId != userId)
+                    ? m.Conversation.Members.OrderBy(x => x.UserId == userId)
                         .Select(x => x.User.DisplayName).FirstOrDefault() ?? "Direct Message"
                     : m.Conversation.Name!,
                 m.Conversation.LastActivityAtUtc,
@@ -306,7 +303,7 @@ public sealed class ChatService(
                     && x.ReplyToMessage.SenderUserId == userId),
                 m.IsOwner, m.Conversation.ChannelGroupId, m.Conversation.ChannelSortOrder,
                 m.Conversation.Kind == ConversationKind.Direct
-                    ? m.Conversation.Members.Where(x => x.UserId != userId)
+                    ? m.Conversation.Members.OrderBy(x => x.UserId == userId)
                         .Select(x => x.UserId).FirstOrDefault()
                     : null,
                 m.IsManuallyUnread))
@@ -813,9 +810,9 @@ public sealed class ChatService(
             .Select(x => new ChatChannelThreadRow(x.Id, x.ConversationId, x.Title,
                 x.CreatedByUser.DisplayName, x.CreatedAtUtc, x.LastMessageAtUtc,
                 db.ChatMessages.Count(message => message.ChannelThreadId == x.Id
-                    && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null),
+                    && (message.Type == ChatMessageType.Text || message.Type == ChatMessageType.Poll) && message.DeletedAtUtc == null),
                 db.ChatMessages.Where(message => message.ChannelThreadId == x.Id
-                        && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null)
+                        && (message.Type == ChatMessageType.Text || message.Type == ChatMessageType.Poll) && message.DeletedAtUtc == null)
                     .OrderByDescending(message => message.Id).Select(message => message.Body)
                     .FirstOrDefault(), x.StartedFromMessageId,
                 x.StartedFromMessage == null || x.StartedFromMessage.DeletedAtUtc != null
@@ -836,9 +833,9 @@ public sealed class ChatService(
             .Select(x => new ChatChannelThreadRow(x.Id, x.ConversationId, x.Title,
                 x.CreatedByUser.DisplayName, x.CreatedAtUtc, x.LastMessageAtUtc,
                 db.ChatMessages.Count(message => message.ChannelThreadId == x.Id
-                    && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null),
+                    && (message.Type == ChatMessageType.Text || message.Type == ChatMessageType.Poll) && message.DeletedAtUtc == null),
                 db.ChatMessages.Where(message => message.ChannelThreadId == x.Id
-                        && message.Type == ChatMessageType.Text && message.DeletedAtUtc == null)
+                        && (message.Type == ChatMessageType.Text || message.Type == ChatMessageType.Poll) && message.DeletedAtUtc == null)
                     .OrderByDescending(message => message.Id).Select(message => message.Body)
                     .FirstOrDefault(), x.StartedFromMessageId,
                 x.StartedFromMessage == null || x.StartedFromMessage.DeletedAtUtc != null
@@ -883,36 +880,40 @@ public sealed class ChatService(
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUser == null
                     ? "System" : x.ReplyToMessage.SenderUser.DisplayName,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.DeletedAtUtc == null
-                    ? x.ReplyToMessage.Body : null, null, x.ChannelThreadId))
+                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null))
             .ToListAsync(cancellationToken);
         var messageIds = messages.Select(x => x.Id).ToArray();
+        var polls = await ReadPollsAsync(db, messageIds, userId, cancellationToken);
         var attachmentRows = await db.ChatAttachments.AsNoTracking()
             .Where(x => messageIds.Contains(x.MessageId))
-            .Select(x => new { x.MessageId, x.FileName, x.Kind,
+            .Select(x => new { x.Id, x.MessageId, x.FileName, x.Kind,
                 Size = x.Content.Length,
                 TextContent = x.Kind == ChatAttachmentKind.Text ? x.Content : null })
             .ToListAsync(cancellationToken);
-        var attachmentsByMessage = attachmentRows.ToDictionary(x => x.MessageId,
-            x => new ChatAttachmentRow(x.FileName, x.Kind, x.Size,
+        var attachmentsById = attachmentRows.ToDictionary(x => x.Id,
+            x => new ChatAttachmentRow(x.Id, x.FileName, x.Kind, x.Size,
                 x.TextContent is null ? null : ChatAttachmentTypes.DecodeText(x.TextContent)));
         var olderTextIds = attachmentRows
             .Where(x => x.Kind == ChatAttachmentKind.Download && x.Size <= ChatAttachmentTypes.MaximumTextBytes
                 && ChatAttachmentTypes.IsSupportedTextFileName(x.FileName))
-            .Select(x => x.MessageId).ToArray();
+            .Select(x => x.Id).ToArray();
         if (olderTextIds.Length > 0)
         {
             // Source files uploaded before their extensions were supported remain tagged as downloads.
             var olderTextFiles = await db.ChatAttachments.AsNoTracking()
-                .Where(x => olderTextIds.Contains(x.MessageId))
-                .Select(x => new { x.MessageId, x.FileName, x.Content })
+                .Where(x => olderTextIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.FileName, x.Content })
                 .ToListAsync(cancellationToken);
             foreach (var file in olderTextFiles)
             {
                 if (ChatAttachmentTypes.Classify(file.FileName, file.Content).Kind != ChatAttachmentKind.Text) continue;
-                attachmentsByMessage[file.MessageId] = new ChatAttachmentRow(file.FileName,
+                attachmentsById[file.Id] = new ChatAttachmentRow(file.Id, file.FileName,
                     ChatAttachmentKind.Text, file.Content.Length, ChatAttachmentTypes.DecodeText(file.Content));
             }
         }
+        var attachmentsByMessage = attachmentRows.GroupBy(x => x.MessageId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<ChatAttachmentRow>)group
+                .Select(x => attachmentsById[x.Id]).ToArray());
         var reactionRows = await db.ChatMessageReactions.AsNoTracking()
             .Where(x => messageIds.Contains(x.MessageId))
             .OrderBy(x => x.ReactedAtUtc).ThenBy(x => x.User.DisplayName)
@@ -966,7 +967,8 @@ public sealed class ChatService(
             return x with
             {
                 Reactions = reactionsByMessage.GetValueOrDefault(x.Id) ?? [],
-                Attachment = attachmentsByMessage.GetValueOrDefault(x.Id),
+                Poll = polls.GetValueOrDefault(x.Id),
+                Attachments = attachmentsByMessage.GetValueOrDefault(x.Id) ?? [],
                 Parts = x.Body is null ? [] : conversation.Kind == ConversationKind.Channel
                     ? ChatMentionParser.GetParts(x.Body, tags ?? [])
                     : [new ChatMessagePart(x.Body, false)]
@@ -986,24 +988,43 @@ public sealed class ChatService(
         long? replyToMessageId = null, string? attachmentFileName = null, byte[]? attachmentContent = null,
         long? channelThreadId = null)
     {
+        if ((attachmentFileName is null) != (attachmentContent is null))
+            throw new InvalidOperationException("Choose a file before sending it.");
+        var attachments = attachmentFileName is null
+            ? Array.Empty<ChatAttachmentUpload>()
+            : [new ChatAttachmentUpload(attachmentFileName, attachmentContent!)];
+        return await SendWithAttachmentsAsync(conversationId, body, attachments, cancellationToken,
+            replyToMessageId, channelThreadId);
+    }
+
+    public async Task<long> SendWithAttachmentsAsync(long conversationId, string body,
+        IReadOnlyList<ChatAttachmentUpload> attachments, CancellationToken cancellationToken = default,
+        long? replyToMessageId = null, long? channelThreadId = null)
+    {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         body = body.Trim();
-        if ((attachmentFileName is null) != (attachmentContent is null))
-            throw new InvalidOperationException("Choose a file before sending it.");
-        ChatAttachment? attachment = null;
-        if (attachmentFileName is not null && attachmentContent is not null)
+        if (attachments.Count > ChatAttachmentTypes.MaximumFilesPerMessage)
+            throw new InvalidOperationException($"A message can include at most {ChatAttachmentTypes.MaximumFilesPerMessage} files.");
+        var totalAttachmentBytes = 0L;
+        var messageAttachments = new List<ChatAttachment>(attachments.Count);
+        foreach (var upload in attachments)
         {
-            var safeName = attachmentFileName.Replace('\\', '/').Split('/').Last();
+            if (upload.Content.Length is < 1 or > ChatAttachmentTypes.MaximumBytes)
+                throw new InvalidOperationException("Each file must be between 1 byte and 25 MB.");
+            totalAttachmentBytes += upload.Content.Length;
+            if (totalAttachmentBytes > ChatAttachmentTypes.MaximumMessageBytes)
+                throw new InvalidOperationException("Attachments in a message cannot total more than 25 MB.");
+            var safeName = upload.FileName.Replace('\\', '/').Split('/').Last();
             if (string.IsNullOrWhiteSpace(safeName) || safeName.Length > 255 || safeName.Any(char.IsControl))
                 throw new InvalidOperationException("The file name is invalid or exceeds 255 characters.");
-            var (kind, contentType) = ChatAttachmentTypes.Classify(safeName, attachmentContent);
-            attachment = new ChatAttachment
+            var (kind, contentType) = ChatAttachmentTypes.Classify(safeName, upload.Content);
+            messageAttachments.Add(new ChatAttachment
             {
-                FileName = safeName, Content = attachmentContent, Kind = kind, ContentType = contentType
-            };
-            if (body.Length == 0) body = "Shared a file";
+                FileName = safeName, Content = upload.Content, Kind = kind, ContentType = contentType
+            });
         }
+        if (messageAttachments.Count > 0 && body.Length == 0) body = "Shared a file";
         if (body.Length is < 1 or > 4000) throw new InvalidOperationException("Message must be 1 to 4000 characters.");
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
@@ -1027,7 +1048,7 @@ public sealed class ChatService(
             SenderUserId = userId, Body = mentions.Body,
             ReplyToMessageId = replyToMessageId,
             SentAtUtc = now, Type = ChatMessageType.Text,
-            Attachment = attachment,
+            Attachments = messageAttachments,
             Mentions = mentions.Recipients.Select(id => new ChatMessageMention { UserId = id }).ToList(),
             Tags = mentions.Tags.Select(token => new ChatMessageTag
             {
@@ -1065,30 +1086,30 @@ public sealed class ChatService(
         return message.Id;
     }
 
-    public async Task<ChatAttachmentFile?> GetAttachmentAsync(long messageId,
+    public async Task<ChatAttachmentFile?> GetAttachmentAsync(long attachmentId,
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
-        return await FindAttachmentAsync(db, messageId, userId, cancellationToken);
+        return await FindAttachmentAsync(db, attachmentId, userId, cancellationToken);
     }
 
     // Ordinary HTTP file requests have an authenticated HttpContext, but no Blazor circuit.
-    internal async Task<ChatAttachmentFile?> GetAttachmentForHttpUserAsync(long messageId,
+    internal async Task<ChatAttachmentFile?> GetAttachmentForHttpUserAsync(long attachmentId,
         string userId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         if (!await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
             throw new UnauthorizedAccessException("An active account is required for chat.");
         await EnsurePublicChannelMembershipsAsync(db, userId, clock.GetUtcNow().UtcDateTime, cancellationToken);
-        return await FindAttachmentAsync(db, messageId, userId, cancellationToken);
+        return await FindAttachmentAsync(db, attachmentId, userId, cancellationToken);
     }
 
-    private static Task<ChatAttachmentFile?> FindAttachmentAsync(AppDbContext db, long messageId,
+    private static Task<ChatAttachmentFile?> FindAttachmentAsync(AppDbContext db, long attachmentId,
         string userId, CancellationToken cancellationToken)
     {
         return db.ChatAttachments.AsNoTracking()
-            .Where(x => x.MessageId == messageId && x.Message.DeletedAtUtc == null &&
+            .Where(x => x.Id == attachmentId && x.Message.DeletedAtUtc == null &&
                 db.ChatConversationMembers.Any(m => m.ConversationId == x.Message.ConversationId && m.UserId == userId))
             .Select(x => new ChatAttachmentFile(x.FileName, x.ContentType, x.Kind, x.Content))
             .SingleOrDefaultAsync(cancellationToken);

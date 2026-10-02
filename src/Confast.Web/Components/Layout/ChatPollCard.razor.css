@@ -1,0 +1,5 @@
+.poll-card { max-width: 34rem; padding: .8rem; border: 1px solid #b9c8d8; border-radius: .5rem; display: grid; gap: .5rem; }
+.poll-card p { margin: 0; font-size: .85rem; color: #536579; }
+.poll-answer { display: flex; justify-content: space-between; align-items: center; gap: 1rem; text-align: left; padding: .5rem .7rem; border: 1px solid #c4d0dd; border-radius: .3rem; background: #f7f9fc; color: #182e46; overflow-wrap: anywhere; }
+.poll-answer.selected { background: #e1efff; border-color: #4275ac; }
+.poll-answer:disabled { opacity: 1; cursor: default; }

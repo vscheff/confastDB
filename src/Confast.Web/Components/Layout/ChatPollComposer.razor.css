@@ -1,0 +1,27 @@
+.poll-backdrop { position: fixed; inset: 0; z-index: 1600; background: #0005; display: grid; place-items: center; padding: 1rem; }
+.poll-dialog { background: white; color: #182e46; border-radius: .6rem; padding: 1.2rem; width: min(35rem, 100%); max-height: 90dvh; overflow: auto; box-shadow: 0 8px 32px #0004; }
+.poll-dialog h3 { margin-top: 0; }
+.poll-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.poll-header h3 { margin: 0; }
+.poll-close { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: inherit; font-size: 1.5rem; border-radius: .3rem; }
+.poll-close:hover { background: #edf2f7; }
+.poll-dialog form { display: grid; gap: .65rem; }
+.poll-edit-answer { display: flex; gap: .4rem; }
+.poll-edit-answer input { min-width: 0; flex: 1; }
+.poll-add-answer { justify-self: end; min-height: 0; padding: .3rem .65rem; font-size: .85rem; line-height: 1.3; }
+.poll-dialog textarea, .poll-dialog input:not([type=checkbox]), .poll-dialog select { padding: .6rem; border: 1px solid #b6c5d5; border-radius: .3rem; }
+.poll-checkbox { display: flex; align-items: center; gap: .5rem; }
+.poll-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+.poll-schedule-button { width: 44px; padding: .6rem; display: grid; place-items: center; }
+.poll-schedule-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.poll-schedule-button.scheduled { background: #e1efff; border-color: #4275ac; }
+.poll-schedule-summary { display: flex; align-items: center; justify-content: flex-end; gap: .4rem; }
+.poll-schedule-summary button { width: 44px; padding: 0; }
+.poll-schedule-backdrop { position: fixed; inset: 0; background: #0005; display: grid; place-items: center; padding: 1rem; }
+.poll-schedule-dialog { width: min(26rem, 100%); }
+.poll-schedule-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.poll-schedule-fields > div { display: grid; gap: .4rem; min-width: 0; }
+.poll-schedule-fields input { width: 100%; min-width: 0; }
+@media (max-width: 420px) { .poll-schedule-fields { grid-template-columns: 1fr; } }
+.poll-emoji-grid { max-height: 12rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
+.poll-emoji-picker input { width: 100%; }

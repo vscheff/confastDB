@@ -6,6 +6,7 @@ public static class ChatMapping
 {
     public static void Configure(ModelBuilder model)
     {
+        ChatPollMapping.Configure(model);
         var group = model.Entity<ChatChannelGroup>();
         group.ToTable("chat_channel_groups", t =>
         {
@@ -139,14 +140,16 @@ public static class ChatMapping
             table.HasCheckConstraint("CK_chat_attachments_file_name", "btrim(file_name) <> ''");
             table.HasCheckConstraint("CK_chat_attachments_kind", "kind BETWEEN 0 AND 3");
         });
-        attachment.HasKey(x => x.MessageId);
+        attachment.HasKey(x => x.Id);
+        attachment.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         attachment.Property(x => x.MessageId).HasColumnName("message_id");
         attachment.Property(x => x.FileName).HasColumnName("file_name").HasMaxLength(255);
         attachment.Property(x => x.ContentType).HasColumnName("content_type").HasMaxLength(100);
         attachment.Property(x => x.Kind).HasColumnName("kind");
         attachment.Property(x => x.Content).HasColumnName("content");
-        attachment.HasOne(x => x.Message).WithOne(x => x.Attachment)
-            .HasForeignKey<ChatAttachment>(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        attachment.HasOne(x => x.Message).WithMany(x => x.Attachments)
+            .HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
+        attachment.HasIndex(x => x.MessageId);
 
         var mention = model.Entity<ChatMessageMention>();
         mention.ToTable("chat_message_mentions");
