@@ -1,0 +1,43 @@
+@inject IJSRuntime JS
+@inject ILogger<ChatMessageScheduleMenu> Logger
+
+<div class="schedule-menu" @onmouseenter="RefreshPresetsAsync" data-chat-compose-menu>
+    <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded="@expanded" @onclick="ToggleAsync">Schedule Message <span aria-hidden="true">›</span></button>
+    <div class="schedule-submenu @(expanded ? "expanded" : null)" role="menu" aria-label="Schedule Message">
+        @foreach (var preset in presets)
+        {
+            <button type="button" role="menuitem" @onclick="() => SelectAsync(preset.Value)">@preset.Label</button>
+        }
+        <button type="button" role="menuitem" @onclick="OpenCustom">Custom...</button>
+    </div>
+</div>
+@code {
+    [Parameter] public EventCallback<DateTime?> Selected { get; set; }
+    [Parameter] public EventCallback Custom { get; set; }
+    private sealed record SchedulePreset(string Value, string Label);
+    private SchedulePreset[] presets = [];
+    private bool expanded;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) { await RefreshPresetsAsync(); StateHasChanged(); }
+    }
+    private async Task RefreshPresetsAsync()
+    {
+        try { presets = await JS.InvokeAsync<SchedulePreset[]>("confastChatTime.schedulePresets"); }
+        catch (JSDisconnectedException) { }
+    }
+    private async Task ToggleAsync() { await RefreshPresetsAsync(); expanded = !expanded; }
+    private Task OpenCustom() => Custom.InvokeAsync();
+    private async Task SelectAsync(string value)
+    {
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("confastChatTime.isFutureSchedule", value))
+            { await RefreshPresetsAsync(); return; }
+            await Selected.InvokeAsync(DateTime.Parse(value, System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not validate a chat schedule."); }
+    }
+}

@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005154553_AddIndividualChatMessageReads")]
+    partial class AddIndividualChatMessageReads
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -611,11 +614,6 @@ namespace Confast.Web.Data.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasColumnName("name");
-
-                    b.Property<string>("Topic")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)")
-                        .HasColumnName("topic");
 
                     b.Property<int?>("Visibility")
                         .HasColumnType("integer")
@@ -1536,10 +1534,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("presence_preference");
-
-                    b.Property<DateTime?>("PresencePreferenceExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("presence_preference_expires_at_utc");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text")

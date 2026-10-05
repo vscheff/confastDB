@@ -34,7 +34,8 @@ public sealed class ChatPollVote
 }
 
 public sealed record ChatPollAnswerInput(string Text, string? Emoji = null);
-public sealed record ChatPollAnswerRow(long Id, string Text, string? Emoji, int Votes, bool Selected);
+public sealed record ChatPollAnswerRow(long Id, string Text, string? Emoji, int Votes, bool Selected,
+    IReadOnlyList<ChatUser> Users);
 public sealed record ChatPollRow(DateTime StartsAtUtc, DateTime EndsAtUtc, bool AllowMultipleAnswers,
     bool IsOpen, bool HasStarted, int Voters, IReadOnlyList<ChatPollAnswerRow> Answers);
 

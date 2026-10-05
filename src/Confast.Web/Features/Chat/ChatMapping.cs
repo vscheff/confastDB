@@ -7,6 +7,7 @@ public static class ChatMapping
     public static void Configure(ModelBuilder model)
     {
         ChatPollMapping.Configure(model);
+        ChatScheduledMessageMapping.Configure(model);
         var group = model.Entity<ChatChannelGroup>();
         group.ToTable("chat_channel_groups", t =>
         {
@@ -37,6 +38,7 @@ public static class ChatMapping
         conversation.Property(x => x.Kind).HasColumnName("kind");
         conversation.Property(x => x.Visibility).HasColumnName("visibility");
         conversation.Property(x => x.Name).HasColumnName("name").HasMaxLength(120);
+        conversation.Property(x => x.Topic).HasColumnName("topic").HasMaxLength(4000);
         conversation.Property(x => x.ChannelGroupId).HasColumnName("channel_group_id");
         conversation.Property(x => x.ChannelSortOrder).HasColumnName("channel_sort_order");
         conversation.Property(x => x.DirectPairKey).HasColumnName("direct_pair_key").HasMaxLength(900);
@@ -150,6 +152,18 @@ public static class ChatMapping
         attachment.HasOne(x => x.Message).WithMany(x => x.Attachments)
             .HasForeignKey(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
         attachment.HasIndex(x => x.MessageId);
+
+        var read = model.Entity<ChatMessageRead>();
+        read.ToTable("chat_message_reads");
+        read.HasKey(x => new { x.UserId, x.MessageId });
+        read.Property(x => x.ConversationId).HasColumnName("conversation_id");
+        read.Property(x => x.MessageId).HasColumnName("message_id");
+        read.Property(x => x.UserId).HasColumnName("user_id");
+        read.HasOne(x => x.Message).WithMany(x => x.Reads)
+            .HasForeignKey(x => new { x.ConversationId, x.MessageId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Cascade);
+        read.HasOne<ConversationMember>().WithMany()
+            .HasForeignKey(x => new { x.ConversationId, x.UserId }).OnDelete(DeleteBehavior.Cascade);
 
         var mention = model.Entity<ChatMessageMention>();
         mention.ToTable("chat_message_mentions");

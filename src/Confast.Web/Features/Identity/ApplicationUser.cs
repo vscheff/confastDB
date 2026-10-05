@@ -25,6 +25,8 @@ public sealed class ApplicationUser : IdentityUser
 
     public UserPresencePreference PresencePreference { get; set; } = UserPresencePreference.Online;
 
+    public DateTime? PresencePreferenceExpiresAtUtc { get; set; }
+
     [MaxLength(32)]
     public string? StatusEmoji { get; set; }
 

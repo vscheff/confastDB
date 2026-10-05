@@ -5,17 +5,75 @@
     <p>@(Poll.HasStarted ? Poll.IsOpen ? "Open" : "Closed" : "Scheduled") · @(Poll.AllowMultipleAnswers ? "Select multiple answers" : "Select one answer")</p>
     @foreach (var answer in Poll.Answers)
     {
-        <button type="button" class="poll-answer @(answer.Selected ? "selected" : null)" disabled="@(!Poll.IsOpen || Busy)" aria-pressed="@answer.Selected" @onclick="() => Vote.InvokeAsync(answer.Id)">
-            <span>@(answer.Selected ? "✓ " : "")@answer.Emoji @answer.Text</span><span>@answer.Votes</span>
-        </button>
+        <div class="poll-answer @(answer.Selected ? "selected" : null)">
+            <button type="button" class="poll-answer-choice" disabled="@(!Poll.IsOpen || Busy)" aria-pressed="@answer.Selected" @onclick="() => Vote.InvokeAsync(answer.Id)">
+                @(answer.Selected ? "✓ " : "")@answer.Emoji @answer.Text
+            </button>
+            <div class="poll-vote-details">
+                <span class="poll-vote-count">
+                    <button type="button" class="poll-count-button" aria-describedby="poll-voters-@answer.Id" aria-haspopup="dialog" popovertarget="@ResultsId" @onclick="() => selectedResultAnswerId = answer.Id">@answer.Votes @(answer.Votes == 1 ? "vote" : "votes")</button>
+                    <span id="poll-voters-@answer.Id" class="poll-voters-tooltip" role="tooltip">
+                        @foreach (var voter in answer.Users) { <span>@voter.Name</span> }
+                        @if (answer.Users.Count == 0) { <span>No votes yet.</span> }
+                    </span>
+                </span>
+                <span class="poll-percentage">(@Percentage(answer)%)</span>
+            </div>
+        </div>
     }
     <small>@Poll.Voters @(Poll.Voters == 1 ? "voter" : "voters") · @(Poll.HasStarted ? Poll.IsOpen ? "Closes" : "Closed" : "Starts") <span>@localTime</span></small>
+</section>
+<section id="@ResultsId" class="poll-results" popover="auto" role="dialog" aria-labelledby="@ResultsTitleId">
+    <header class="poll-results-header">
+        <div><h3 id="@ResultsTitleId">@Message.Body</h3><small>@Poll.Voters @(Poll.Voters == 1 ? "voter" : "voters")</small></div>
+        <button type="button" class="poll-results-close" aria-label="Close poll results" popovertarget="@ResultsId" popovertargetaction="hide" autofocus>×</button>
+    </header>
+    <div class="poll-results-body">
+        <nav class="poll-results-options" aria-label="Poll options">
+            @foreach (var answer in Poll.Answers)
+            {
+                <button type="button" class="@(ResultAnswer?.Id == answer.Id ? "selected" : null)" aria-pressed="@(ResultAnswer?.Id == answer.Id)" @onclick="() => selectedResultAnswerId = answer.Id">
+                    <span>@answer.Emoji @answer.Text</span><span>(@answer.Votes)</span>
+                </button>
+            }
+        </nav>
+        <section class="poll-results-voters" aria-label="Voters for @(ResultAnswer?.Text)" aria-live="polite">
+            @if (ResultAnswer is { } chosen && chosen.Users.Count > 0)
+            {
+                <ul>
+                    @foreach (var voter in chosen.Users)
+                    {
+                        <li @key="voter.Id">
+                            <span class="poll-voter-avatar" aria-hidden="true">
+                                @if (PictureUrlForUser?.Invoke(voter.Id) is { } url) { <img src="@url" alt="" /> }
+                                else { @Initials(voter.Name) }
+                            </span>
+                            <strong>@voter.Name</strong>
+                        </li>
+                    }
+                </ul>
+            }
+            else { <p>No votes for this option yet.</p> }
+        </section>
+    </div>
 </section>
 @code {
     [Parameter, EditorRequired] public ChatMessageRow Message { get; set; } = null!;
     [Parameter] public EventCallback<long> Vote { get; set; }
     [Parameter] public bool Busy { get; set; }
+    [Parameter] public Func<string, string?>? PictureUrlForUser { get; set; }
+    private string ResultsId => $"poll-results-{Message.Id}";
+    private string ResultsTitleId => $"poll-results-title-{Message.Id}";
+    private long? selectedResultAnswerId;
+    private ChatPollAnswerRow? ResultAnswer => Poll.Answers.FirstOrDefault(x => x.Id == selectedResultAnswerId) ?? Poll.Answers.FirstOrDefault();
+    private static string Initials(string name) => new(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Take(2).Select(part => char.ToUpperInvariant(part[0])).ToArray());
     private ChatPollRow Poll => Message.Poll!;
+    private string Percentage(ChatPollAnswerRow answer)
+    {
+        var total = Poll.Answers.Sum(x => x.Votes);
+        return (total == 0 ? 0 : 100m * answer.Votes / total).ToString("0.#");
+    }
     private string localTime = "";
     private DateTime? formattedTime;
     protected override async Task OnAfterRenderAsync(bool firstRender)

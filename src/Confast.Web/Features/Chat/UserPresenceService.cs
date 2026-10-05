@@ -27,7 +27,7 @@ public sealed class UserPresenceService(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var viewerId = await RequireUserAsync(db, cancellationToken);
         var users = await db.Users.AsNoTracking().Where(x => x.IsActive)
-            .Select(x => new { x.Id, x.PresencePreference, x.StatusEmoji, x.StatusMessage })
+            .Select(x => new { x.Id, x.PresencePreference, x.PresencePreferenceExpiresAtUtc, x.StatusEmoji, x.StatusMessage })
             .ToListAsync(cancellationToken);
         var now = clock.GetUtcNow().UtcDateTime;
         var cutoff = now - HeartbeatLifetime;
@@ -40,10 +40,11 @@ public sealed class UserPresenceService(
         return users.ToDictionary(x => x.Id, x =>
         {
             var isSelf = x.Id == viewerId;
-            var state = ResolveState(x.PresencePreference, activity.GetValueOrDefault(x.Id), now, isSelf);
-            var hideStatus = !isSelf && x.PresencePreference == UserPresencePreference.Invisible;
+            var preference = EffectivePreference(x.PresencePreference, x.PresencePreferenceExpiresAtUtc, now);
+            var state = ResolveState(preference, activity.GetValueOrDefault(x.Id), now, isSelf);
+            var hideStatus = !isSelf && preference == UserPresencePreference.Invisible;
             return new UserPresence(x.Id, state,
-                isSelf ? x.PresencePreference : UserPresencePreference.Online,
+                isSelf ? preference : UserPresencePreference.Online,
                 hideStatus ? null : x.StatusEmoji,
                 hideStatus ? null : x.StatusMessage);
         });
@@ -72,14 +73,27 @@ public sealed class UserPresenceService(
         return UserPresenceState.Online;
     }
 
-    public async Task SetPreferenceAsync(UserPresencePreference preference,
+    public static UserPresencePreference EffectivePreference(UserPresencePreference preference,
+        DateTime? expiresAtUtc, DateTime now) =>
+        expiresAtUtc <= now ? UserPresencePreference.Online : preference;
+
+    public Task SetPreferenceAsync(UserPresencePreference preference,
+        CancellationToken cancellationToken = default) => SetPreferenceAsync(preference, null, cancellationToken);
+
+    public async Task SetPreferenceAsync(UserPresencePreference preference, TimeSpan? duration,
         CancellationToken cancellationToken = default)
     {
         if (!Enum.IsDefined(preference)) throw new InvalidOperationException("Choose a valid presence state.");
+        if (duration is { } value && (preference == UserPresencePreference.Online ||
+            (value != TimeSpan.FromMinutes(15) && value != TimeSpan.FromHours(1) &&
+             value != TimeSpan.FromHours(8) && value != TimeSpan.FromHours(24) && value != TimeSpan.FromDays(3))))
+            throw new InvalidOperationException("Choose a valid presence duration.");
+        DateTime? expiresAtUtc = duration is { } timeout ? clock.GetUtcNow().UtcDateTime + timeout : null;
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         await db.Users.Where(x => x.Id == userId)
-            .ExecuteUpdateAsync(x => x.SetProperty(user => user.PresencePreference, preference), cancellationToken);
+            .ExecuteUpdateAsync(x => x.SetProperty(user => user.PresencePreference, preference)
+                .SetProperty(user => user.PresencePreferenceExpiresAtUtc, expiresAtUtc), cancellationToken);
         await NotifyUsersAsync(db, cancellationToken);
     }
 

@@ -1089,6 +1089,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         user.Property(x => x.PresencePreference)
             .HasColumnName("presence_preference")
             .HasDefaultValue(UserPresencePreference.Online);
+        user.Property(x => x.PresencePreferenceExpiresAtUtc)
+            .HasColumnName("presence_preference_expires_at_utc");
         user.Property(x => x.StatusEmoji)
             .HasColumnName("status_emoji")
             .HasMaxLength(32);

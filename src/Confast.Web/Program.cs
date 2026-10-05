@@ -144,6 +144,7 @@ builder.Services.AddScoped<InspectionSearchNavigationContext>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddSingleton<ChatNotifications>();
 builder.Services.AddScoped<ChatService>();
+builder.Services.AddHostedService<ChatMessageDeliveryWorker>();
 builder.Services.AddScoped<UserProfilePictureService>();
 builder.Services.AddScoped<UserPresenceService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionScheduling.ProductionService>();

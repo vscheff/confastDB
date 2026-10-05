@@ -1,0 +1,42 @@
+@inject IJSRuntime JS
+@inject ILogger<ChatMessageScheduleCard> Logger
+    <div class="schedule-backdrop" data-chat-compose-menu @onclick="CloseCustom" @onclick:stopPropagation>
+        <section class="schedule-card" role="dialog" aria-modal="true" aria-labelledby="message-schedule-title" @onclick:stopPropagation @onkeydown="KeyDown" @onkeydown:stopPropagation>
+            <h3 id="message-schedule-title">Schedule Message</h3>
+            @if (error is not null) { <p role="alert" class="validation-message">@error</p> }
+            <form @onsubmit="SetCustomAsync" @onsubmit:preventDefault>
+                <div class="schedule-fields">
+                    <div><label for="message-schedule-date">Date</label><input id="message-schedule-date" type="date" required @ref="dateInput" @bind="date" /></div>
+                    <div><label for="message-schedule-time">Time</label><input id="message-schedule-time" type="time" required @bind="time" /></div>
+                </div>
+                <div class="schedule-actions"><button type="button" @onclick="CloseCustom">Cancel</button><button type="submit">Set Schedule</button></div>
+            </form>
+        </section>
+    </div>
+
+@code {
+    [Parameter] public EventCallback<DateTime?> Selected { get; set; }
+    [Parameter] public EventCallback Cancel { get; set; }
+    private DateTime? date;
+    private TimeOnly? time;
+    private string? error;
+    private ElementReference dateInput;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    { if (firstRender) await dateInput.FocusAsync(); }
+    private Task CloseCustom() => Cancel.InvokeAsync();
+    private Task KeyDown(KeyboardEventArgs args) => args.Key == "Escape" ? CloseCustom() : Task.CompletedTask;
+    private async Task SetCustomAsync()
+    {
+        if (date is not DateTime day || time is not TimeOnly hour)
+        { error = "Choose a date and time."; return; }
+        var local = day.Date.Add(hour.ToTimeSpan());
+        try
+        {
+            if (!await JS.InvokeAsync<bool>("confastChatTime.isFutureSchedule", local.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)))
+            { error = "Choose a future date and time."; return; }
+            await Selected.InvokeAsync(local);
+        }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not validate a chat schedule."); error = "Choose a valid date and time."; }
+    }
+}

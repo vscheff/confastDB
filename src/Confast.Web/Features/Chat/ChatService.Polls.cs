@@ -97,11 +97,16 @@ public sealed partial class ChatService
     {
         var polls = await db.Set<ChatPoll>().AsNoTracking().Where(x => messageIds.Contains(x.MessageId))
             .Include(x => x.Answers).ThenInclude(x => x.Votes).AsSplitQuery().ToListAsync(cancellationToken);
+        var voterIds = polls.SelectMany(x => x.Answers).SelectMany(x => x.Votes)
+            .Select(x => x.UserId).Distinct().ToArray();
+        var voters = await db.Users.AsNoTracking().Where(x => voterIds.Contains(x.Id))
+            .Select(x => new ChatUser(x.Id, x.DisplayName)).ToDictionaryAsync(x => x.Id, cancellationToken);
         var now = clock.GetUtcNow().UtcDateTime;
         return polls.ToDictionary(x => x.MessageId, x => new ChatPollRow(x.StartsAtUtc, x.EndsAtUtc,
             x.AllowMultipleAnswers, now >= x.StartsAtUtc && now < x.EndsAtUtc, now >= x.StartsAtUtc,
             x.Answers.SelectMany(a => a.Votes).Select(v => v.UserId).Distinct().Count(),
             x.Answers.OrderBy(a => a.Position).Select(a => new ChatPollAnswerRow(a.Id, a.Text, a.Emoji,
-                a.Votes.Count, a.Votes.Any(v => v.UserId == userId))).ToArray()));
+                a.Votes.Count, a.Votes.Any(v => v.UserId == userId),
+                a.Votes.Select(v => voters[v.UserId]).OrderBy(v => v.Name).ThenBy(v => v.Id).ToArray())).ToArray()));
     }
 }

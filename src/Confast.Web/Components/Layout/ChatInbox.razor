@@ -1,0 +1,178 @@
+@using Confast.Web.Features.Chat
+@inject ChatService Chat
+@inject IJSRuntime JS
+@inject ILogger<ChatInbox> Logger
+
+<div class="inbox-backdrop" @onclick="() => Closed.InvokeAsync()"></div>
+<section class="inbox" role="dialog" aria-label="Inbox" @onkeydown="KeyDown" @onkeydown:stopPropagation>
+    <header>
+        <strong>Inbox</strong>
+        @if (selected == InboxTab.Unreads)
+        {
+            <button type="button" class="inbox-mark-all-read" disabled="@(loading || markingRead || Conversations.All(x => x.UnreadCount == 0))"
+                    aria-label="Mark all unreads as read" title="Mark All as Read" @onclick="MarkAllReadAsync">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 12 4 4L16 6M10 13l3 3L23 6" /></svg>
+            </button>
+        }
+    </header>
+    <div class="inbox-tabs" role="tablist" aria-label="Inbox views">
+        @foreach (var tab in Enum.GetValues<InboxTab>())
+        {
+            <button id="inbox-tab-@tab" type="button" role="tab" aria-selected="@(selected == tab)" aria-controls="inbox-content"
+                    @ref="tabButtons[(int)tab]" tabindex="@(selected == tab ? 0 : -1)" @onkeydown="TabKeyDown"
+                    class="@(selected == tab ? "active" : "")" @onclick="() => selected = tab">@tab</button>
+        }
+    </div>
+    <div id="inbox-content" class="inbox-content" role="tabpanel" aria-labelledby="inbox-tab-@selected" tabindex="0" aria-busy="@loading">
+        @if (error is not null) { <p role="alert">@error</p> }
+        else if (loading) { <p class="inbox-empty">Loading messages…</p> }
+        else if (Items.Count == 0) { <p class="inbox-empty">@EmptyText</p> }
+        else
+        {
+            @foreach (var item in Items)
+            {
+                var conversation = Conversations.FirstOrDefault(x => x.Id == item.ConversationId);
+                <article class="inbox-card" @key="item.Id">
+                    @if (selected == InboxTab.Scheduled)
+                    {
+                        <div class="inbox-schedule">◷ Message scheduled for <time datetime="@item.AtUtc.ToString("O")">@TimeLabel(item)</time></div>
+                    }
+                    <div class="inbox-card-header">
+                        <button type="button" class="inbox-destination" disabled="@(conversation is null)" @onclick="() => Opened.InvokeAsync((item, selected == InboxTab.Scheduled))">
+                            <strong>@(conversation?.Kind == ConversationKind.Channel ? "# " : "")@(conversation?.Name ?? "Unavailable Conversation") <span aria-hidden="true">›</span></strong>
+                            <small>@Context(conversation, item)</small>
+                        </button>
+                        @if (selected != InboxTab.Scheduled)
+                        {
+                            <button type="button" class="inbox-mark-read" disabled="@markingRead" aria-label="Mark message as read" title="Mark as Read" @onclick="() => MarkReadAsync(item)">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+                            </button>
+                        }
+                    </div>
+                    <div class="inbox-preview">
+                        <div class="inbox-avatar" aria-hidden="true">
+                            @if (PictureUrl(item.SenderUserId) is string url) { <img src="@url" alt="" /> }
+                            else { <span>@Initials(item.SenderName)</span> }
+                        </div>
+                        <div class="inbox-message"><div><strong>@item.SenderName</strong> <time datetime="@item.AtUtc.ToString("O")">@TimeLabel(item)</time></div>
+                            <p>@item.Body</p>
+                            @foreach (var file in item.AttachmentNames) { <small class="inbox-file">📎 @file</small> }
+                            @if (item.Failure is not null) { <p class="inbox-failure" role="alert">Delivery failed: @item.Failure</p> }
+                        </div>
+                    </div>
+                </article>
+            }
+            @if (selected != InboxTab.Scheduled && Items.Count == 100) { <p class="inbox-empty">Showing the latest 100 messages.</p> }
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter] public long Revision { get; set; }
+    [Parameter] public IReadOnlyList<ChatConversationRow> Conversations { get; set; } = [];
+    [Parameter] public IReadOnlyList<ChatChannelGroupRow> Groups { get; set; } = [];
+    [Parameter] public Func<string, string?> PictureUrl { get; set; } = _ => null;
+    [Parameter] public EventCallback Closed { get; set; }
+    [Parameter] public EventCallback<(ChatInboxMessage Message, bool Scheduled)> Opened { get; set; }
+    [Parameter] public EventCallback<ChatInboxMessage> Read { get; set; }
+    [Parameter] public EventCallback ReadAll { get; set; }
+    private enum InboxTab { Unreads, Mentions, Scheduled }
+    private InboxTab selected;
+    private long loadedRevision = -1;
+    private bool loading = true;
+    private bool markingRead;
+    private string? error;
+    private IReadOnlyList<ChatInboxMessage> unreads = [], mentions = [], scheduled = [];
+    private Dictionary<DateTime, string> times = [];
+    private ElementReference[] tabButtons = new ElementReference[3];
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await tabButtons[(int)selected].FocusAsync();
+    }
+    private IReadOnlyList<ChatInboxMessage> Items => selected switch { InboxTab.Mentions => mentions, InboxTab.Scheduled => scheduled, _ => unreads };
+    private string EmptyText => selected switch { InboxTab.Mentions => "No unread mentions.", InboxTab.Scheduled => "No scheduled messages.", _ => "You're all caught up." };
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedRevision == Revision) return;
+        var revision = loadedRevision = Revision;
+        try
+        {
+            error = null;
+            var unreadRows = await Chat.GetInboxMessagesAsync();
+            var mentionRows = await Chat.GetInboxMessagesAsync(mentionsOnly: true);
+            var scheduledRows = await Chat.GetScheduledMessagesAsync();
+            var dates = unreadRows.Concat(mentionRows).Concat(scheduledRows).Select(x => x.AtUtc).Distinct().ToArray();
+            var labels = await JS.InvokeAsync<string[][]>("confastChatTime.formatMessageDates", new object?[] { dates.Select(x => x.ToString("O")).ToArray() });
+            if (loadedRevision != revision) return;
+            unreads = unreadRows; mentions = mentionRows; scheduled = scheduledRows;
+            times = dates.Select((date, index) => (date, label: $"{labels[index][1]} at {labels[index][2]}"))
+                .ToDictionary(x => x.date, x => x.label);
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not load chat inbox.");
+            error = "The inbox couldn't be loaded. Close it and try again.";
+        }
+        finally { if (loadedRevision == revision) loading = false; }
+    }
+    private string TimeLabel(ChatInboxMessage item) => times.GetValueOrDefault(item.AtUtc, "Loading time…");
+    private async Task MarkAllReadAsync()
+    {
+        if (markingRead) return;
+        markingRead = true;
+        try
+        {
+            await ReadAll.InvokeAsync();
+            // The refreshed queries retain messages that arrived during the operation.
+            loadedRevision = -1;
+            await OnParametersSetAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not mark all inbox messages as read.");
+            error = "The messages couldn't be marked as read. Close the inbox and try again.";
+        }
+        finally { markingRead = false; }
+    }
+    private async Task MarkReadAsync(ChatInboxMessage item)
+    {
+        if (markingRead) return;
+        markingRead = true;
+        try
+        {
+            await Read.InvokeAsync(item);
+            unreads = unreads.Where(x => x.Id != item.Id).ToArray();
+            mentions = mentions.Where(x => x.Id != item.Id).ToArray();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Could not mark inbox message {MessageId} as read.", item.Id);
+            error = "That message couldn't be marked as read. Close the inbox and try again.";
+        }
+        finally { markingRead = false; }
+    }
+    private string Context(ChatConversationRow? conversation, ChatInboxMessage item)
+    {
+        var folder = Groups.FirstOrDefault(x => x.Id == conversation?.ChannelGroupId)?.Name;
+        var location = conversation?.Kind == ConversationKind.Channel
+            ? $"{folder}{(folder is null ? "" : " › ")}{conversation.Visibility} Channels" : "Direct Message";
+        return item.ChannelThreadId is null ? location : $"{location} › Thread";
+    }
+    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0]));
+    private Task KeyDown(KeyboardEventArgs args) => args.Key == "Escape" ? Closed.InvokeAsync() : Task.CompletedTask;
+    private async Task TabKeyDown(KeyboardEventArgs args)
+    {
+        var index = args.Key switch
+        {
+            "ArrowRight" => ((int)selected + 1) % 3,
+            "ArrowLeft" => ((int)selected + 2) % 3,
+            "Home" => 0,
+            "End" => 2,
+            _ => -1
+        };
+        if (index < 0) return;
+        selected = (InboxTab)index;
+        await tabButtons[index].FocusAsync();
+    }
+}

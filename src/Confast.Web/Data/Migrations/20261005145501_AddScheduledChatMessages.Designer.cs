@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005145501_AddScheduledChatMessages")]
+    partial class AddScheduledChatMessages
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -329,29 +332,6 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("chat_message_reactions", (string)null);
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessageRead", b =>
-                {
-                    b.Property<string>("UserId")
-                        .HasColumnType("text")
-                        .HasColumnName("user_id");
-
-                    b.Property<long>("MessageId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("message_id");
-
-                    b.Property<long>("ConversationId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("conversation_id");
-
-                    b.HasKey("UserId", "MessageId");
-
-                    b.HasIndex("ConversationId", "MessageId");
-
-                    b.HasIndex("ConversationId", "UserId");
-
-                    b.ToTable("chat_message_reads", (string)null);
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessageTag", b =>
                 {
                     b.Property<long>("MessageId")
@@ -611,11 +591,6 @@ namespace Confast.Web.Data.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasColumnName("name");
-
-                    b.Property<string>("Topic")
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)")
-                        .HasColumnName("topic");
 
                     b.Property<int?>("Visibility")
                         .HasColumnType("integer")
@@ -1536,10 +1511,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0)
                         .HasColumnName("presence_preference");
-
-                    b.Property<DateTime?>("PresencePreferenceExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("presence_preference_expires_at_utc");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text")
@@ -4021,24 +3992,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessageRead", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Chat.ChatMessage", "Message")
-                        .WithMany("Reads")
-                        .HasForeignKey("ConversationId", "MessageId")
-                        .HasPrincipalKey("ConversationId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Confast.Web.Features.Chat.ConversationMember", null)
-                        .WithMany()
-                        .HasForeignKey("ConversationId", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Message");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessageTag", b =>
                 {
                     b.HasOne("Confast.Web.Features.Chat.ChatMessage", "Message")
@@ -5036,8 +4989,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("Attachments");
 
                     b.Navigation("Mentions");
-
-                    b.Navigation("Reads");
 
                     b.Navigation("Tags");
                 });

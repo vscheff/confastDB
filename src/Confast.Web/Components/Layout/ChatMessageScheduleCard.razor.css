@@ -1,0 +1,9 @@
+.schedule-backdrop { position: fixed; inset: 0; z-index: 1600; background: #0005; display: grid; place-items: center; padding: 1rem; }
+.schedule-card { background: white; color: #182e46; border-radius: .6rem; padding: 1.2rem; width: min(26rem, 100%); max-height: 90dvh; overflow: auto; box-shadow: 0 8px 32px #0004; }
+.schedule-card h3 { margin-top: 0; }
+.schedule-card form { display: grid; gap: .65rem; }
+.schedule-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.schedule-fields > div { display: grid; gap: .4rem; min-width: 0; }
+.schedule-fields input { width: 100%; min-width: 0; padding: .6rem; border: 1px solid #b6c5d5; border-radius: .3rem; }
+.schedule-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+@media (max-width: 420px) { .schedule-fields { grid-template-columns: 1fr; } }

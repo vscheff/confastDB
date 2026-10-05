@@ -1,4 +1,61 @@
 window.confastChatTime = {
+    toggleChannelTopic() {
+        const card = document.getElementById("chat-channel-topic-card");
+        const panel = card?.closest(".chat-panel");
+        if (!card || !panel) return;
+        if (card.matches(":popover-open")) {
+            card.hidePopover();
+            return;
+        }
+        this.topicPopoverCleanup?.();
+        const cleanup = () => {
+            observer.disconnect();
+            window.removeEventListener("resize", position);
+            card.removeEventListener("toggle", onToggle);
+            this.topicPopoverCleanup = null;
+        };
+        const position = () => {
+            if (!card.isConnected) { cleanup(); return; }
+            const bounds = panel.getBoundingClientRect();
+            card.style.left = `${bounds.left + bounds.width / 2}px`;
+            card.style.top = `${bounds.top + bounds.height / 2}px`;
+            card.style.width = `${Math.min(420, Math.max(0, bounds.width - 32))}px`;
+            card.style.maxHeight = `${Math.max(0, bounds.height - 32)}px`;
+        };
+        const onToggle = event => {
+            if (event.newState === "closed") cleanup();
+        };
+        const observer = new ResizeObserver(position);
+        this.topicPopoverCleanup = cleanup;
+        position();
+        card.addEventListener("toggle", onToggle);
+        window.addEventListener("resize", position);
+        observer.observe(panel);
+        observer.observe(card);
+        card.showPopover();
+    },
+    schedulePresets() {
+        const now = new Date();
+        const local = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+        const nextAt = (hour, label) => {
+            const date = new Date(now);
+            date.setHours(hour, 0, 0, 0);
+            const tomorrow = date <= now;
+            if (tomorrow) date.setDate(date.getDate() + 1);
+            return { value: local(date), label: `${tomorrow ? "Tomorrow" : "Today"} at ${label}` };
+        };
+        const monday = new Date(now); monday.setDate(monday.getDate() + (8 - monday.getDay()) % 7); monday.setHours(9, 0, 0, 0);
+        if (monday <= now) monday.setDate(monday.getDate() + 7);
+        return [nextAt(9, "9:00am"), nextAt(13, "1:00pm"), { value: local(monday), label: "Monday at 9:00am" }];
+    },
+    isFutureSchedule(value) {
+        const date = new Date(value);
+        // Reject invalid dates and times that daylight saving time skips.
+        const [day, time] = value.split("T");
+        const [year, month, dateOfMonth] = day.split("-").map(Number);
+        const [hour, minute] = time.split(":").map(Number);
+        return date > new Date() && date.getFullYear() === year && date.getMonth() + 1 === month && date.getDate() === dateOfMonth && date.getHours() === hour && date.getMinutes() === minute;
+    },
     createAttachmentPreviewUrls(id) {
         const input = document.getElementById(id);
         if (!(input instanceof HTMLInputElement) || !input.files) return [];

@@ -41,6 +41,7 @@ public sealed class Conversation
     public ConversationKind Kind { get; set; }
     public ChannelVisibility? Visibility { get; set; }
     public string? Name { get; set; }
+    public string? Topic { get; set; }
     public long? ChannelGroupId { get; set; }
     public ChatChannelGroup? ChannelGroup { get; set; }
     public int ChannelSortOrder { get; set; }
@@ -88,6 +89,7 @@ public sealed class ChatMessage
     public string? PinnedByUserId { get; set; }
     public ApplicationUser? PinnedByUser { get; set; }
     public List<ChatMessageMention> Mentions { get; set; } = [];
+    public List<ChatMessageRead> Reads { get; set; } = [];
     public List<ChatMessageTag> Tags { get; set; } = [];
     public List<ChatAttachment> Attachments { get; set; } = [];
 }
@@ -122,6 +124,15 @@ public sealed class ChatMessageMention
     public ChatMessage Message { get; set; } = null!;
     public string UserId { get; set; } = string.Empty;
     public ApplicationUser User { get; set; } = null!;
+}
+
+// Sparse exceptions above the conversation's normal read boundary.
+public sealed class ChatMessageRead
+{
+    public long ConversationId { get; set; }
+    public long MessageId { get; set; }
+    public ChatMessage Message { get; set; } = null!;
+    public string UserId { get; set; } = string.Empty;
 }
 
 public sealed class ChatMessageReaction

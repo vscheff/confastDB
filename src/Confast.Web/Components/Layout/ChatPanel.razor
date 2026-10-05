@@ -44,8 +44,17 @@
                         aria-expanded="@(!sidebarCollapsed)" @onclick="ToggleSidebar">☰</button>
                 <strong>Messages</strong>
             </div>
-            <button type="button" class="chat-icon-button" @onclick="ClosePanel" aria-label="Close chat">×</button>
+            <div class="chat-header-actions">
+                <button type="button" class="chat-icon-button chat-inbox-button" @ref="inboxButton" @onclick="() => showInbox = !showInbox" aria-label="Inbox" title="Inbox" aria-expanded="@showInbox">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a1 1 0 0 1 1 1v16H3V4a1 1 0 0 1 1-1Z" /><path d="M3 14h5l2 3h4l2-3h5" /></svg>
+                </button>
+                <button type="button" class="chat-icon-button" @onclick="ClosePanel" aria-label="Close chat">×</button>
+            </div>
         </header>
+        @if (showInbox)
+        {
+            <ChatInbox Revision="conversationRefreshVersion" Conversations="conversations" Groups="channelGroups" PictureUrl="PictureUrl" Closed="CloseInboxAsync" Opened="OpenInboxMessageAsync" Read="MarkInboxMessageReadAsync" ReadAll="MarkAllInboxMessagesReadAsync" />
+        }
         @if (error is not null)
         {
             <p class="chat-error" role="alert">@error</p>
@@ -168,6 +177,11 @@
                                                     <button type="submit" disabled="@string.IsNullOrWhiteSpace(channelRenameDraft)">Save</button>
                                                 </div>
                                             </form>
+                                            <form class="chat-channel-topic-edit" @onsubmit="() => SaveChannelTopicAsync(row.Id)" @onsubmit:preventDefault>
+                                                <label for="chat-channel-topic-@row.Id">Channel Topic</label>
+                                                <textarea id="chat-channel-topic-@row.Id" rows="3" maxlength="4000" @bind="channelTopicDraft" @bind:event="oninput"></textarea>
+                                                <button type="submit">Save Topic</button>
+                                            </form>
                                         }
                                         @if (row.Visibility == ChannelVisibility.Private)
                                         {
@@ -179,7 +193,9 @@
                                                         <span>@member.Name</span>
                                                         @if (row.IsOwner && member.Id != currentUserId)
                                                         {
-                                                            <button type="button" aria-label="Remove @member.Name from @row.Name" @onclick="() => RemoveChannelSettingsMemberAsync(row.Id, member.Id)">Remove</button>
+                                                            <button type="button" class="chat-channel-member-remove" title="Remove @member.Name" aria-label="Remove @member.Name from @row.Name" @onclick="() => RemoveChannelSettingsMemberAsync(row.Id, member.Id)">
+                                                                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
+                                                            </button>
                                                         }
                                                     </div>
                                                 }
@@ -305,12 +321,27 @@
                                     <div class="chat-presence-menu" role="menu" aria-label="Set presence">
                                         @foreach (var choice in Enum.GetValues<UserPresencePreference>())
                                         {
+                                            <div class="chat-presence-option" @onmouseenter="() => presenceDurationChoice = choice" @onmouseleave="() => presenceDurationChoice = null">
                                             <button type="button" role="menuitemradio" aria-checked="@(CurrentPresencePreference == choice)"
+                                                    aria-haspopup="@(choice != UserPresencePreference.Online ? "menu" : null)"
+                                                    aria-expanded="@(choice != UserPresencePreference.Online && presenceDurationChoice == choice)"
                                                     class="@(CurrentPresencePreference == choice ? "selected" : "")"
-                                                    @onclick="() => SelectPresenceAsync(choice)">
+                                                    @onfocus="() => presenceDurationChoice = choice"
+                                                    @onclick="() => OpenPresenceDurationAsync(choice)">
                                                 <span class="chat-presence-dot @PresenceChoiceClass(choice)"></span>
                                                 @PresenceLabel(choice)
+                                                @if (choice != UserPresencePreference.Online) { <span class="chat-presence-arrow" aria-hidden="true">›</span> }
                                             </button>
+                                            @if (choice != UserPresencePreference.Online && presenceDurationChoice == choice)
+                                            {
+                                                <div class="chat-presence-duration-menu" role="menu" aria-label="@($"{PresenceLabel(choice)} duration")">
+                                                    @foreach (var duration in PresenceDurations)
+                                                    {
+                                                        <button type="button" role="menuitem" @onclick="() => SelectPresenceAsync(choice, duration.Duration)">@duration.Label</button>
+                                                    }
+                                                </div>
+                                            }
+                                            </div>
                                         }
                                     </div>
                                 }
@@ -375,6 +406,7 @@
                 {
                     <div class="chat-thread-header">
                         <button type="button" class="chat-back" @onclick="BackToList" aria-label="Back to conversations">←</button>
+                        <div class="chat-thread-heading">
                         <strong>
                             @if (thread.ChannelThread is { } fullThread)
                             {
@@ -383,6 +415,15 @@
                             }
                             else { @(thread.Conversation.Kind == ConversationKind.Channel ? "# " : "")@thread.Conversation.Name }
                         </strong>
+                        @if (thread.Conversation.Kind == ConversationKind.Channel && thread.ChannelThread is null && thread.Conversation.Topic is { } topic)
+                        {
+                            <button type="button" class="chat-channel-topic" @onclick="ToggleChannelTopicAsync" aria-haspopup="dialog" aria-label="Read full channel topic">@topic</button>
+                            <section @key="thread.Conversation.Id" id="chat-channel-topic-card" class="chat-channel-topic-card" popover="auto" role="dialog" aria-label="Channel Topic">
+                                <header><strong>Channel Topic</strong><button type="button" popovertarget="chat-channel-topic-card" popovertargetaction="hide" aria-label="Close channel topic">×</button></header>
+                                <p>@topic</p>
+                            </section>
+                        }
+                        </div>
                         <div class="chat-thread-header-actions">
                             @if (thread.Conversation.Kind == ConversationKind.Channel)
                             {
@@ -601,7 +642,7 @@
                                 {
                                     @if (message.Attachments.Count == 0 || !string.Equals(message.Body, "Shared a file", StringComparison.Ordinal))
                                     {
-                                        <div class="chat-message-body">@if (message.Poll is not null) { <ChatPollCard Message="message" Vote="answerId => VotePollAsync(message.Id, answerId)" /> } else { @RenderMessageBody(message) }</div>
+                                        <div class="chat-message-body">@if (message.Poll is not null) { <ChatPollCard Message="message" PictureUrlForUser="PictureUrl" Vote="answerId => VotePollAsync(message.Id, answerId)" /> } else { @RenderMessageBody(message) }</div>
                                     }
                                 }
                                 @foreach (var attachment in message.Attachments)
@@ -834,6 +875,10 @@
                     <form class="chat-compose" @onsubmit="SendAsync" @onsubmit:preventDefault>
                         <label class="sr-only" for="chat-message-body">Message</label>
                         <div class="chat-compose-input">
+                         @if (messageSchedule is DateTime schedule)
+                         {
+                             <div class="chat-schedule-summary" role="status"><span>Scheduling message for @ScheduleLabel(schedule)</span><button type="button" aria-label="Remove message schedule" @onclick="() => messageSchedule = null">×</button></div>
+                         }
                          @if (replyingTo is { } reply)
                          {
                              <div class="chat-reply-draft">
@@ -905,12 +950,13 @@
                             @if (showComposeMenu)
                             {
                                 <div class="chat-compose-add-menu" data-chat-compose-menu role="menu">
-                                    <button type="button" role="menuitem" @onclick="() => BeginPoll(false)">Create Poll</button>
                                     <label role="menuitem" for="chat-attachment-picker" tabindex="0" @onkeydown="HandleAttachmentLabelKeyDown">Upload a File</label>
                                     @if (thread.Conversation.Kind == ConversationKind.Channel)
                                     {
                                         <button type="button" role="menuitem" @onclick="BeginCreateThread">Create Thread</button>
                                     }
+                                    <button type="button" role="menuitem" @onclick="() => BeginPoll(false)">Create Poll</button>
+                                    <ChatMessageScheduleMenu Selected="SetMessageSchedule" Custom="() => OpenCustomMessageSchedule(false)" />
                                 </div>
                             }
                             @if (composerEmojiPickerOpen)
@@ -1017,7 +1063,7 @@
                                     @if (entry.ReplyToBody is { } replyBody) { <small>↳ @replyBody</small> }
                                     @if (entry.Attachments.Count == 0 || !string.Equals(entry.Body, "Shared a file", StringComparison.Ordinal))
                                     {
-                                        <div class="chat-message-body">@if (entry.Poll is not null) { <ChatPollCard Message="entry" Vote="answerId => VotePollAsync(entry.Id, answerId)" /> } else { @RenderMessageBody(entry) }</div>
+                                        <div class="chat-message-body">@if (entry.Poll is not null) { <ChatPollCard Message="entry" PictureUrlForUser="PictureUrl" Vote="answerId => VotePollAsync(entry.Id, answerId)" /> } else { @RenderMessageBody(entry) }</div>
                                     }
                                     @foreach (var attachment in entry.Attachments)
                                     {
@@ -1100,6 +1146,10 @@
                             }
                         }
                     </div>
+                    @if (sidebarMessageSchedule is DateTime sidebarSchedule)
+                    {
+                        <div class="chat-schedule-summary" role="status"><span>Scheduling message for @ScheduleLabel(sidebarSchedule)</span><button type="button" aria-label="Remove message schedule" @onclick="() => sidebarMessageSchedule = null">×</button></div>
+                    }
                     <form id="chat-sidebar-thread-compose" class="chat-compose chat-channel-thread-compose" @onsubmit="SendSidebarThreadAsync" @onsubmit:preventDefault>
                         <div class="chat-compose-input">
                             @if (sidebarReplyingTo is { } sideReply)
@@ -1149,8 +1199,9 @@
                                 @if (showSidebarComposeMenu)
                                 {
                                     <div class="chat-compose-add-menu" data-chat-compose-menu role="menu">
-                                        <button type="button" role="menuitem" @onclick="() => BeginPoll(true)">Create Poll</button>
                                         <label role="menuitem" for="chat-sidebar-attachment-picker" tabindex="0" @onkeydown="HandleSidebarAttachmentLabelKeyDown">Upload a File</label>
+                                        <button type="button" role="menuitem" @onclick="() => BeginPoll(true)">Create Poll</button>
+                                        <ChatMessageScheduleMenu Selected="SetSidebarMessageSchedule" Custom="() => OpenCustomMessageSchedule(true)" />
                                     </div>
                                 }
                                 @if (sidebarComposerEmojiPickerOpen)
@@ -1466,12 +1517,55 @@
     }
 }
 
+@if (customMessageScheduleOpen)
+{
+    <ChatMessageScheduleCard Selected="SetCustomMessageSchedule" Cancel="() => customMessageScheduleOpen = false" />
+}
+
 @if (creatingPoll && pollConversationId is long pollId)
 {
     <ChatPollComposer ConversationId="pollId" ChannelThreadId="pollThreadId" Cancel="ClosePoll" Created="PollCreatedAsync" />
 }
 
 @code {
+    private bool showInbox;
+    private ElementReference inboxButton;
+    private async Task MarkAllInboxMessagesReadAsync()
+    {
+        await readStateGate.WaitAsync();
+        try
+        {
+            await Chat.MarkAllUnreadReadAsync();
+            manuallyMarkedUnreadConversationId = null;
+            manuallyMarkedUnreadOtherConversationVisited = false;
+            pendingNewMessageIds.Clear();
+        }
+        finally { readStateGate.Release(); }
+        await RefreshAsync();
+    }
+    private async Task MarkInboxMessageReadAsync(ChatInboxMessage message)
+    {
+        await readStateGate.WaitAsync();
+        try
+        {
+            await Chat.MarkMessageReadAsync(message.ConversationId, message.Id);
+        }
+        finally { readStateGate.Release(); }
+        await RefreshAsync();
+    }
+    private async Task CloseInboxAsync()
+    {
+        showInbox = false;
+        await inboxButton.FocusAsync();
+    }
+    private async Task OpenInboxMessageAsync((ChatInboxMessage Message, bool Scheduled) selection)
+    {
+        showInbox = false;
+        await OpenThreadAsync(selection.Message.ConversationId);
+        if (selection.Scheduled && selection.Message.ChannelThreadId is long threadId)
+            await OpenChannelThreadFullAsync(threadId);
+        if (!selection.Scheduled) await JumpToMessageAsync(selection.Message.Id);
+    }
     private bool creatingPoll;
     private long? pollConversationId, pollThreadId;
     private void BeginPoll(bool sidebar)
@@ -1512,6 +1606,16 @@
     private bool presenceMonitoringAttached;
     private bool showPresenceEditor;
     private bool showPresencePicker;
+    private UserPresencePreference? presenceDurationChoice;
+    private static readonly (string Label, TimeSpan? Duration)[] PresenceDurations =
+    [
+        ("For 15 Minutes", TimeSpan.FromMinutes(15)),
+        ("For 1 Hour", TimeSpan.FromHours(1)),
+        ("For 8 Hours", TimeSpan.FromHours(8)),
+        ("For 24 Hours", TimeSpan.FromHours(24)),
+        ("For 3 Days", TimeSpan.FromDays(3)),
+        ("Forever", null)
+    ];
     private bool showStatusEmojiPicker;
     private bool showPictureEditor;
     private bool pictureEditorNeedsMount;
@@ -1572,6 +1676,7 @@
     private DotNetObjectReference<ChatPanel>? channelSettingsReference;
     private bool channelSettingsOutsideClickAttached;
     private string channelRenameDraft = string.Empty;
+    private string channelTopicDraft = string.Empty;
     private string channelSettingsAddMemberId = string.Empty;
     private IReadOnlyList<ChatUser> channelSettingsMembers = [];
     private readonly HashSet<long> collapsedFolderIds = [];
@@ -2315,6 +2420,7 @@
 
     private async Task ClosePanel()
     {
+        showInbox = false;
         if (savingPicture) return;
         if (showPictureEditor) await CancelPictureEditorAsync();
         if (sidebarResizeAttached)
@@ -2569,6 +2675,7 @@
         }
         var members = await Chat.GetChannelMembersAsync(row.Id);
         channelRenameDraft = row.Name;
+        channelTopicDraft = row.Topic ?? string.Empty;
         channelSettingsAddMemberId = string.Empty;
         channelSettingsMembers = members;
         channelActionsId = row.Id;
@@ -2581,6 +2688,15 @@
         channelActionsId = null;
         StateHasChanged();
     });
+
+    private Task SaveChannelTopicAsync(long channelId) => RunAsync(async () =>
+    {
+        await Chat.SetChannelTopicAsync(channelId, channelTopicDraft);
+        if (selectedId == channelId) await LoadThreadAsync(channelId);
+    });
+
+    private async Task ToggleChannelTopicAsync() =>
+        await JS.InvokeVoidAsync("confastChatTime.toggleChannelTopic");
 
     private Task RenameChannelAsync(long channelId) => RunAsync(async () =>
     {
@@ -2726,6 +2842,27 @@
         showPinnedMessages = false;
     }
 
+    private DateTime? messageSchedule, sidebarMessageSchedule;
+    private bool customMessageScheduleOpen, customMessageScheduleSidebar;
+    private void OpenCustomMessageSchedule(bool sidebar)
+    {
+        customMessageScheduleSidebar = sidebar;
+        customMessageScheduleOpen = true;
+        showComposeMenu = false;
+        showSidebarComposeMenu = false;
+    }
+    private void SetCustomMessageSchedule(DateTime? date)
+    {
+        if (customMessageScheduleSidebar) SetSidebarMessageSchedule(date); else SetMessageSchedule(date);
+        customMessageScheduleOpen = false;
+    }
+    private static string ScheduleLabel(DateTime date) => date.ToString("MMMM d 'at' HH:mm", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+    private void SetMessageSchedule(DateTime? date) { messageSchedule = date; showComposeMenu = false; }
+    private void SetSidebarMessageSchedule(DateTime? date) { sidebarMessageSchedule = date; showSidebarComposeMenu = false; }
+    private async Task<DateTime?> ScheduleUtcAsync(DateTime? date) => date is DateTime local
+        ? DateTime.Parse(await JS.InvokeAsync<string>("confastPoll.toUtc", local.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)),
+            null, System.Globalization.DateTimeStyles.RoundtripKind) : null;
+
     private void ToggleComposeMenu() => showComposeMenu = !showComposeMenu;
 
     [JSInvokable]
@@ -2834,6 +2971,7 @@
         showPinnedMessages = false;
         replyingTo = null;
         draft = string.Empty;
+        messageSchedule = null;
         await LoadThreadAsync(channelId);
     });
 
@@ -2843,6 +2981,7 @@
         fullChannelThreadId = null;
         replyingTo = null;
         draft = string.Empty;
+        messageSchedule = null;
         await LoadThreadAsync(channelId);
     });
 
@@ -2857,6 +2996,7 @@
         sidebarThread = null;
         sidebarReplyingTo = null;
         sidebarDraft = string.Empty;
+        sidebarMessageSchedule = null;
         await RevokeAttachmentPreviewsAsync(sidebarPendingAttachments);
         sidebarPendingAttachments.Clear();
         showSidebarComposeMenu = false;
@@ -2869,8 +3009,10 @@
             || string.IsNullOrWhiteSpace(sidebarDraft) && sidebarPendingAttachments.Count == 0) return;
         await Chat.SendWithAttachmentsAsync(channelId, sidebarDraft,
             sidebarPendingAttachments.Select(file => new ChatAttachmentUpload(file.FileName, file.Content)).ToArray(),
-            replyToMessageId: sidebarReplyingTo?.Id, channelThreadId: channelThreadId);
+            replyToMessageId: sidebarReplyingTo?.Id, channelThreadId: channelThreadId,
+            scheduledAtUtc: await ScheduleUtcAsync(sidebarMessageSchedule));
         sidebarDraft = string.Empty;
+        sidebarMessageSchedule = null;
         await RevokeAttachmentPreviewsAsync(sidebarPendingAttachments);
         sidebarPendingAttachments.Clear();
         sidebarAttachmentInputVersion++;
@@ -2993,6 +3135,7 @@
 
     private async Task MarkCurrentConversationReadAsync()
     {
+        if (showInbox) return;
         if (fullChannelThreadId is not null) return;
         if (!isOpen || selectedId is not long id || thread?.Conversation.Id != id || markingCurrentConversationRead)
             return;
@@ -3009,7 +3152,7 @@
             {
                 // The scroll check can finish after Mark Unread starts. Recheck under the same gate
                 // that serializes read and unread database writes.
-                if (manuallyMarkedUnreadConversationId == id || selectedId != id || thread?.Conversation.Id != id)
+                if (showInbox || manuallyMarkedUnreadConversationId == id || selectedId != id || thread?.Conversation.Id != id)
                     return;
                 var latestLoadedMessageId = thread.Messages.LastOrDefault()?.Id;
                 if (latestLoadedMessageId is long messageId && conversations.Any(x => x.Id == id && x.UnreadCount > 0))
@@ -3323,12 +3466,14 @@
         {
             await Chat.SendWithAttachmentsAsync(conversationId, draft,
                 pendingAttachments.Select(file => new ChatAttachmentUpload(file.FileName, file.Content)).ToArray(),
-                replyToMessageId: replyingTo?.Id, channelThreadId: fullChannelThreadId);
+                replyToMessageId: replyingTo?.Id, channelThreadId: fullChannelThreadId,
+                scheduledAtUtc: await ScheduleUtcAsync(messageSchedule));
             replyingTo = null;
             showThreadReplyOffer = false;
             await ClearAttachment();
             draftInputVersion++;
             draft = string.Empty;
+            messageSchedule = null;
             resetDraftTextareaAfterRender = true;
             composerEmojiPickerOpen = false;
             mentionMenuOpen = false;
@@ -4191,21 +4336,32 @@
 
     private void ShowPresencePicker() => showPresencePicker = true;
 
-    private void HidePresencePicker() => showPresencePicker = false;
+    private void HidePresencePicker()
+    {
+        showPresencePicker = false;
+        presenceDurationChoice = null;
+    }
 
     private void HandlePresencePickerKeyDown(KeyboardEventArgs args)
     {
-        if (args.Key == "Escape") showPresencePicker = false;
+        if (args.Key == "Escape") HidePresencePicker();
     }
 
-    private async Task SelectPresenceAsync(UserPresencePreference choice)
+    private Task OpenPresenceDurationAsync(UserPresencePreference choice)
+    {
+        if (choice == UserPresencePreference.Online) return SelectPresenceAsync(choice);
+        presenceDurationChoice = choice;
+        return Task.CompletedTask;
+    }
+
+    private async Task SelectPresenceAsync(UserPresencePreference choice, TimeSpan? duration = null)
     {
         try
         {
             error = null;
-            await Presence.SetPreferenceAsync(choice);
+            await Presence.SetPreferenceAsync(choice, duration);
             presenceByUser = await Presence.GetVisibleAsync();
-            showPresencePicker = false;
+            HidePresencePicker();
         }
         catch (InvalidOperationException ex) { error = ex.Message; }
         catch (UnauthorizedAccessException ex) { error = ex.Message; }

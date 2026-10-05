@@ -1,0 +1,8 @@
+.schedule-menu { position: relative; }
+.schedule-menu > button, .schedule-submenu button { display: block; width: 100%; min-height: 38px; padding: .55rem .6rem; border: 0; border-radius: .25rem; background: transparent; color: #17324a; font: inherit; font-size: .82rem; text-align: left; cursor: pointer; }
+.schedule-menu > button span { float: right; }
+.schedule-submenu { display: none; position: absolute; left: 100%; bottom: 0; width: 210px; padding: .25rem; border: 1px solid #b8c7d0; border-radius: .4rem; background: #fff; box-shadow: 0 5px 15px #0003; }
+.schedule-menu:hover .schedule-submenu, .schedule-menu:focus-within .schedule-submenu, .schedule-submenu.expanded { display: block; }
+.schedule-menu button:hover, .schedule-menu button:focus-visible { background: #e8f3f8; }
+.schedule-menu button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 600px) { .schedule-submenu { left: 0; bottom: 100%; } }

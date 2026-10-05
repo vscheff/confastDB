@@ -37,6 +37,233 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
     }
 
     [Fact]
+    public async Task Inbox_PreviewsRespectMembershipMentionsDeletionAndReadState()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channel = await sender.CreateChannelAsync("Inbox", ChannelVisibility.Private, [member]);
+        var ordinary = await sender.SendAsync(channel, "Ordinary message");
+        var tagged = await sender.SendAsync(channel, "Hello @Member");
+        var deleted = await sender.SendAsync(channel, "Removed @Member");
+        await sender.DeleteOwnMessageAsync(deleted);
+        var hidden = await sender.CreateChannelAsync("Hidden", ChannelVisibility.Private, [outsider]);
+        await sender.SendAsync(hidden, "Hidden @Outsider");
+        Assert.Equal(new[] { tagged, ordinary }, (await recipient.GetInboxMessagesAsync()).Select(x => x.Id));
+        Assert.Equal(tagged, Assert.Single(await recipient.GetInboxMessagesAsync(true)).Id);
+        Assert.Empty(await sender.GetInboxMessagesAsync());
+        Assert.Equal(2, await recipient.GetTotalUnreadCountAsync());
+        await recipient.MarkConversationReadAsync(channel);
+        Assert.Empty(await recipient.GetInboxMessagesAsync());
+        Assert.Empty(await recipient.GetInboxMessagesAsync(true));
+        await recipient.MarkUnreadAsync(channel, tagged);
+        Assert.Equal(tagged, Assert.Single(await recipient.GetInboxMessagesAsync()).Id);
+        await recipient.MarkConversationReadAsync(channel);
+        var own = await recipient.SendAsync(channel, "My last message");
+        await recipient.MarkUnreadAsync(channel, own);
+        Assert.Equal(own, Assert.Single(await recipient.GetInboxMessagesAsync()).Id);
+        Assert.Empty(await recipient.GetInboxMessagesAsync(true));
+    }
+
+    [Fact]
+    public async Task Inbox_ScheduledPreviewsBelongOnlyToSenderAndDisappearAfterDelivery()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var sender = Service(owner, time);
+        var channel = await sender.CreateChannelAsync("Queue", ChannelVisibility.Private, [member]);
+        var due = time.Now.AddHours(1).UtcDateTime;
+        var queuedId = await sender.SendWithAttachmentsAsync(channel, "Later", [new("note.txt", System.Text.Encoding.UTF8.GetBytes("Private attachment"))], scheduledAtUtc: due);
+        var preview = Assert.Single(await sender.GetScheduledMessagesAsync());
+        Assert.Equal(queuedId, preview.Id);
+        Assert.Equal(due, preview.AtUtc);
+        Assert.Equal("note.txt", Assert.Single(preview.AttachmentNames));
+        Assert.Empty(await Service(member, time).GetScheduledMessagesAsync());
+        Assert.Empty(await Service(outsider, time).GetScheduledMessagesAsync());
+        Assert.Empty(await Service(member, time).GetInboxMessagesAsync());
+        time.Now = new DateTimeOffset(due);
+        Assert.Equal(1, await sender.DeliverDueMessagesAsync());
+        Assert.Empty(await sender.GetScheduledMessagesAsync());
+        Assert.Equal("Later", Assert.Single(await Service(member, time).GetInboxMessagesAsync()).Body);
+    }
+
+    [Fact]
+    public async Task Inbox_ReadingOneMessageKeepsEarlierAndLaterMessagesUnreadAndUpdatesAlerts()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channel = await sender.CreateChannelAsync("Read individually", ChannelVisibility.Private, [member, outsider]);
+        var first = await sender.SendAsync(channel, "First");
+        var tagged = await sender.SendAsync(channel, "Hello @Member");
+        var last = await sender.SendAsync(channel, "Last");
+        Assert.True(await recipient.HasUnreadMentionAsync());
+        Assert.True(await recipient.HasUnreadAlertAsync());
+        await recipient.MarkMessageReadAsync(channel, tagged);
+        var reopened = Service(member);
+        Assert.Equal(new[] { last, first }, (await reopened.GetInboxMessagesAsync()).Select(x => x.Id));
+        Assert.Empty(await reopened.GetInboxMessagesAsync(true));
+        Assert.Equal(2, await reopened.GetTotalUnreadCountAsync());
+        var conversation = Assert.Single(await reopened.GetConversationsAsync());
+        Assert.Equal(2, conversation.UnreadCount);
+        Assert.False(conversation.HasUnreadMention);
+        Assert.False(await reopened.HasUnreadMentionAsync());
+        Assert.False(await reopened.HasUnreadAlertAsync());
+        Assert.Equal(3, await Service(outsider).GetTotalUnreadCountAsync());
+        await reopened.MarkMessageReadAsync(channel, last);
+        Assert.Equal(first, Assert.Single(await reopened.GetInboxMessagesAsync()).Id);
+        Assert.Equal(1, await reopened.GetTotalUnreadCountAsync());
+        await reopened.MarkReadAsync(channel, last);
+        Assert.Empty(await reopened.GetInboxMessagesAsync());
+        await using var db = database.CreateDbContext();
+        Assert.Empty(db.Set<ChatMessageRead>());
+    }
+
+    [Fact]
+    public async Task Inbox_IndividualReadsAuthorizeAndSerializeDuplicatesAndManualUnread()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var channel = await sender.CreateChannelAsync("Reads", ChannelVisibility.Private, [member]);
+        var first = await sender.SendAsync(channel, "First");
+        var last = await sender.SendAsync(channel, "Last @Member");
+        var other = await sender.CreateChannelAsync("Other", ChannelVisibility.Private, [member]);
+        var elsewhere = await sender.SendAsync(other, "Elsewhere");
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).MarkMessageReadAsync(channel, last));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(member).MarkMessageReadAsync(channel, elsewhere));
+        await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => Service(member).MarkMessageReadAsync(channel, last)));
+        await using (var db = database.CreateDbContext()) Assert.Single(db.Set<ChatMessageRead>());
+        Assert.Equal(first, Assert.Single(await Service(member).GetInboxMessagesAsync(), x => x.ConversationId == channel).Id);
+        await Service(member).MarkUnreadAsync(channel, last);
+        Assert.Equal(last, Assert.Single(await Service(member).GetInboxMessagesAsync(true)).Id);
+        await Service(member).MarkMessageReadAsync(channel, last);
+        Assert.Empty(await Service(member).GetInboxMessagesAsync(true));
+        await Service(member).MarkConversationReadAsync(channel);
+        await using (var db = database.CreateDbContext()) Assert.Empty(db.Set<ChatMessageRead>());
+        var own = await Service(member).SendAsync(channel, "My message");
+        await Service(member).MarkUnreadAsync(channel, own);
+        Assert.Equal(own, Assert.Single(await Service(member).GetInboxMessagesAsync(), x => x.ConversationId == channel).Id);
+        await Service(member).MarkMessageReadAsync(channel, own);
+        Assert.DoesNotContain(await Service(member).GetInboxMessagesAsync(), x => x.ConversationId == channel);
+        Assert.Equal(0, (await Service(member).GetConversationsAsync()).Single(x => x.Id == channel).UnreadCount);
+        var deleted = await sender.SendAsync(channel, "Delete me");
+        await sender.DeleteOwnMessageAsync(deleted);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(member).MarkMessageReadAsync(channel, deleted));
+    }
+
+    [Fact]
+    public async Task Inbox_ReadAllIncludesMessagesBeyondPreviewLimitAndManualUnreadWithoutAffectingOthersOrSchedules()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channel = await sender.CreateChannelAsync("Many unreads", ChannelVisibility.Private, [member, outsider]);
+        var other = await sender.CreateChannelAsync("Other unreads", ChannelVisibility.Private, [member]);
+        var empty = await sender.CreateChannelAsync("Empty manual unread", ChannelVisibility.Private, [member]);
+        await using (var db = database.CreateDbContext())
+        {
+            db.ChatMessages.AddRange(Enumerable.Range(0, 120).Select(index => new ChatMessage
+            {
+                ConversationId = channel, SenderUserId = owner, Body = $"Unread {index}", SentAtUtc = DateTime.UtcNow
+            }));
+            (await db.ChatConversationMembers.FindAsync(empty, member))!.IsManuallyUnread = true;
+            await db.SaveChangesAsync();
+        }
+        var tagged = await sender.SendAsync(channel, "Hello @Member");
+        await recipient.MarkMessageReadAsync(channel, tagged);
+        await sender.SendAsync(other, "Other @Member");
+        var direct = await sender.OpenDirectAsync(member);
+        await sender.SendAsync(direct, "Direct unread");
+        var self = await recipient.OpenDirectAsync(member);
+        var own = await recipient.SendAsync(self, "My manually unread message");
+        await recipient.MarkUnreadAsync(self, own);
+        await recipient.SendWithAttachmentsAsync(other, "Still scheduled", [], scheduledAtUtc: DateTime.UtcNow.AddHours(1));
+        Assert.Equal(100, (await recipient.GetInboxMessagesAsync()).Count);
+        Assert.True(await recipient.GetTotalUnreadCountAsync() > 100);
+        Assert.True(await recipient.HasUnreadAlertAsync());
+        await Task.WhenAll(recipient.MarkAllUnreadReadAsync(), Service(member).MarkAllUnreadReadAsync());
+        var reopened = Service(member);
+        Assert.Empty(await reopened.GetInboxMessagesAsync());
+        Assert.Empty(await reopened.GetInboxMessagesAsync(true));
+        Assert.Equal(0, await reopened.GetTotalUnreadCountAsync());
+        Assert.False(await reopened.HasUnreadAlertAsync());
+        Assert.False(await reopened.HasUnreadMentionAsync());
+        Assert.All(await reopened.GetConversationsAsync(), conversation =>
+        {
+            Assert.Equal(0, conversation.UnreadCount);
+            Assert.False(conversation.IsManuallyUnread);
+        });
+        Assert.Equal(121, await Service(outsider).GetTotalUnreadCountAsync());
+        Assert.Single(await reopened.GetScheduledMessagesAsync());
+        await using (var db = database.CreateDbContext()) Assert.Empty(db.Set<ChatMessageRead>());
+        var arriving = await sender.SendAsync(channel, "Arrived after read all");
+        Assert.Equal(arriving, Assert.Single(await reopened.GetInboxMessagesAsync()).Id);
+        Assert.Equal(1, await reopened.GetTotalUnreadCountAsync());
+    }
+
+    [Fact]
+    public async Task ScheduledMessages_StayPrivateUntilDueAndDeliverOnceWithAttachmentsAndReplies()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var chat = Service(owner, time);
+        var conversation = await chat.OpenDirectAsync(member);
+        var original = await chat.SendAsync(conversation, "Original");
+        var due = time.Now.AddHours(1).UtcDateTime;
+        var before = (await Service(member, time).GetConversationsAsync()).Single(x => x.Id == conversation);
+        await chat.SendWithAttachmentsAsync(conversation, "Scheduled @Member",
+            [new("note.txt", System.Text.Encoding.UTF8.GetBytes("A scheduled attachment"))],
+            replyToMessageId: original, scheduledAtUtc: due);
+        Assert.Single((await Service(member, time).GetThreadAsync(conversation)).Messages);
+        var after = (await Service(member, time).GetConversationsAsync()).Single(x => x.Id == conversation);
+        Assert.Equal(before.UnreadCount, after.UnreadCount);
+        Assert.Equal(before.ActivityAtUtc, after.ActivityAtUtc);
+        Assert.Equal(0, await chat.DeliverDueMessagesAsync());
+        time.Now = new DateTimeOffset(due);
+        // New service instances simulate restart and competing delivery workers.
+        var counts = await Task.WhenAll(Service(owner, time).DeliverDueMessagesAsync(), Service(owner, time).DeliverDueMessagesAsync());
+        Assert.Equal(1, counts.Sum());
+        Assert.Equal(0, await chat.DeliverDueMessagesAsync());
+        var sent = (await Service(member, time).GetThreadAsync(conversation)).Messages.Last();
+        Assert.True(sent.Id > original);
+        Assert.Equal(due, sent.SentAtUtc);
+        Assert.Equal(original, sent.ReplyToMessageId);
+        var file = await Service(member, time).GetAttachmentAsync(Assert.Single(sent.Attachments).Id);
+        Assert.Equal("A scheduled attachment", System.Text.Encoding.UTF8.GetString(file!.Content));
+    }
+
+    [Fact]
+    public async Task ScheduledMessages_ValidateTimeScopeAndSenderAtDelivery()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var chat = Service(owner, time);
+        var channel = await chat.CreateChannelAsync("Scheduled", ChannelVisibility.Private, [member]);
+        var due = time.Now.AddHours(1).UtcDateTime;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider, time)
+            .SendWithAttachmentsAsync(channel, "Forbidden", [], scheduledAtUtc: due));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat
+            .SendWithAttachmentsAsync(channel, "Past", [], scheduledAtUtc: time.Now.UtcDateTime));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat
+            .SendWithAttachmentsAsync(channel, "Local", [], scheduledAtUtc: DateTime.SpecifyKind(due, DateTimeKind.Unspecified)));
+        var thread = await chat.CreateChannelThreadAsync(channel, "Later", "First");
+        await chat.SendWithAttachmentsAsync(channel, "Thread delivery", [], channelThreadId: thread, scheduledAtUtc: due);
+        await Service(member, time).SendWithAttachmentsAsync(channel, "Inactive", [], scheduledAtUtc: due);
+        await using (var db = database.CreateDbContext())
+        {
+            var user = await db.Users.FindAsync(member);
+            user!.IsActive = false;
+            await db.SaveChangesAsync();
+        }
+        time.Now = new DateTimeOffset(due);
+        Assert.Equal(1, await chat.DeliverDueMessagesAsync());
+        Assert.Contains((await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages, x => x.Body == "Thread delivery");
+        Assert.DoesNotContain((await chat.GetThreadAsync(channel)).Messages, x => x.Body == "Inactive");
+        await using var check = database.CreateDbContext();
+        Assert.NotNull(Assert.Single(check.Set<ChatScheduledMessage>()).Failure);
+    }
+
+    [Fact]
     public async Task Polls_EnforceSchedulePermissionsAndSingleChoice()
     {
         var (owner, member, outsider) = await UsersAsync();
@@ -57,6 +284,8 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         poll = Assert.Single((await chat.GetThreadAsync(id)).Messages).Poll!;
         Assert.Equal(1, poll.Voters);
         Assert.Equal(0, poll.Answers[0].Votes);
+        Assert.Empty(poll.Answers[0].Users);
+        Assert.Equal(new ChatUser(owner, "Owner"), Assert.Single(poll.Answers[1].Users));
         Assert.True(poll.Answers[1].Selected);
         await Service(member, time).TogglePollVoteAsync(messageId, poll.Answers[0].Id);
         time.Now = time.Now.AddHours(4);
@@ -64,6 +293,8 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         poll = Assert.Single((await chat.GetThreadAsync(id)).Messages).Poll!;
         Assert.False(poll.IsOpen);
         Assert.Equal(2, poll.Voters);
+        Assert.Equal(new ChatUser(member, "Member"), Assert.Single(poll.Answers[0].Users));
+        Assert.Equal(new ChatUser(owner, "Owner"), Assert.Single(poll.Answers[1].Users));
     }
 
     [Fact]
@@ -79,6 +310,8 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         await Task.WhenAll(row.Poll!.Answers.Take(2).Select(x => chat.TogglePollVoteAsync(message, x.Id)));
         row = (await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages.Single(x => x.Id == message);
         Assert.Equal(2, row.Poll!.Answers.Count(x => x.Selected));
+        Assert.All(row.Poll.Answers.Take(2), answer =>
+            Assert.Equal(new ChatUser(owner, "Owner"), Assert.Single(answer.Users)));
         await chat.TogglePollVoteAsync(message, row.Poll.Answers[0].Id);
         Assert.Equal(1, (await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages.Single(x => x.Id == message).Poll!.Answers.Count(x => x.Selected));
         Assert.Equal(2, Assert.Single(await chat.GetChannelThreadsAsync(channel)).MessageCount);
@@ -483,6 +716,39 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         await ownerService.RemovePrivateMemberAsync(id, outsider);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).GetThreadAsync(id));
         await Assert.ThrowsAsync<InvalidOperationException>(() => ownerService.RemovePrivateMemberAsync(id, owner));
+    }
+
+    [Fact]
+    public async Task ChannelTopics_PersistNotifyValidateAndRequireOwnerOrAdministrator()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var chat = Service(owner);
+        var id = await chat.CreateChannelAsync("Topics", ChannelVisibility.Private, [member]);
+        var updates = 0;
+        using var subscription = notifications.Subscribe(member, () => updates++);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(member).SetChannelTopicAsync(id, "Denied"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SetChannelTopicAsync(id, "Denied"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.SetChannelTopicAsync(id, new string('x', 4001)));
+        Assert.Null((await Service(member).GetThreadAsync(id)).Conversation.Topic);
+
+        await chat.SetChannelTopicAsync(id, "  Current priorities\nSecond line  ");
+        Assert.Equal("Current priorities\nSecond line", (await Service(member).GetThreadAsync(id)).Conversation.Topic);
+        Assert.Equal(1, updates);
+        await chat.RenameChannelAsync(id, "Renamed");
+        Assert.Equal("Current priorities\nSecond line", (await Service(member).GetThreadAsync(id)).Conversation.Topic);
+
+        await using (var db = database.CreateDbContext())
+        {
+            db.UserRoles.Add(new() { UserId = outsider, RoleId = db.Roles.Single(x => x.Name == AppRoles.Administrator).Id });
+            await db.SaveChangesAsync();
+        }
+        await Service(outsider).SetChannelTopicAsync(id, new string('x', 4000));
+        Assert.Equal(4000, (await Service(member).GetThreadAsync(id)).Conversation.Topic!.Length);
+        await chat.SetChannelTopicAsync(id, " \n ");
+        Assert.Null((await Service(member).GetThreadAsync(id)).Conversation.Topic);
+        var directId = await chat.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.SetChannelTopicAsync(directId, "Denied"));
     }
 
     [Fact]
