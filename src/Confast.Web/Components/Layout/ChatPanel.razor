@@ -23,9 +23,26 @@
     }
 </button>
 
+@if (!isOpen && CurrentPresencePreference != UserPresencePreference.DoNotDisturb && incomingPreviews.Count > 0)
+{
+    <div class="chat-incoming-previews" aria-live="polite" aria-relevant="additions" aria-label="New chat messages">
+        @foreach (var preview in incomingPreviews)
+        {
+            <button @key="preview.Id" type="button" class="chat-incoming-preview" @onclick="() => OpenIncomingPreviewAsync(preview)">
+                <span class="chat-incoming-preview-heading"><strong>@preview.SenderName</strong><span>@PreviewConversationName(preview)</span></span>
+                <span class="chat-incoming-preview-body">@(string.IsNullOrWhiteSpace(preview.Body) ? string.Join(", ", preview.AttachmentNames) : preview.Body)</span>
+                @if (!string.IsNullOrWhiteSpace(preview.Body) && preview.AttachmentNames.Count > 0)
+                {
+                    <span class="chat-incoming-preview-attachments">📎 @string.Join(", ", preview.AttachmentNames)</span>
+                }
+            </button>
+        }
+    </div>
+}
+
 @if (isOpen)
 {
-    <section class="chat-panel" aria-label="Chat">
+    <section class="chat-panel @(openingAtMessage ? "chat-panel-positioning" : "")" aria-label="Chat">
         <svg class="chat-emoji-icon-definitions" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
             <symbol id="chat-emoji-icon-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M8 10h.01M16 10h.01M8 15c1 1.3 2.3 2 4 2s3-.7 4-2" /></symbol>
             <symbol id="chat-emoji-icon-people" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3" /><path d="M4.5 20c.5-4.2 3-6.5 7.5-6.5s7 2.3 7.5 6.5" /></symbol>
@@ -74,7 +91,7 @@
                         Channels
                         @if (unreadChannels > 0)
                         {
-                            <span class="chat-tab-count @(conversations.Any(x => x.Kind == ConversationKind.Channel && x.HasUnreadMention) ? "attention" : "")" aria-label="@unreadChannels unread messages">@(unreadChannels > 99 ? "99+" : unreadChannels.ToString())</span>
+                            <span class="chat-tab-count @(conversations.Any(x => x.Kind == ConversationKind.Channel && NotificationUnread(x.Id).HasAlert) ? "attention" : "")" aria-label="@unreadChannels unread messages">@(unreadChannels > 99 ? "99+" : unreadChannels.ToString())</span>
                         }
                     </button>
                 </div>
@@ -102,6 +119,8 @@
                     </div>
                     @if (!conversations.Any(x => x.Kind == ConversationKind.Channel) && channelGroups.Count == 0) { <p class="chat-empty">No channels yet.</p> }
                     <div class="chat-layout-root-drop" data-chat-root-drop="" aria-hidden="true"></div>
+                    @if (conversations.Any(x => x.Kind == ConversationKind.Channel && x.PinnedToTopAtUtc != null))
+                    { <div class="chat-pinned-channel-heading">Pinned</div> }
                     @foreach (var item in ChannelLayout())
                     {
                         @if (item.Group is { } group)
@@ -116,19 +135,8 @@
                                  data-chat-item-kind="folder" data-chat-drag-kind="@(group.CanManage ? "folder" : null)" data-chat-drag-id="@group.Id"
                                  data-chat-parent="@group.ParentGroupId" data-chat-depth="@item.Depth"
                                  style="@($"--chat-depth:{item.Depth}")" title="@(group.CanManage ? "Drag to move folder" : null)"
-                                 @oncontextmenu="() => StartRenamingFolder(group)" @oncontextmenu:preventDefault="@(group.CanManage && renamingFolderId != group.Id)">
+                                 @oncontextmenu="args => OpenCategoryContext(group, args)" @oncontextmenu:preventDefault>
                                 <div class="chat-group-heading">
-                                    @if (renamingFolderId == group.Id)
-                                    {
-                                        <form class="chat-folder-rename" title="Rename folder" @onsubmit="() => RenameFolderAsync(group.Id)" @onsubmit:preventDefault @onkeydown="HandleRenameFolderKeyDown">
-                                            <label class="sr-only" for="chat-rename-folder-@group.Id">Folder name</label>
-                                            <input id="chat-rename-folder-@group.Id" @ref="renameFolderInput" maxlength="120" @bind="renameFolderDraft" @bind:event="oninput" />
-                                            <button type="submit" aria-label="Save folder name" disabled="@string.IsNullOrWhiteSpace(renameFolderDraft)">Save</button>
-                                            <button type="button" aria-label="Cancel folder rename" @onclick="CancelRenamingFolder">Cancel</button>
-                                        </form>
-                                    }
-                                    else
-                                    {
                                         <button type="button" class="chat-folder-label" aria-label="@folderLabel" title="@folderLabel"
                                                 aria-expanded="@(folderCollapsed ? "false" : "true")" @onclick="() => ToggleFolderCollapsed(group.Id)">
                                             <strong>@group.Name</strong>
@@ -147,29 +155,31 @@
                                                 }
                                             </span>
                                         </button>
+                                        <button type="button" class="chat-folder-settings" aria-label="Category settings for @group.Name" title="Category Settings" @onclick="args => OpenCategoryContext(group, args)">⋯</button>
                                         <button type="button" class="chat-folder-add" aria-label="Add channel to @group.Name" title="Add channel to @group.Name" @onclick="() => StartNewChannel(group.Id)">＋</button>
-                                    }
                                 </div>
                             </div>
                         }
                         else if (item.Channel is { } row)
                         {
-                            <div @key="(nameof(Conversation), row.Id)" class="chat-channel-row chat-layout-row"
+                            <div @key="(nameof(Conversation), row.Id)" class="chat-channel-row chat-layout-row @(row.PinnedToTopAtUtc != null ? "chat-personally-pinned-channel-row" : "") @(ChannelSetting(row.Id).IsMuted ? "chat-channel-muted" : "")"
                                  data-chat-item-kind="channel" data-chat-drag-kind="@(item.Pinned ? null : "channel")" data-chat-drag-id="@row.Id"
                                  data-chat-drop-disabled="@(item.Pinned ? "true" : null)"
                                  data-chat-parent="@item.ParentGroupId" data-chat-depth="@item.Depth"
-                                 style="@($"--chat-depth:{item.Depth}")" title="@(item.Pinned ? null : "Drag to reorder channel")">
+                                 style="@($"--chat-depth:{item.Depth}")" title="@(item.Pinned ? null : "Drag to reorder channel")" @oncontextmenu="args => OpenChannelContext(row, args)" @oncontextmenu:preventDefault>
                                 <button type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                                    <span class="chat-conversation-top"><strong class="@(row.UnreadCount > 0 ? "unread" : "")"># @row.Name</strong>@if (row.UnreadCount > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count @(row.HasUnreadMention ? "attention" : "")">@row.UnreadCount</b></span> }</span>
+                                    <span class="chat-conversation-top"><strong class="@(NotificationUnread(row.Id).Count > 0 ? "unread" : "")"># @row.Name</strong>@if (NotificationUnread(row.Id).Count > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count @(NotificationUnread(row.Id).HasAlert ? "attention" : "")">@NotificationUnread(row.Id).Count</b></span> }</span>
                                 </button>
-                                <button type="button" class="chat-channel-action-toggle" data-chat-settings-toggle="@row.Id" aria-label="Settings for @row.Name" title="Settings for @row.Name" aria-haspopup="dialog" aria-controls="chat-channel-settings-@row.Id" aria-expanded="@(channelActionsId == row.Id ? "true" : "false")" @onclick="() => ToggleChannelActionsAsync(row)">
+                                <button type="button" class="chat-channel-action-toggle" data-chat-settings-toggle="@row.Id" aria-label="Settings for @row.Name" title="Settings for @row.Name" aria-haspopup="menu" aria-controls="chat-channel-context" @onclick="args => OpenChannelContext(row, args)">
                                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10.1 2.8h3.8l.5 2.2c.6.2 1.2.4 1.7.7l2-1.2 2.7 2.7-1.2 2c.3.5.5 1.1.7 1.7l2.2.5v3.8l-2.2.5c-.2.6-.4 1.2-.7 1.7l1.2 2-2.7 2.7-2-1.2c-.5.3-1.1.5-1.7.7l-.5 2.2h-3.8l-.5-2.2c-.6-.2-1.2-.4-1.7-.7l-2 1.2-2.7-2.7 1.2-2c-.3-.5-.5-1.1-.7-1.7l-2.2-.5v-3.8l2.2-.5c.2-.6.4-1.2.7-1.7l-1.2-2 2.7-2.7 2 1.2c.5-.3 1.1-.5 1.7-.7l.5-2.2Z"/><circle cx="12" cy="12" r="3.2"/></svg>
                                 </button>
                                 @if (channelActionsId == row.Id)
                                 {
-                                    <div id="chat-channel-settings-@row.Id" class="chat-channel-settings" role="dialog" aria-label="Settings for @row.Name">
+                                    <div id="chat-channel-settings-@row.Id" class="chat-channel-settings" role="dialog" aria-label="Edit Channel">
+                                        <header class="chat-channel-edit-heading"><strong>Edit Channel</strong><button type="button" aria-label="Close channel editor" @onclick="() => channelActionsId = null">×</button></header>
                                         @if (row.IsOwner || currentUserIsAdministrator)
                                         {
+                                            <button type="button" class="chat-channel-delete-button" @onclick="() => BeginDeleteChannel(row)">Delete Channel</button>
                                             <form @onsubmit="() => RenameChannelAsync(row.Id)" @onsubmit:preventDefault>
                                                 <label for="chat-rename-channel-@row.Id">Channel name</label>
                                                 <div class="chat-channel-settings-entry">
@@ -257,36 +267,6 @@
                     <div class="chat-form-actions">
                         <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(directUserId)" @onclick="StartDirectAsync">Open Conversation</button>
                         <button type="button" class="button button-secondary" @onclick="CancelNewDirect">Cancel</button>
-                    </div>
-                }
-                else if (view == ChatView.NewChannel)
-                {
-                    <h3>New Channel</h3>
-                    @if (newChannelGroupId is long destinationId)
-                    {
-                        <p class="chat-channel-destination">In @(channelGroups.FirstOrDefault(x => x.Id == destinationId)?.Name ?? "folder")</p>
-                    }
-                    <label for="chat-channel-name">Name</label>
-                    <input id="chat-channel-name" maxlength="120" @bind="channelName" @bind:event="oninput" />
-                    <label for="chat-channel-visibility">Visibility</label>
-                    <select id="chat-channel-visibility" @bind="channelVisibility">
-                        <option value="@ChannelVisibility.Public">Public</option>
-                        <option value="@ChannelVisibility.Private">Private</option>
-                    </select>
-                    @if (channelVisibility == ChannelVisibility.Private)
-                    {
-                        <fieldset class="chat-member-choices">
-                            <legend>Initial Members</legend>
-                            @foreach (var user in users)
-                            {
-                                <label><input type="checkbox" checked="@initialMembers.Contains(user.Id)" @onchange="e => ToggleInitialMember(user.Id, e.Value is true)" /> @user.Name</label>
-                            }
-                        </fieldset>
-                    }
-                    else { <p>All active users are added to public channels.</p> }
-                    <div class="chat-form-actions">
-                        <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(channelName)" @onclick="CreateChannelAsync">Create Channel</button>
-                        <button type="button" class="button button-secondary" @onclick="CancelNewChannel">Cancel</button>
                     </div>
                 }
                 </div>
@@ -453,6 +433,25 @@
                                         </section>
                                     }
                                 </div>
+                            }
+                            @if (thread.Conversation.Kind == ConversationKind.Channel)
+                            {
+                                <button type="button" id="chat-notifications-trigger" class="chat-icon-button" title="@(ChannelSetting(thread.Conversation.Id).IsMuted ? "Notification Settings (Muted)" : "Notification Settings")" aria-label="@(ChannelSetting(thread.Conversation.Id).IsMuted ? "Notification Settings (Muted)" : "Notification Settings")" aria-haspopup="menu" @onclick="ToggleNotificationMenuAsync">
+                                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                                        @if (ChannelSetting(thread.Conversation.Id).IsMuted)
+                                        {
+                                            <path d="m3 4.27 1.27-1.27L21 19.73 19.73 21l-2-2H4v-1l2-2v-5c0-1.23.29-2.37.8-3.36L3 4.27ZM18 14.17V11c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68c-.32.08-.63.18-.92.31L18 14.17ZM12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2Z" />
+                                        }
+                                        else
+                                        {
+                                            <path d="M18 16v-5c0-3.07-1.63-5.64-4.5-6.32V4a1.5 1.5 0 0 0-3 0v.68C7.63 5.36 6 7.93 6 11v5l-2 2v1h16v-1l-2-2ZM12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2Z" />
+                                        }
+                                    </svg>
+                                </button>
+                                <section @key="thread.Conversation.Id" id="chat-channel-notifications" class="chat-notification-popover" popover="auto" aria-label="Channel Notification Settings">
+                                    <ChatNotificationMenu Setting="ChannelSetting(thread.Conversation.Id)" CategoryDefault="CategoryDefaultFor(thread.Conversation.Id)"
+                                        Selected="mode => SetChannelNotificationsAsync(thread.Conversation.Id, mode)" Muted="mute => MuteChannelAsync(thread.Conversation.Id, mute)" />
+                                </section>
                             }
                             <div class="chat-pinned-control">
                                 <button type="button" class="chat-icon-button" title="Pinned messages" aria-label="Pinned messages"
@@ -642,7 +641,7 @@
                                 {
                                     @if (message.Attachments.Count == 0 || !string.Equals(message.Body, "Shared a file", StringComparison.Ordinal))
                                     {
-                                        <div class="chat-message-body">@if (message.Poll is not null) { <ChatPollCard Message="message" PictureUrlForUser="PictureUrl" Vote="answerId => VotePollAsync(message.Id, answerId)" /> } else { @RenderMessageBody(message) }</div>
+                                        <div class="chat-message-body">@if (message.Poll is not null) { <ChatPollCard Message="message" PictureUrlForUser="PictureUrl" Vote="answerId => VotePollAsync(message.Id, answerId)" /> } else if (message.GiphyId is { } gifId) { <ChatGifImage @key="gifId" GiphyId="@gifId" Expanded="OpenExpandedGif" /> } else { @RenderMessageBody(message) }</div>
                                     }
                                 }
                                 @foreach (var attachment in message.Attachments)
@@ -731,7 +730,7 @@
                                         }
                                         <span class="chat-action-divider" aria-hidden="true"></span>
                                         <button type="button" class="chat-reaction-more" aria-label="More reactions" aria-expanded="@(reactionPickerMessageId == message.Id)" @onclick="() => ToggleReactionPicker(message.Id)">＋</button>
-                                        @if (message.SenderUserId == currentUserId)
+                                        @if (message.SenderUserId == currentUserId && message.GiphyId is null)
                                         {
                                             <button type="button" class="chat-edit-action" title="Edit message" aria-label="Edit message" @onclick="() => StartEdit(message)">
                                                 <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm17.7-10.04a1 1 0 0 0 0-1.42l-2.5-2.5a1 1 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66Z" /></svg>
@@ -761,7 +760,7 @@
                                                 Add Reaction
                                             </button>
                                             <div class="chat-message-more-divider" role="separator"></div>
-                                            @if (message.SenderUserId == currentUserId)
+                                            @if (message.SenderUserId == currentUserId && message.GiphyId is null)
                                             {
                                                 <button type="button" role="menuitem" @onclick="() => StartEdit(message)">
                                                     <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25Zm17.7-10.04a1 1 0 0 0 0-1.42l-2.5-2.5a1 1 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 2-1.66Z" /></svg>
@@ -929,7 +928,8 @@
                                         }
                                     </div>
                                 }
-                                <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@composerEmojiPickerOpen" aria-controls="chat-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="ToggleComposerEmojiPickerAsync">
+                                <button type="button" class="chat-compose-emoji-button chat-compose-gif-button" title="Send a GIF" aria-label="Send a GIF" aria-expanded="@composerEmojiPickerOpen" aria-controls="chat-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="() => ToggleComposerEmojiPickerAsync(true)"><span aria-hidden="true">GIF</span></button>
+                                <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@composerEmojiPickerOpen" aria-controls="chat-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="() => ToggleComposerEmojiPickerAsync(false)">
                                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.2c.8 1.2 2 1.8 3.5 1.8s2.7-.6 3.5-1.8M9 9.5h.01M15 9.5h.01" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                                 </button>
                                 <div class="chat-draft-source">
@@ -961,7 +961,11 @@
                             }
                             @if (composerEmojiPickerOpen)
                             {
-                                <div id="chat-compose-emoji-picker" class="chat-emoji-picker chat-compose-emoji-picker" role="dialog" aria-label="Insert an emoji" @onkeydown="HandleComposerEmojiPickerKeyDown" @onclick:stopPropagation>
+                                <div id="chat-compose-emoji-picker" class="chat-emoji-picker chat-compose-emoji-picker" role="dialog" aria-label="Choose emoji or GIFs" @onkeydown="HandleComposerEmojiPickerKeyDown" @onclick:stopPropagation>
+                                    <div class="chat-picker-tabs" role="tablist" aria-label="Emoji and GIFs"><button type="button" role="tab" aria-selected="@(composerGifTab ? "true" : "false")" @onclick="() => composerGifTab = true">GIFs</button><button type="button" role="tab" aria-selected="@(composerGifTab ? "false" : "true")" @onclick="() => composerGifTab = false">Emoji</button></div>
+                                    @if (composerGifTab) { <ChatGifPicker Selected="id => SendSelectedGifAsync(id, false)" /> }
+                                    else
+                                    {
                                     <label class="sr-only" for="chat-compose-emoji-search">Find an emoji</label>
                                     <input id="chat-compose-emoji-search" placeholder="Find an Emoji" @bind="emojiSearch" @bind:event="oninput" />
                                     <div class="chat-emoji-groups" aria-label="Emoji categories">
@@ -979,6 +983,7 @@
                                         }
                                     </div>
                                     @if (!VisibleEmojiFamilies.Any()) { <p class="chat-emoji-empty">No matching emoji.</p> }
+                                    }
                                 </div>
                             }
                             </div>
@@ -1053,17 +1058,17 @@
                             }
                         </div>
                     }
-                    <div class="chat-channel-thread-sidebar-messages" role="log" aria-label="Thread messages">
+                    <div id="chat-sidebar-message-history" class="chat-channel-thread-sidebar-messages" role="log" aria-label="Thread messages">
                         @foreach (var entry in selectedChannelThread.Messages)
                         {
                             @if (entry.Type is ChatMessageType.Text or ChatMessageType.Poll)
                             {
-                                <article @key="entry.Id" class="chat-channel-thread-entry">
+                                <article @key="entry.Id" data-chat-message-id="@entry.Id" class="chat-channel-thread-entry">
                                     <div><strong>@entry.SenderName</strong><time datetime="@entry.SentAtUtc.ToString("O")">@entry.SentAtUtc.ToLocalTime().ToString("g")</time></div>
                                     @if (entry.ReplyToBody is { } replyBody) { <small>↳ @replyBody</small> }
                                     @if (entry.Attachments.Count == 0 || !string.Equals(entry.Body, "Shared a file", StringComparison.Ordinal))
                                     {
-                                        <div class="chat-message-body">@if (entry.Poll is not null) { <ChatPollCard Message="entry" PictureUrlForUser="PictureUrl" Vote="answerId => VotePollAsync(entry.Id, answerId)" /> } else { @RenderMessageBody(entry) }</div>
+                                        <div class="chat-message-body">@if (entry.Poll is not null) { <ChatPollCard Message="entry" PictureUrlForUser="PictureUrl" Vote="answerId => VotePollAsync(entry.Id, answerId)" /> } else if (entry.GiphyId is { } gifId) { <ChatGifImage @key="gifId" GiphyId="@gifId" Expanded="OpenExpandedGif" /> } else { @RenderMessageBody(entry) }</div>
                                     }
                                     @foreach (var attachment in entry.Attachments)
                                     {
@@ -1191,7 +1196,8 @@
                                             }
                                         </div>
                                     }
-                                    <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@sidebarComposerEmojiPickerOpen" aria-controls="chat-sidebar-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="ToggleSidebarComposerEmojiPickerAsync">
+                                    <button type="button" class="chat-compose-emoji-button chat-compose-gif-button" title="Send a GIF" aria-label="Send a GIF" aria-expanded="@sidebarComposerEmojiPickerOpen" aria-controls="chat-sidebar-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="() => ToggleSidebarComposerEmojiPickerAsync(true)"><span aria-hidden="true">GIF</span></button>
+                                <button type="button" class="chat-compose-emoji-button" title="Insert emoji" aria-label="Insert emoji" aria-expanded="@sidebarComposerEmojiPickerOpen" aria-controls="chat-sidebar-compose-emoji-picker" @onmousedown:preventDefault="true" @onclick="() => ToggleSidebarComposerEmojiPickerAsync(false)">
                                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14.2c.8 1.2 2 1.8 3.5 1.8s2.7-.6 3.5-1.8M9 9.5h.01M15 9.5h.01" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                                     </button>
                                     <textarea id="chat-sidebar-thread-draft" rows="1" maxlength="4000" placeholder="Reply in thread" value="@sidebarDraft" @oninput="HandleSidebarDraftInput"></textarea>
@@ -1206,8 +1212,12 @@
                                 }
                                 @if (sidebarComposerEmojiPickerOpen)
                                 {
-                                    <div id="chat-sidebar-compose-emoji-picker" class="chat-emoji-picker chat-compose-emoji-picker" role="dialog" aria-label="Insert an emoji" @onkeydown="HandleSidebarComposerEmojiPickerKeyDown" @onclick:stopPropagation>
-                                        <label class="sr-only" for="chat-sidebar-compose-emoji-search">Find an emoji</label>
+                                    <div id="chat-sidebar-compose-emoji-picker" class="chat-emoji-picker chat-compose-emoji-picker" role="dialog" aria-label="Choose emoji or GIFs" @onkeydown="HandleSidebarComposerEmojiPickerKeyDown" @onclick:stopPropagation>
+                                        <div class="chat-picker-tabs" role="tablist" aria-label="Emoji and GIFs"><button type="button" role="tab" aria-selected="@(sidebarGifTab ? "true" : "false")" @onclick="() => sidebarGifTab = true">GIFs</button><button type="button" role="tab" aria-selected="@(sidebarGifTab ? "false" : "true")" @onclick="() => sidebarGifTab = false">Emoji</button></div>
+                                    @if (sidebarGifTab) { <ChatGifPicker Selected="id => SendSelectedGifAsync(id, true)" /> }
+                                    else
+                                    {
+                                    <label class="sr-only" for="chat-sidebar-compose-emoji-search">Find an emoji</label>
                                         <input id="chat-sidebar-compose-emoji-search" placeholder="Find an Emoji" @bind="emojiSearch" @bind:event="oninput" />
                                         <div class="chat-emoji-groups" aria-label="Emoji categories">
                                             @foreach (var group in ChatEmojiCatalog.Groups)
@@ -1224,6 +1234,7 @@
                                             }
                                         </div>
                                         @if (!VisibleEmojiFamilies.Any()) { <p class="chat-emoji-empty">No matching emoji.</p> }
+                                    }
                                     </div>
                                 }
                             </div>
@@ -1375,13 +1386,17 @@
             </div>
         }
     </section>
-    @if (expandedAttachment is { } expanded)
+    @if (expandedAttachment is not null || expandedGif is not null)
     {
+        var expanded = expandedAttachment;
+        var expandedTitle = expandedGif?.Title ?? expanded!.FileName;
+        var expandedImageUrl = expandedGif?.Url ?? AttachmentUrl(expanded!.Id);
+        var isExpandedImage = expandedGif is not null || expanded?.Kind == ChatAttachmentKind.Image;
         <div class="chat-attachment-backdrop" @onclick="CloseExpandedAttachment">
-            <section class="chat-attachment-dialog" role="dialog" aria-modal="true" aria-label="@expanded.FileName" @onclick:stopPropagation @onkeydown="HandleAttachmentDialogKeyDown">
+            <section class="chat-attachment-dialog" role="dialog" aria-modal="true" aria-label="@expandedTitle" @onclick:stopPropagation @onkeydown="HandleAttachmentDialogKeyDown">
                 <header>
-                    <strong>@expanded.FileName</strong>
-                    @if (expanded.Kind == ChatAttachmentKind.Image)
+                    <strong>@expandedTitle</strong>
+                    @if (isExpandedImage)
                     {
                         <div class="chat-attachment-image-tools">
                             <button type="button" title="@(expandedImageZoomed ? "Zoom out" : "Zoom in")" aria-label="@(expandedImageZoomed ? "Zoom out" : "Zoom in")" @onclick="ToggleExpandedImageZoom">
@@ -1394,15 +1409,18 @@
                                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5M8 10.5h5m-2.5-2.5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                                 }
                             </button>
-                            <a href="@AttachmentUrl(expanded.Id)" target="_blank" rel="noopener noreferrer" aria-label="Open image in new tab" title="Open image in new tab">
+                            <a href="@expandedImageUrl" target="_blank" rel="noopener noreferrer" aria-label="Open image in new tab" title="Open image in new tab">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6m0-6-9 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                             </a>
-                            <a href="@AttachmentDownloadUrl(expanded.Id)" download="@expanded.FileName" data-enhance-nav="false" aria-label="Download image" title="Download image">
+                            @if (expanded is not null)
+                            {
+                                <a href="@AttachmentDownloadUrl(expanded.Id)" download="@expanded.FileName" data-enhance-nav="false" aria-label="Download image" title="Download image">
                                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                             </a>
+                            }
                         </div>
                     }
-                    else if (expanded.Kind == ChatAttachmentKind.Text)
+                    else if (expanded?.Kind == ChatAttachmentKind.Text)
                     {
                         var expandedLanguage = GetTextLanguage(expanded.Id, expanded.FileName);
                         <div class="chat-attachment-dialog-text-tools">
@@ -1429,29 +1447,167 @@
                     }
                     <button type="button" @ref="attachmentDialogCloseButton" aria-label="Close expanded file" @onclick="CloseExpandedAttachment">×</button>
                 </header>
-                @if (expanded.Kind == ChatAttachmentKind.Image)
+                @if (isExpandedImage)
                 {
                     <div class="chat-attachment-image-viewport @(expandedImageZoomed ? "zoomed" : null)">
-                        <img src="@AttachmentUrl(expanded.Id)" alt="@expanded.FileName"
+                        <img src="@expandedImageUrl" alt="@expandedTitle"
                              role="button" tabindex="0" aria-label="@(expandedImageZoomed ? "Zoom out" : "Zoom in")"
                              @onclick="ToggleExpandedImageZoom" @onkeydown="HandleExpandedImageKeyDown" />
                     </div>
                 }
-                else if (expanded.Kind == ChatAttachmentKind.Video)
+                else if (expanded?.Kind == ChatAttachmentKind.Video)
                 {
                     <video src="@AttachmentUrl(expanded.Id)" controls autoplay playsinline></video>
                 }
-                else if (expanded.Kind == ChatAttachmentKind.Text)
+                else if (expanded?.Kind == ChatAttachmentKind.Text)
                 {
                     <pre class="chat-attachment-full-text @(IsWordWrapEnabled(expanded.Id) ? "wrapped" : "unwrapped")"><code>@((MarkupString)ChatTextHighlighter.ToSafeHtml(expanded.Text, GetTextLanguage(expanded.Id, expanded.FileName)))</code></pre>
                 }
-                @if (expanded.Kind == ChatAttachmentKind.Video)
+                @if (expanded?.Kind == ChatAttachmentKind.Video)
                 {
                     <a class="chat-attachment-dialog-download" href="@AttachmentDownloadUrl(expanded.Id)" download="@expanded.FileName" data-enhance-nav="false">
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
                         Download file
                     </a>
                 }
+            </section>
+        </div>
+    }
+    @if (showCreateChannelCard)
+    {
+        <div class="chat-delete-backdrop" @onclick="CancelNewChannel">
+            <section class="chat-delete-dialog chat-channel-create-card" role="dialog" aria-modal="true" aria-label="Create Channel" @onclick:stopPropagation @onkeydown="HandleCreateChannelCardKeyDown">
+                    <h3>New Channel</h3>
+                    @if (newChannelGroupId is long destinationId)
+                    {
+                        <p class="chat-channel-destination">In @(channelGroups.FirstOrDefault(x => x.Id == destinationId)?.Name ?? "folder")</p>
+                    }
+                    <label for="chat-channel-name">Name</label>
+                    <input id="chat-channel-name" @ref="channelCardNameInput" maxlength="120" @bind="channelName" @bind:event="oninput" />
+                    <label for="chat-channel-visibility">Visibility</label>
+                    <select id="chat-channel-visibility" @bind="channelVisibility">
+                        <option value="@ChannelVisibility.Public">Public</option>
+                        <option value="@ChannelVisibility.Private">Private</option>
+                    </select>
+                    @if (channelVisibility == ChannelVisibility.Private)
+                    {
+                        <fieldset class="chat-member-choices">
+                            <legend>Initial Members</legend>
+                            @foreach (var user in users)
+                            {
+                                <label><input type="checkbox" checked="@initialMembers.Contains(user.Id)" @onchange="e => ToggleInitialMember(user.Id, e.Value is true)" /> @user.Name</label>
+                            }
+                        </fieldset>
+                    }
+                    else { <p>All active users are added to public channels.</p> }
+                    <div class="chat-form-actions">
+                        <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(channelName)" @onclick="CreateChannelAsync">Create Channel</button>
+                        <button type="button" class="button button-secondary" @onclick="CancelNewChannel">Cancel</button>
+                    </div>
+                @if (error is not null) { <p class="chat-card-error">@error</p> }
+            </section>
+        </div>
+    }
+    @if (channelContext is { } contextChannel)
+    {
+        <section id="chat-channel-context" class="chat-category-context chat-channel-context chat-notification-popover" popover="auto" role="menu" aria-label="Channel Menu">
+            <button type="button" role="menuitemcheckbox" aria-checked="@(contextChannel.PinnedToTopAtUtc != null ? "true" : "false")" @onclick="() => PinChannelToTopAsync(contextChannel)">@(contextChannel.PinnedToTopAtUtc != null ? "Unpin Channel from Top" : "Pin Channel to Top")</button>
+            <hr />
+            <ChatMuteMenu Setting="ChannelSetting(contextChannel.Id)" Muted="mute => MuteContextChannelAsync(contextChannel.Id, mute)" />
+            <div class="chat-category-submenu">
+                <button type="button" role="menuitem" aria-haspopup="menu" @onclick="() => channelNotificationsExpanded = !channelNotificationsExpanded">Notification Settings <span aria-hidden="true">›</span><small>@ContextChannelNotificationLabel(contextChannel.Id)</small></button>
+                <div class="chat-category-submenu-items @(channelNotificationsExpanded ? "expanded" : "")">
+                    <ChatNotificationMenu Setting="ChannelSetting(contextChannel.Id)" CategoryDefault="CategoryDefaultFor(contextChannel.Id)" ShowMute="false" Selected="mode => SetContextChannelNotificationsAsync(contextChannel.Id, mode)" />
+                </div>
+            </div>
+            <hr />
+            <div class="chat-category-submenu">
+                <button type="button" role="menuitem" aria-haspopup="menu" @onclick="() => channelMoveExpanded = !channelMoveExpanded">Move to... <span aria-hidden="true">›</span></button>
+                <div class="chat-category-submenu-items @(channelMoveExpanded ? "expanded" : "")" role="menu" aria-label="Move Channel">
+                    <div class="chat-category-submenu">
+                        <button type="button" role="menuitem" aria-haspopup="menu" @onclick="() => channelCategoryExpanded = !channelCategoryExpanded">Category <span aria-hidden="true">›</span></button>
+                        <div class="chat-category-submenu-items chat-channel-category-destinations @(channelCategoryExpanded ? "expanded" : "")" role="menu" aria-label="Channel Category">
+                            <button type="button" role="menuitem" @onclick="() => MoveContextChannelAsync(contextChannel.Id, null)">Ungrouped</button>
+                            <hr />
+                            @foreach (var destination in CategoryDestinations())
+                            { <button type="button" role="menuitem" @onclick="() => MoveContextChannelAsync(contextChannel.Id, destination.Id)">@destination.Name</button> }
+                        </div>
+                    </div>
+                    <button type="button" role="menuitem" disabled="@IsChannelAtCategoryEdge(contextChannel, true)" @onclick="() => MoveContextChannelToEdgeAsync(contextChannel.Id, true)">First in Category</button>
+                    <button type="button" role="menuitem" disabled="@IsChannelAtCategoryEdge(contextChannel, false)" @onclick="() => MoveContextChannelToEdgeAsync(contextChannel.Id, false)">Last in Category</button>
+                </div>
+            </div>
+            <hr />
+            <button type="button" role="menuitem" disabled="@(!contextChannel.IsOwner && !currentUserIsAdministrator)" @onclick="() => EditContextChannelAsync(contextChannel)">Edit Channel</button>
+            <button type="button" role="menuitem" @onclick="() => BeginDuplicateChannel(contextChannel)">Duplicate Channel</button>
+            <button type="button" role="menuitem" @onclick="() => StartNewChannel(contextChannel.ChannelGroupId)">Create Channel</button>
+            <button type="button" role="menuitem" disabled="@(!contextChannel.IsOwner && !currentUserIsAdministrator)" @onclick="() => BeginDeleteChannel(contextChannel)">Delete Channel</button>
+        </section>
+    }
+    @if (duplicateChannelSource is { } duplicateSource)
+    {
+        <div class="chat-delete-backdrop" @onclick="() => duplicateChannelSource = null">
+            <section class="chat-delete-dialog" role="dialog" aria-modal="true" aria-label="Duplicate Channel" @onclick:stopPropagation @onkeydown="HandleDuplicateChannelKeyDown">
+                <h2>Duplicate Channel</h2>
+                <p>Create a channel with the same topic and member access as #@duplicateSource.Name.</p>
+                <form @onsubmit="DuplicateChannelAsync" @onsubmit:preventDefault>
+                    <label for="chat-duplicate-channel-name">Channel name</label>
+                    <input id="chat-duplicate-channel-name" @ref="channelCardNameInput" maxlength="120" @bind="duplicateChannelName" @bind:event="oninput" />
+                    @if (error is not null) { <p class="chat-card-error">@error</p> }
+                    <div class="chat-delete-actions"><button type="button" class="button button-secondary" @onclick="() => duplicateChannelSource = null">Cancel</button><button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(duplicateChannelName)">Create Channel</button></div>
+                </form>
+            </section>
+        </div>
+    }
+    @if (pendingDeleteChannel is { } deleteChannel)
+    {
+        <div class="chat-delete-backdrop" @onclick="() => pendingDeleteChannel = null">
+            <section class="chat-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="chat-delete-channel-title" @onclick:stopPropagation @onkeydown="HandleChannelDeleteKeyDown">
+                <h2 id="chat-delete-channel-title">Delete Channel?</h2>
+                <p>Delete #@deleteChannel.Name? The channel and its messages will disappear for all members.</p>
+                @if (error is not null) { <p class="chat-card-error">@error</p> }
+                <div class="chat-delete-actions"><button type="button" class="button button-secondary" @onclick="() => pendingDeleteChannel = null">Cancel</button><button type="button" class="button button-danger" @onclick="ConfirmDeleteChannelAsync">Delete</button></div>
+            </section>
+        </div>
+    }
+    @if (categoryContext is { } category)
+    {
+        <section id="chat-category-context" class="chat-category-context chat-notification-popover" popover="auto" role="menu" aria-label="Category Settings">
+            <button type="button" role="menuitemcheckbox" aria-checked="@(collapsedFolderIds.Contains(category.Id) ? "true" : "false")" @onclick="() => ToggleFolderCollapsed(category.Id)"><span aria-hidden="true">@(collapsedFolderIds.Contains(category.Id) ? "☑" : "☐")</span> Collapse Category</button>
+            <button type="button" role="menuitem" @onclick="CollapseAllCategories">Collapse All Categories</button>
+            <hr />
+            <ChatMuteMenu Setting="CategorySetting(category.Id)" TargetName="Category" Muted="mute => MuteCategoryAsync(category.Id, mute)" />
+            <div class="chat-category-submenu">
+                <button type="button" role="menuitem" aria-haspopup="menu" @onclick="() => categoryNotificationsExpanded = !categoryNotificationsExpanded">Notification Settings <span aria-hidden="true">›</span><small>@ChatNotificationMenu.Label(CategorySetting(category.Id).Mode)</small></button>
+                <div class="chat-category-submenu-items @(categoryNotificationsExpanded ? "expanded" : "")">
+                    <ChatNotificationMenu Setting="CategorySetting(category.Id)" ShowMute="false" Selected="mode => SetCategoryNotificationsAsync(category.Id, mode)" />
+                </div>
+            </div>
+            <hr />
+            <button type="button" role="menuitem" disabled="@(!category.CanManage)" @onclick="() => EditCategory(category)">Edit Category</button>
+            <button type="button" role="menuitem" disabled="@(!category.CanManage)" @onclick="() => DeleteCategory(category)">Delete Category</button>
+        </section>
+    }
+    @if (renamingFolderId is long editCategoryId)
+    {
+        <div class="chat-delete-backdrop" @onclick="CancelRenamingFolder">
+            <section class="chat-delete-dialog" role="dialog" aria-modal="true" aria-label="Edit Category" @onclick:stopPropagation @onkeydown="HandleRenameFolderKeyDown">
+                <h2>Edit Category</h2>
+                <form @onsubmit="() => RenameFolderAsync(editCategoryId)" @onsubmit:preventDefault>
+                    <label for="chat-category-name">Category name</label>
+                    <input id="chat-category-name" @ref="renameFolderInput" maxlength="120" @bind="renameFolderDraft" @bind:event="oninput" />
+                    <div class="chat-delete-actions"><button type="button" class="button button-secondary" @onclick="CancelRenamingFolder">Cancel</button><button type="submit" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(renameFolderDraft)">Save</button></div>
+                </form>
+            </section>
+        </div>
+    }
+    @if (pendingDeleteCategory is { } deleteCategory)
+    {
+        <div class="chat-delete-backdrop" @onclick="() => pendingDeleteCategory = null">
+            <section class="chat-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="chat-delete-category-title" @onclick:stopPropagation @onkeydown="HandleCategoryDeleteKeyDown">
+                <h2 id="chat-delete-category-title">Delete Category?</h2>
+                <p>Delete @deleteCategory.Name? Its channels and nested categories will move to Ungrouped.</p>
+                <div class="chat-delete-actions"><button type="button" class="button button-secondary" @onclick="() => pendingDeleteCategory = null">Cancel</button><button type="button" class="button button-danger" @onclick="ConfirmDeleteCategoryAsync">Delete</button></div>
             </section>
         </div>
     }
@@ -1653,6 +1809,64 @@
     private bool currentUserIsAdministrator;
     private string? currentUserDisplayName;
     private bool isOpen;
+    private readonly List<ChatInboxMessage> incomingPreviews = [];
+    private bool jumpToSidebarMessageAfterRender;
+    private bool openingAtMessage;
+
+    private string PreviewConversationName(ChatInboxMessage preview) =>
+        conversations.FirstOrDefault(x => x.Id == preview.ConversationId) is { Kind: ConversationKind.Channel } row
+            ? $"# {row.Name}" : "Direct Message";
+
+    private async Task ExpireIncomingPreviewAsync(long messageId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
+            await InvokeAsync(() =>
+            {
+                if (disposed) return;
+                incomingPreviews.RemoveAll(x => x.Id == messageId);
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (ObjectDisposedException) when (disposed) { }
+    }
+
+    private async Task OpenIncomingPreviewAsync(ChatInboxMessage preview)
+    {
+        await RunAsync(async () =>
+        {
+            // Recheck membership and deletion before exposing the destination.
+            if (await Chat.GetIncomingMessagePreviewAsync(preview.Id) is null)
+            {
+                incomingPreviews.RemoveAll(x => x.Id == preview.Id);
+                return;
+            }
+            openingAtMessage = true;
+            if (!isOpen) await OpenPanelAsync(restoreSelection: false);
+            showInbox = false;
+            await OpenThreadAsync(preview.ConversationId);
+            if (preview.ChannelThreadId is long threadId)
+            {
+                await OpenChannelThreadSidebarAsync(threadId);
+                sidebarThread = await Chat.GetThreadAsync(preview.ConversationId,
+                    throughMessageId: preview.Id, channelThreadId: threadId);
+                jumpToMessageAfterRender = preview.Id;
+                jumpToSidebarMessageAfterRender = true;
+            }
+            else
+            {
+                thread = await Chat.GetThreadAsync(preview.ConversationId, throughMessageId: preview.Id);
+                viewingOlderMessages = true;
+                messageTimesNeedFormatting = true;
+                jumpToMessageAfterRender = preview.Id;
+                jumpToSidebarMessageAfterRender = false;
+            }
+            scrollToLatestAfterRender = false;
+            });
+        if (error is not null || jumpToMessageAfterRender is null) openingAtMessage = false;
+    }
     private bool disposed;
     private bool showMembers;
     private bool showPinnedMessages;
@@ -1661,7 +1875,7 @@
     private int unreadTotal;
     private bool hasUnreadAlert;
     private int unreadConversations => conversations.Where(x => x.Kind == ConversationKind.Direct).Sum(x => x.UnreadCount);
-    private int unreadChannels => conversations.Where(x => x.Kind == ConversationKind.Channel).Sum(x => x.UnreadCount);
+    private int unreadChannels => conversations.Where(x => x.Kind == ConversationKind.Channel).Sum(x => NotificationUnread(x.Id).Count);
     private bool sidebarCollapsed;
     private bool sidebarResizeAttached;
     private bool addingFolder;
@@ -1717,6 +1931,7 @@
     private string draft = string.Empty;
     private readonly List<PendingAttachment> pendingAttachments = [];
     private ChatAttachmentRow? expandedAttachment;
+    private ChatGif? expandedGif;
     private bool expandedImageZoomed;
     private enum TextAttachmentMenu { Language, Options }
     private readonly HashSet<long> expandedTextAttachmentIds = [];
@@ -1856,7 +2071,7 @@
             catch (JSDisconnectedException) { return; }
             catch (JSException ex) { Logger.LogWarning(ex, "Could not resize the chat compose box."); }
         }
-        if (focusAttachmentDialog && expandedAttachment is not null)
+        if (focusAttachmentDialog && (expandedAttachment is not null || expandedGif is not null))
         {
             focusAttachmentDialog = false;
             try { await attachmentDialogCloseButton.FocusAsync(); }
@@ -1901,6 +2116,21 @@
             }
         }
 
+        if (positionChannelContext && channelContext is not null)
+        {
+            positionChannelContext = false;
+            await JS.InvokeVoidAsync("confastChatTime.openNotificationPopover", "chat-channel-context", null, channelContextX, channelContextY);
+        }
+        if (focusChannelCardName && (showCreateChannelCard || duplicateChannelSource is not null))
+        {
+            focusChannelCardName = false;
+            await channelCardNameInput.FocusAsync();
+        }
+        if (positionCategoryContext && categoryContext is not null)
+        {
+            positionCategoryContext = false;
+            await JS.InvokeVoidAsync("confastChatTime.openNotificationPopover", "chat-category-context", null, categoryContextX, categoryContextY);
+        }
         if (focusNewGroupNameAfterRender)
         {
             focusNewGroupNameAfterRender = false;
@@ -1973,9 +2203,25 @@
         if (jumpToMessageAfterRender is long jumpId)
         {
             jumpToMessageAfterRender = null;
-            try { await JS.InvokeAsync<bool>("confastChatTime.jumpToMessage", jumpId); }
+            try
+            {
+                await JS.InvokeAsync<bool>("confastChatTime.jumpToMessage", jumpId,
+                    jumpToSidebarMessageAfterRender ? "chat-sidebar-message-history" : "chat-message-history",
+                    openingAtMessage);
+                jumpToSidebarMessageAfterRender = false;
+                if (openingAtMessage)
+                {
+                    openingAtMessage = false;
+                    StateHasChanged();
+                }
+            }
             catch (JSDisconnectedException) { jumpToMessageAfterRender = jumpId; return; }
-            catch (JSException ex) { Logger.LogWarning(ex, "Could not jump to the original chat message."); }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Could not jump to the original chat message.");
+                openingAtMessage = false;
+                StateHasChanged();
+            }
         }
 
         if (isOpen && !sidebarResizeAttached && currentUserId is { } resizeUserId)
@@ -2262,13 +2508,15 @@
         if (showPictureEditor) await ClosePictureEditorAsync();
         subscription?.Dispose();
         currentUserId = resolvedUserId;
+        incomingPreviews.Clear();
         currentUserIsAdministrator = false;
         showPresencePicker = false;
         showPresenceEditor = false;
         currentUserDisplayName = await ProfilePictures.GetCurrentUserDisplayNameAsync();
         tonePreferences = (await Chat.GetEmojiTonePreferencesAsync()).ToDictionary();
         lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
-        subscription = Notifications.Subscribe(resolvedUserId, () => _ = InvokeAsync(RefreshFromNotificationAsync));
+        subscription = Notifications.Subscribe(resolvedUserId,
+            messageId => _ = InvokeAsync(() => RefreshFromNotificationAsync(messageId, resolvedUserId)));
         selectedId = null;
         thread = null;
         CancelCreateThread();
@@ -2284,6 +2532,12 @@
         pinnedChannelsByFolder.Clear();
         pendingNewMessageIds.Clear();
         channelGroups = [];
+        notificationSettings = new(new Dictionary<long, ChatNotificationSetting>(), new Dictionary<long, ChatNotificationSetting>());
+        notificationUnread = new Dictionary<long, ChatNotificationUnreadSummary>();
+        categoryContext = null;
+        pendingDeleteCategory = null;
+        channelContext = duplicateChannelSource = pendingDeleteChannel = null;
+        showCreateChannelCard = false;
         conversations = [];
         unreadTotal = 0;
         hasUnreadAlert = false;
@@ -2292,12 +2546,25 @@
         conversationRefreshVersion++;
     }
 
-    private async Task RefreshFromNotificationAsync()
+    private async Task RefreshFromNotificationAsync(long? incomingMessageId, string notificationUserId)
     {
-        if (disposed) return;
+        if (disposed || currentUserId != notificationUserId) return;
+        var showIncomingPreview = !isOpen;
         try
         {
             await RefreshAsync();
+            if (showIncomingPreview && !isOpen && CurrentPresencePreference != UserPresencePreference.DoNotDisturb
+                && incomingMessageId is long messageId)
+            {
+                var preview = await Chat.GetIncomingMessagePreviewAsync(messageId);
+                if (!disposed && !isOpen && currentUserId == notificationUserId && preview is not null
+                    && CurrentPresencePreference != UserPresencePreference.DoNotDisturb
+                    && !incomingPreviews.Any(x => x.Id == messageId))
+                {
+                    incomingPreviews.Add(preview);
+                    _ = ExpireIncomingPreviewAsync(messageId, refreshLifetime.Token);
+                }
+            }
             lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
             if (isOpen && selectedId is long id)
             {
@@ -2342,23 +2609,36 @@
         var refreshedActiveThreads = await Chat.GetActiveChannelThreadsAsync();
         var refreshedAdministrator = await Chat.IsCurrentUserAdministratorAsync();
         var refreshedGroups = await Chat.GetChannelGroupsAsync();
+        var refreshedNotificationSettings = await Chat.GetNotificationSettingsAsync();
+        var refreshedNotificationUnread = await Chat.GetNotificationUnreadCountsAsync();
         var refreshedPresence = await Presence.GetVisibleAsync();
         var refreshedPictures = await ProfilePictures.GetVersionsAsync();
         if (disposed || version != conversationRefreshVersion || userId != currentUserId) return;
 
         conversations = refreshedConversations;
+        if (channelContext is { } context && conversations.All(x => x.Id != context.Id)) channelContext = null;
+        if (channelActionsId is long editId && conversations.All(x => x.Id != editId)) channelActionsId = null;
+        if (selectedId is long currentId && conversations.All(x => x.Id != currentId))
+        {
+            selectedId = null;
+            thread = sidebarThread = null;
+            sidebarChannelThreadId = fullChannelThreadId = null;
+        }
         activeChannelThreads = refreshedActiveThreads;
         currentUserIsAdministrator = refreshedAdministrator;
         channelGroups = refreshedGroups;
+        notificationSettings = refreshedNotificationSettings;
+        notificationUnread = refreshedNotificationUnread;
+        incomingPreviews.RemoveAll(x => !ChannelSetting(x.ConversationId).AllowsPopup(x.IsMention));
         collapsedFolderIds.RemoveWhere(id => channelGroups.All(x => x.Id != id));
         foreach (var (folderId, channelId) in pinnedChannelsByFolder.ToArray())
             if (!collapsedFolderIds.Contains(folderId) || !IsChannelInFolder(channelId, folderId))
                 pinnedChannelsByFolder.Remove(folderId);
         presenceByUser = refreshedPresence;
+        if (CurrentPresencePreference == UserPresencePreference.DoNotDisturb) incomingPreviews.Clear();
         pictureVersions = refreshedPictures;
-        unreadTotal = conversations.Sum(x => x.UnreadCount);
-        hasUnreadAlert = conversations.Any(x => x.HasUnreadMention ||
-            (x.Kind == ConversationKind.Direct && x.UnreadCount > 0));
+        unreadTotal = notificationUnread.Values.Sum(x => x.Count);
+        hasUnreadAlert = notificationUnread.Values.Any(x => x.HasAlert);
     }
 
     private async Task RefreshUnreadCountPeriodicallyAsync()
@@ -2384,14 +2664,16 @@
                         await EnsureCurrentUserContextAsync();
                         var version = ++conversationRefreshVersion;
                         var userId = currentUserId;
-                        var total = await Chat.GetTotalUnreadCountAsync(refreshLifetime.Token);
-                        var hasAlert = await Chat.HasUnreadAlertAsync(refreshLifetime.Token);
+                        var summary = await Chat.GetNotificationUnreadSummaryAsync(refreshLifetime.Token);
+                        var total = summary.Count;
+                        var hasAlert = summary.HasAlert;
                         if (version == conversationRefreshVersion && userId == currentUserId)
                         {
                             unreadTotal = total;
                             hasUnreadAlert = hasAlert;
                         }
                         presenceByUser = await Presence.GetVisibleAsync(refreshLifetime.Token);
+                        if (CurrentPresencePreference == UserPresencePreference.DoNotDisturb) incomingPreviews.Clear();
                     }
                     StateHasChanged();
                 });
@@ -2409,13 +2691,19 @@
             return;
         }
 
+        await OpenPanelAsync(restoreSelection: true);
+    }
+
+    private async Task OpenPanelAsync(bool restoreSelection)
+    {
         isOpen = true;
+        incomingPreviews.Clear();
         await EnsureEmojiSupportAsync();
         users = await Chat.GetActiveUsersAsync();
         tonePreferences = (await Chat.GetEmojiTonePreferencesAsync()).ToDictionary();
         lastReactionEmoji = await Chat.GetLastReactionEmojiAsync();
         await RefreshAsync();
-        await RestoreSelectedThreadAsync(restoreView: true);
+        if (restoreSelection) await RestoreSelectedThreadAsync(restoreView: true);
     }
 
     private async Task ClosePanel()
@@ -2431,7 +2719,11 @@
             sidebarResizeAttached = false;
         }
         isOpen = false;
+        openingAtMessage = false;
+        jumpToMessageAfterRender = null;
+        jumpToSidebarMessageAfterRender = false;
         expandedAttachment = null;
+        expandedGif = null;
         CloseTextMenu();
         moreActionsMessageId = null;
         pendingDeleteMessageId = null;
@@ -2536,13 +2828,15 @@
     private IReadOnlyList<ChannelLayoutItem> SiblingLayout(long? parentId, int depth = 0) =>
         channelGroups.Where(x => x.ParentGroupId == parentId)
             .Select(x => new ChannelLayoutItem(x, null, depth, parentId, x.SortOrder))
-            .Concat(conversations.Where(x => x.Kind == ConversationKind.Channel && x.ChannelGroupId == parentId)
+            .Concat(conversations.Where(x => x.Kind == ConversationKind.Channel && x.ChannelGroupId == parentId && x.PinnedToTopAtUtc == null)
                 .Select(x => new ChannelLayoutItem(null, x, depth, parentId, x.ChannelSortOrder)))
             .OrderBy(x => x.SortOrder).ThenBy(x => x.IsFolder ? 0 : 1).ThenBy(x => x.Id).ToArray();
 
     private IReadOnlyList<ChannelLayoutItem> ChannelLayout()
     {
-        var result = new List<ChannelLayoutItem>();
+        var result = conversations.Where(x => x.Kind == ConversationKind.Channel && x.PinnedToTopAtUtc != null)
+            .OrderBy(x => x.PinnedToTopAtUtc).ThenBy(x => x.Id)
+            .Select(x => new ChannelLayoutItem(null, x, 0, null, x.ChannelSortOrder, Pinned: true)).ToList();
         var visited = new HashSet<long>();
         void Append(long? parentId, int depth)
         {
@@ -2554,7 +2848,7 @@
                 {
                     if (pinnedChannelsByFolder.TryGetValue(group.Id, out var pinnedId) &&
                         conversations.FirstOrDefault(x => x.Id == pinnedId && x.Kind == ConversationKind.Channel) is { } pinned &&
-                        IsChannelInFolder(pinnedId, group.Id))
+                        IsChannelInFolder(pinnedId, group.Id) && pinned.PinnedToTopAtUtc == null)
                         result.Add(new ChannelLayoutItem(null, pinned, depth + 1, group.Id,
                             pinned.ChannelSortOrder, Pinned: true));
                 }
@@ -2586,9 +2880,9 @@
             IsChannelInFolder(selectedChannelId, folderId))
             visibleSelectedChannelId = selectedChannelId;
 
-        var unreadChannels = conversations.Where(x => x.Kind == ConversationKind.Channel && x.UnreadCount > 0 &&
-            x.Id != visibleSelectedChannelId && IsChannelInFolder(x.Id, folderId)).ToArray();
-        return (unreadChannels.Sum(x => x.UnreadCount), unreadChannels.Any(x => x.HasUnreadMention));
+        var unreadChannels = conversations.Where(x => x.Kind == ConversationKind.Channel && NotificationUnread(x.Id).Count > 0 &&
+            x.Id != visibleSelectedChannelId && x.PinnedToTopAtUtc == null && IsChannelInFolder(x.Id, folderId)).ToArray();
+        return (unreadChannels.Sum(x => NotificationUnread(x.Id).Count), unreadChannels.Any(x => NotificationUnread(x.Id).HasAlert));
     }
 
     private void ToggleFolderCollapsed(long folderId)
@@ -2638,6 +2932,137 @@
     {
         await Chat.CreateChannelGroupAsync(newGroupName);
         CancelAddingFolder();
+    });
+
+    private ChatConversationRow? channelContext, duplicateChannelSource, pendingDeleteChannel;
+    private bool positionChannelContext, channelNotificationsExpanded, channelMoveExpanded, channelCategoryExpanded;
+    private bool showCreateChannelCard, focusChannelCardName;
+    private ElementReference channelCardNameInput;
+    private string duplicateChannelName = string.Empty;
+    private double channelContextX, channelContextY;
+    private void OpenChannelContext(ChatConversationRow row, MouseEventArgs args)
+    {
+        categoryContext = null;
+        channelActionsId = null;
+        channelContext = row;
+        channelContextX = args.ClientX;
+        channelContextY = args.ClientY;
+        channelNotificationsExpanded = channelMoveExpanded = channelCategoryExpanded = false;
+        positionChannelContext = true;
+    }
+    private string ContextChannelNotificationLabel(long channelId)
+    {
+        var setting = ChannelSetting(channelId);
+        return ChatNotificationMenu.Label(setting.Mode == ChatNotificationMode.CategoryDefault && CategoryDefaultFor(channelId) == null
+            ? setting.EffectiveMode : setting.Mode);
+    }
+    private IEnumerable<ChatChannelGroupRow> CategoryDestinations()
+    {
+        var result = new List<ChatChannelGroupRow>();
+        void Append(long? parent)
+        {
+            foreach (var group in channelGroups.Where(x => x.ParentGroupId == parent).OrderBy(x => x.SortOrder).ThenBy(x => x.Id))
+            { result.Add(group); Append(group.Id); }
+        }
+        Append(null);
+        return result;
+    }
+    private bool IsChannelAtCategoryEdge(ChatConversationRow row, bool first)
+    {
+        var siblings = conversations.Where(x => x.Kind == ConversationKind.Channel && x.ChannelGroupId == row.ChannelGroupId)
+            .OrderBy(x => x.ChannelSortOrder).ThenBy(x => x.Id).ToArray();
+        return siblings.Length < 2 || (first ? siblings[0].Id : siblings[^1].Id) == row.Id;
+    }
+    private Task PinChannelToTopAsync(ChatConversationRow row) => RunAsync(async () =>
+    { await Chat.SetChannelPinnedToTopAsync(row.Id, row.PinnedToTopAtUtc == null); channelContext = null; });
+    private Task MuteContextChannelAsync(long id, ChatNotificationMenu.MuteSelection mute) => RunAsync(async () =>
+    { await Chat.SetChannelMutedAsync(id, mute.IsMuted, mute.Minutes); channelContext = null; });
+    private Task SetContextChannelNotificationsAsync(long id, ChatNotificationMode mode) => RunAsync(async () =>
+    { await Chat.SetChannelNotificationModeAsync(id, mode); channelContext = null; });
+    private Task MoveContextChannelAsync(long id, long? categoryId) => RunAsync(async () =>
+    { await Chat.MoveChannelAsync(id, categoryId, null); channelContext = null; });
+    private Task MoveContextChannelToEdgeAsync(long id, bool first) => RunAsync(async () =>
+    { await Chat.MoveChannelToCategoryEdgeAsync(id, first); channelContext = null; });
+    private async Task EditContextChannelAsync(ChatConversationRow row)
+    { channelContext = null; channelActionsId = null; await ToggleChannelActionsAsync(row); }
+    private void BeginDuplicateChannel(ChatConversationRow row)
+    { channelContext = null; duplicateChannelSource = row; duplicateChannelName = row.Name + " Copy"; error = null; focusChannelCardName = true; }
+    private Task DuplicateChannelAsync() => RunAsync(async () =>
+    {
+        if (duplicateChannelSource is not { } source) return;
+        var id = await Chat.DuplicateChannelAsync(source.Id, duplicateChannelName);
+        duplicateChannelSource = null;
+        if (source.ChannelGroupId is long groupId) collapsedFolderIds.Remove(groupId);
+        await RefreshAsync();
+        await OpenThreadAsync(id);
+    });
+    private void BeginDeleteChannel(ChatConversationRow row)
+    { channelContext = null; channelActionsId = null; pendingDeleteChannel = row; error = null; }
+    private Task ConfirmDeleteChannelAsync() => RunAsync(async () =>
+    {
+        if (pendingDeleteChannel is not { } row) return;
+        await Chat.DeleteChannelAsync(row.Id);
+        pendingDeleteChannel = null;
+    });
+    private void HandleCreateChannelCardKeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") _ = CancelNewChannel(); }
+    private void HandleDuplicateChannelKeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") duplicateChannelSource = null; }
+    private void HandleChannelDeleteKeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") pendingDeleteChannel = null; }
+
+    private ChatNotificationSettings notificationSettings = new(new Dictionary<long, ChatNotificationSetting>(), new Dictionary<long, ChatNotificationSetting>());
+    private IReadOnlyDictionary<long, ChatNotificationUnreadSummary> notificationUnread = new Dictionary<long, ChatNotificationUnreadSummary>();
+    private static readonly ChatNotificationUnreadSummary NoNotificationUnread = new(0, false);
+    private ChatNotificationUnreadSummary NotificationUnread(long id) => notificationUnread.GetValueOrDefault(id) ?? NoNotificationUnread;
+    private static readonly ChatNotificationSetting DefaultCategorySetting = new(ChatNotificationMode.AllMessages, ChatNotificationMode.AllMessages, false, null);
+    private ChatNotificationSetting ChannelSetting(long id) => notificationSettings.Channels.GetValueOrDefault(id) ?? DefaultCategorySetting;
+    private ChatNotificationSetting CategorySetting(long id) => notificationSettings.Categories.GetValueOrDefault(id) ?? DefaultCategorySetting;
+    private ChatNotificationMode? CategoryDefaultFor(long id) => conversations.FirstOrDefault(x => x.Id == id)?.ChannelGroupId is long groupId ? CategorySetting(groupId).Mode : null;
+    private ChatChannelGroupRow? categoryContext;
+    private ChatChannelGroupRow? pendingDeleteCategory;
+    private bool positionCategoryContext, categoryMuteExpanded, categoryNotificationsExpanded;
+    private double categoryContextX, categoryContextY;
+    private void OpenCategoryContext(ChatChannelGroupRow group, MouseEventArgs args)
+    {
+        categoryContext = group;
+        categoryContextX = args.ClientX;
+        categoryContextY = args.ClientY;
+        categoryMuteExpanded = categoryNotificationsExpanded = false;
+        positionCategoryContext = true;
+    }
+    private Task ToggleNotificationMenuAsync() => JS.InvokeVoidAsync("confastChatTime.openNotificationPopover", "chat-channel-notifications", "chat-notifications-trigger", null, null).AsTask();
+    private Task SetChannelNotificationsAsync(long id, ChatNotificationMode mode) => RunAsync(async () =>
+    {
+        await Chat.SetChannelNotificationModeAsync(id, mode);
+        await JS.InvokeVoidAsync("confastChatTime.hideNotificationPopover", "chat-channel-notifications");
+    });
+    private Task MuteChannelAsync(long id, ChatNotificationMenu.MuteSelection mute) => RunAsync(async () =>
+    {
+        await Chat.SetChannelMutedAsync(id, mute.IsMuted, mute.Minutes);
+        await JS.InvokeVoidAsync("confastChatTime.hideNotificationPopover", "chat-channel-notifications");
+    });
+    private Task SetCategoryNotificationsAsync(long id, ChatNotificationMode mode) => RunAsync(async () =>
+    {
+        await Chat.SetCategoryNotificationModeAsync(id, mode);
+        categoryContext = null;
+    });
+    private Task MuteCategoryAsync(long id, ChatNotificationMenu.MuteSelection mute) => RunAsync(async () =>
+    {
+        await Chat.SetCategoryMutedAsync(id, mute.IsMuted, mute.Minutes);
+        categoryContext = null;
+    });
+    private void CollapseAllCategories()
+    {
+        foreach (var group in channelGroups)
+            if (!collapsedFolderIds.Contains(group.Id)) ToggleFolderCollapsed(group.Id);
+        categoryContext = null;
+    }
+    private void EditCategory(ChatChannelGroupRow group) { categoryContext = null; StartRenamingFolder(group); }
+    private void DeleteCategory(ChatChannelGroupRow group) { categoryContext = null; pendingDeleteCategory = group; }
+    private void HandleCategoryDeleteKeyDown(KeyboardEventArgs args) { if (args.Key == "Escape") pendingDeleteCategory = null; }
+    private Task ConfirmDeleteCategoryAsync() => RunAsync(async () =>
+    {
+        if (pendingDeleteCategory is not { } group) return;
+        await Chat.DeleteChannelGroupAsync(group.Id);
+        pendingDeleteCategory = null;
     });
 
     private void StartRenamingFolder(ChatChannelGroupRow group)
@@ -2733,19 +3158,27 @@
         await ChangeViewAsync(ChatView.Conversations);
     }
 
-    private async Task CancelNewChannel()
+    private Task CancelNewChannel()
     {
+        showCreateChannelCard = false;
         channelName = string.Empty;
         newChannelGroupId = null;
         channelVisibility = ChannelVisibility.Public;
         initialMembers.Clear();
-        await ChangeViewAsync(ChatView.Channels);
+        return Task.CompletedTask;
     }
 
-    private async Task StartNewChannel(long? groupId)
+    private Task StartNewChannel(long? groupId)
     {
+        channelContext = null;
         newChannelGroupId = groupId;
-        await ChangeViewAsync(ChatView.NewChannel);
+        channelName = string.Empty;
+        channelVisibility = ChannelVisibility.Public;
+        initialMembers.Clear();
+        error = null;
+        showCreateChannelCard = true;
+        focusChannelCardName = true;
+        return Task.CompletedTask;
     }
 
     private async Task OpenThreadAsync(long id)
@@ -3027,9 +3460,9 @@
 
     private void ToggleSidebarComposeMenu() => showSidebarComposeMenu = !showSidebarComposeMenu;
 
-    private async Task ToggleSidebarComposerEmojiPickerAsync()
+    private async Task ToggleSidebarComposerEmojiPickerAsync(bool showGifs = false)
     {
-        if (sidebarComposerEmojiPickerOpen)
+        if (sidebarComposerEmojiPickerOpen && sidebarGifTab == showGifs)
         {
             sidebarComposerEmojiPickerOpen = false;
             try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer", "chat-sidebar-thread-draft"); }
@@ -3040,6 +3473,7 @@
 
         await EnsureEmojiSupportAsync();
         emojiSearch = string.Empty;
+        sidebarGifTab = showGifs;
         sidebarComposerEmojiPickerOpen = true;
     }
 
@@ -3429,6 +3863,7 @@
     {
         var destinationId = newChannelGroupId;
         var id = await Chat.CreateChannelAsync(channelName, channelVisibility, initialMembers, destinationId);
+        showCreateChannelCard = false;
         channelName = string.Empty;
         newChannelGroupId = null;
         initialMembers.Clear();
@@ -3713,7 +4148,16 @@
     {
         CloseTextMenu();
         expandedImageZoomed = false;
+        expandedGif = null;
         expandedAttachment = attachment;
+        focusAttachmentDialog = true;
+    }
+    private void OpenExpandedGif(ChatGif gif)
+    {
+        CloseTextMenu();
+        expandedImageZoomed = false;
+        expandedAttachment = null;
+        expandedGif = gif;
         focusAttachmentDialog = true;
     }
     private void CloseExpandedAttachment()
@@ -3721,6 +4165,7 @@
         CloseTextMenu();
         expandedImageZoomed = false;
         expandedAttachment = null;
+        expandedGif = null;
     }
     private void ToggleExpandedImageZoom() => expandedImageZoomed = !expandedImageZoomed;
     private void HandleExpandedImageKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args)
@@ -3883,9 +4328,46 @@
         emojiSearch = string.Empty;
     }
 
-    private async Task ToggleComposerEmojiPickerAsync()
+    private bool composerGifTab;
+    private bool sidebarGifTab;
+
+    private Task SendSelectedGifAsync(string id, bool sidebar) => RunAsync(async () =>
     {
-        if (composerEmojiPickerOpen)
+        if (selectedId is not long conversationId) return;
+        var targetThreadId = sidebar ? sidebarChannelThreadId : fullChannelThreadId;
+        if (sidebar && targetThreadId is null) return;
+        var replyId = sidebar ? sidebarReplyingTo?.Id : replyingTo?.Id;
+        await readStateGate.WaitAsync();
+        try
+        {
+            await Chat.SendGifAsync(conversationId, id, replyToMessageId: replyId,
+                channelThreadId: targetThreadId);
+            if (selectedId != conversationId) return;
+            if (sidebar)
+            {
+                sidebarReplyingTo = null;
+                sidebarComposerEmojiPickerOpen = false;
+            }
+            else
+            {
+                replyingTo = null;
+                composerEmojiPickerOpen = false;
+                scrollToLatestAfterRender = true;
+            }
+            if (manuallyMarkedUnreadConversationId == conversationId)
+            {
+                manuallyMarkedUnreadConversationId = null;
+                manuallyMarkedUnreadOtherConversationVisited = false;
+            }
+            pendingNewMessageIds.Remove(conversationId);
+        }
+        finally { readStateGate.Release(); }
+        if (sidebar) await LoadSidebarThreadAsync(targetThreadId!.Value);
+        await LoadThreadAsync(conversationId);
+    });
+    private async Task ToggleComposerEmojiPickerAsync(bool showGifs = false)
+    {
+        if (composerEmojiPickerOpen && composerGifTab == showGifs)
         {
             composerEmojiPickerOpen = false;
             try { await JS.InvokeVoidAsync("confastChatTime.focusChatComposer"); }
@@ -3898,6 +4380,7 @@
         reactionPickerMessageId = null;
         CloseTonePicker();
         emojiSearch = string.Empty;
+        composerGifTab = showGifs;
         composerEmojiPickerOpen = true;
     }
 
@@ -4361,6 +4844,7 @@
             error = null;
             await Presence.SetPreferenceAsync(choice, duration);
             presenceByUser = await Presence.GetVisibleAsync();
+            if (CurrentPresencePreference == UserPresencePreference.DoNotDisturb) incomingPreviews.Clear();
             HidePresencePicker();
         }
         catch (InvalidOperationException ex) { error = ex.Message; }

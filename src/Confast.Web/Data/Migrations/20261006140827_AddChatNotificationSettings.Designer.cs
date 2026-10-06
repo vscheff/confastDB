@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006140827_AddChatNotificationSettings")]
+    partial class AddChatNotificationSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -234,117 +237,6 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("chat_emoji_tone_preferences", (string)null);
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifApiRequest", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<bool>("IsRefresh")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_refresh");
-
-                    b.Property<DateTime>("RequestedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("requested_at_utc");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RequestedAtUtc");
-
-                    b.ToTable("chat_gif_api_requests", (string)null);
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifFavorite", b =>
-                {
-                    b.Property<string>("UserId")
-                        .HasColumnType("text")
-                        .HasColumnName("user_id");
-
-                    b.Property<string>("GiphyId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("giphy_id");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at_utc");
-
-                    b.HasKey("UserId", "GiphyId");
-
-                    b.ToTable("chat_gif_favorites", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_chat_gif_favorites_id", "giphy_id ~ '^[A-Za-z0-9]{1,100}$'");
-                        });
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifMetadata", b =>
-                {
-                    b.Property<string>("GiphyId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("giphy_id");
-
-                    b.Property<DateTime>("CachedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("cached_at_utc");
-
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("payload");
-
-                    b.HasKey("GiphyId");
-
-                    b.ToTable("chat_gif_metadata", (string)null);
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifSearchPage", b =>
-                {
-                    b.Property<string>("Query")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("query");
-
-                    b.Property<string>("Rating")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("rating");
-
-                    b.Property<string>("Language")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("language");
-
-                    b.Property<int>("Offset")
-                        .HasColumnType("integer")
-                        .HasColumnName("offset");
-
-                    b.Property<int>("Limit")
-                        .HasColumnType("integer")
-                        .HasColumnName("limit");
-
-                    b.Property<DateTime>("CachedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("cached_at_utc");
-
-                    b.Property<string>("GifIds")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("gif_ids");
-
-                    b.Property<int>("Total")
-                        .HasColumnType("integer")
-                        .HasColumnName("total");
-
-                    b.HasKey("Query", "Rating", "Language", "Offset", "Limit");
-
-                    b.ToTable("chat_gif_search_pages", (string)null);
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessage", b =>
                 {
                     b.Property<long>("Id")
@@ -379,11 +271,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<DateTime?>("EditedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("edited_at_utc");
-
-                    b.Property<string>("GiphyId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("giphy_id");
 
                     b.Property<DateTime?>("PinnedAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -429,8 +316,6 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("chat_messages", null, t =>
                         {
                             t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
-
-                            t.HasCheckConstraint("CK_chat_messages_giphy_id", "giphy_id IS NULL OR giphy_id ~ '^[A-Za-z0-9]{1,100}$'");
 
                             t.HasCheckConstraint("CK_chat_messages_pin", "(pinned_at_utc IS NULL) = (pinned_by_user_id IS NULL) AND (deleted_at_utc IS NULL OR pinned_at_utc IS NULL)");
 
@@ -746,14 +631,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("created_by_user_id");
 
-                    b.Property<DateTime?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("deleted_at_utc");
-
-                    b.Property<string>("DeletedByUserId")
-                        .HasColumnType("text")
-                        .HasColumnName("deleted_by_user_id");
-
                     b.Property<string>("DirectPairKey")
                         .HasMaxLength(900)
                         .HasColumnType("character varying(900)")
@@ -784,8 +661,6 @@ namespace Confast.Web.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("DeletedByUserId");
 
                     b.HasIndex("DirectPairKey")
                         .IsUnique();
@@ -837,10 +712,6 @@ namespace Confast.Web.Data.Migrations
                     b.Property<int>("NotificationMode")
                         .HasColumnType("integer")
                         .HasColumnName("notification_mode");
-
-                    b.Property<DateTime?>("PinnedToTopAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("pinned_to_top_at_utc");
 
                     b.HasKey("ConversationId", "UserId");
 
@@ -4133,17 +4004,6 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifFavorite", b =>
-                {
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatMessage", b =>
                 {
                     b.HasOne("Confast.Web.Features.Chat.Conversation", "Conversation")
@@ -4356,11 +4216,6 @@ namespace Confast.Web.Data.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("DeletedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("ChannelGroup");
 

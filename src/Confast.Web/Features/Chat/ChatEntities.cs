@@ -42,6 +42,8 @@ public sealed class Conversation
     public ChannelVisibility? Visibility { get; set; }
     public string? Name { get; set; }
     public string? Topic { get; set; }
+    public DateTime? DeletedAtUtc { get; set; }
+    public string? DeletedByUserId { get; set; }
     public long? ChannelGroupId { get; set; }
     public ChatChannelGroup? ChannelGroup { get; set; }
     public int ChannelSortOrder { get; set; }
@@ -63,6 +65,10 @@ public sealed class ConversationMember
     public DateTime JoinedAtUtc { get; set; }
     public long? LastReadMessageId { get; set; }
     public bool IsManuallyUnread { get; set; }
+    public ChatNotificationMode NotificationMode { get; set; }
+    public bool IsMuted { get; set; }
+    public DateTime? MutedUntilUtc { get; set; }
+    public DateTime? PinnedToTopAtUtc { get; set; }
     public bool IsOwner { get; set; }
 }
 
@@ -78,6 +84,7 @@ public sealed class ChatMessage
     public ApplicationUser? SenderUser { get; set; }
     public ChatMessageType Type { get; set; } = ChatMessageType.Text;
     public string Body { get; set; } = string.Empty;
+    public string? GiphyId { get; set; }
     public long? ReplyToMessageId { get; set; }
     public ChatMessage? ReplyToMessage { get; set; }
     public DateTime SentAtUtc { get; set; }

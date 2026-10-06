@@ -144,6 +144,12 @@ builder.Services.AddScoped<InspectionSearchNavigationContext>();
 builder.Services.AddScoped<PartService>();
 builder.Services.AddSingleton<ChatNotifications>();
 builder.Services.AddScoped<ChatService>();
+builder.Services.AddOptions<ChatGifCacheOptions>().BindConfiguration("Giphy")
+    .Validate(x => x.SearchCacheLifetimeHours is > 0 and <= 87600, "GIF search lifetime must be between 1 hour and 10 years.")
+    .Validate(x => x.HourlyRequestLimit > 0 && x.RefreshRequestReserve >= 0 && x.RefreshRequestReserve < x.HourlyRequestLimit,
+        "GIF request reserve must be nonnegative and smaller than the hourly limit.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<ChatGifCategoryBackgrounds>();
 builder.Services.AddHostedService<ChatMessageDeliveryWorker>();
 builder.Services.AddScoped<UserProfilePictureService>();
 builder.Services.AddScoped<UserPresenceService>();

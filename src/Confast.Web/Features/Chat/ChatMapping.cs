@@ -6,7 +6,9 @@ public static class ChatMapping
 {
     public static void Configure(ModelBuilder model)
     {
+        ChatNotificationMapping.Configure(model);
         ChatPollMapping.Configure(model);
+        ChatGifMapping.Configure(model);
         ChatScheduledMessageMapping.Configure(model);
         var group = model.Entity<ChatChannelGroup>();
         group.ToTable("chat_channel_groups", t =>
@@ -32,12 +34,17 @@ public static class ChatMapping
             "CK_chat_conversations_shape",
             "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL AND channel_group_id IS NULL AND channel_sort_order = 0) OR " +
             "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0)"));
+        // Retain unfiltered messages/threads for audit. User-facing reads require an active membership.
+        conversation.HasQueryFilter(x => x.DeletedAtUtc == null);
         conversation.HasKey(x => x.Id);
         conversation.HasAlternateKey(x => new { x.Id, x.Kind });
         conversation.Property(x => x.Id).HasColumnName("id").UseIdentityByDefaultColumn();
         conversation.Property(x => x.Kind).HasColumnName("kind");
         conversation.Property(x => x.Visibility).HasColumnName("visibility");
         conversation.Property(x => x.Name).HasColumnName("name").HasMaxLength(120);
+        conversation.Property(x => x.DeletedAtUtc).HasColumnName("deleted_at_utc");
+        conversation.Property(x => x.DeletedByUserId).HasColumnName("deleted_by_user_id");
+        conversation.HasOne<Confast.Web.Features.Identity.ApplicationUser>().WithMany().HasForeignKey(x => x.DeletedByUserId).OnDelete(DeleteBehavior.Restrict);
         conversation.Property(x => x.Topic).HasColumnName("topic").HasMaxLength(4000);
         conversation.Property(x => x.ChannelGroupId).HasColumnName("channel_group_id");
         conversation.Property(x => x.ChannelSortOrder).HasColumnName("channel_sort_order");
@@ -80,13 +87,22 @@ public static class ChatMapping
         channelThread.HasIndex(x => new { x.ConversationId, x.LastMessageAtUtc });
 
         var member = model.Entity<ConversationMember>();
-        member.ToTable("chat_conversation_members");
+        member.ToTable("chat_conversation_members", t =>
+        {
+            t.HasCheckConstraint("CK_chat_members_notification_mode", "notification_mode BETWEEN 0 AND 4");
+            t.HasCheckConstraint("CK_chat_members_mute", "is_muted OR muted_until_utc IS NULL");
+        });
+        member.HasQueryFilter(x => x.Conversation.DeletedAtUtc == null);
+        member.Property(x => x.PinnedToTopAtUtc).HasColumnName("pinned_to_top_at_utc");
         member.HasKey(x => new { x.ConversationId, x.UserId });
         member.Property(x => x.ConversationId).HasColumnName("conversation_id");
         member.Property(x => x.UserId).HasColumnName("user_id");
         member.Property(x => x.JoinedAtUtc).HasColumnName("joined_at_utc");
         member.Property(x => x.LastReadMessageId).HasColumnName("last_read_message_id");
         member.Property(x => x.IsManuallyUnread).HasColumnName("is_manually_unread");
+        member.Property(x => x.NotificationMode).HasColumnName("notification_mode");
+        member.Property(x => x.IsMuted).HasColumnName("is_muted");
+        member.Property(x => x.MutedUntilUtc).HasColumnName("muted_until_utc");
         member.Property(x => x.IsOwner).HasColumnName("is_owner");
         member.HasOne(x => x.Conversation).WithMany(x => x.Members).HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         member.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
@@ -101,6 +117,7 @@ public static class ChatMapping
         {
             t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
             t.HasCheckConstraint("CK_chat_messages_pin", "(pinned_at_utc IS NULL) = (pinned_by_user_id IS NULL) AND (deleted_at_utc IS NULL OR pinned_at_utc IS NULL)");
+            t.HasCheckConstraint("CK_chat_messages_giphy_id", "giphy_id IS NULL OR giphy_id ~ '^[A-Za-z0-9]{1,100}$'");
             t.HasCheckConstraint("CK_chat_messages_thread_notice", "type <> 2 OR channel_thread_id IS NOT NULL");
         });
         message.HasKey(x => x.Id);
@@ -110,6 +127,7 @@ public static class ChatMapping
         message.Property(x => x.SenderUserId).HasColumnName("sender_user_id");
         message.Property(x => x.Type).HasColumnName("type");
         message.Property(x => x.Body).HasColumnName("body").HasMaxLength(4000);
+        message.Property(x => x.GiphyId).HasColumnName("giphy_id").HasMaxLength(100);
         message.Property(x => x.ReplyToMessageId).HasColumnName("reply_to_message_id");
         message.Property(x => x.SentAtUtc).HasColumnName("sent_at_utc");
         message.Property(x => x.EditedAtUtc).HasColumnName("edited_at_utc");

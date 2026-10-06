@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006190829_AddChatGifCache")]
+    partial class AddChatGifCache
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -232,30 +235,6 @@ namespace Confast.Web.Data.Migrations
                     b.HasKey("UserId", "DefaultEmoji");
 
                     b.ToTable("chat_emoji_tone_preferences", (string)null);
-                });
-
-            modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifApiRequest", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
-
-                    b.Property<bool>("IsRefresh")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_refresh");
-
-                    b.Property<DateTime>("RequestedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("requested_at_utc");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RequestedAtUtc");
-
-                    b.ToTable("chat_gif_api_requests", (string)null);
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatGifFavorite", b =>

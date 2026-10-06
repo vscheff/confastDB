@@ -1,0 +1,7 @@
+.notification-menu { box-sizing: border-box; min-width: 230px; color: #17324a; background: #fff; padding: .35rem; border-radius: .45rem; }
+.notification-menu button { width: 100%; min-height: 44px; border: 0; border-radius: .25rem; background: transparent; color: inherit; padding: .5rem .65rem; text-align: left; font-size: .85rem; cursor: pointer; }
+.notification-menu button:hover, .notification-menu button:focus-visible { background: #e8f3f8; }
+.notification-menu small { display: block; color: #61717a; font-size: .75rem; margin-top: .2rem; padding-left: 1.15rem; }
+.notification-menu hr { border: 0; border-top: 1px solid #cbd6dd; margin: .25rem 0; }
+.radio { display: inline-block; width: 1rem; }
+

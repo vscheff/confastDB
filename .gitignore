@@ -481,3 +481,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Runtime GIF category artwork configuration
+src/Confast.Web/App_Data/chat-gif-category-backgrounds.json*

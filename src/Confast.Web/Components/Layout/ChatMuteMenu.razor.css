@@ -1,0 +1,11 @@
+
+.notification-submenu { position: relative; color: #17324a; }
+.notification-submenu button { width: 100%; min-height: 44px; border: 0; border-radius: .25rem; background: transparent; color: inherit; padding: .5rem .65rem; text-align: left; font-size: .85rem; cursor: pointer; }
+.notification-submenu button:hover, .notification-submenu button:focus-visible { background: #e8f3f8; }
+.notification-submenu small { display: block; color: #61717a; font-size: .75rem; margin-top: .2rem; }
+.notification-mute-actions { display: flex; }
+.notification-mute-actions > button:first-child { flex: 1; min-width: 0; }
+.notification-mute-actions > .notification-duration-toggle { flex: none; width: 44px; padding: 0; text-align: center; }
+.notification-submenu-items { display: none; position: absolute; right: 100%; top: 0; width: 230px; padding: .35rem; background: #fff; border: 1px solid #cbd6dd; border-radius: .45rem; box-shadow: 0 8px 24px #0006; z-index: 2; }
+.notification-submenu:hover > .notification-submenu-items, .notification-submenu:focus-within > .notification-submenu-items, .notification-submenu.expanded > .notification-submenu-items { display: block; }
+@media (max-width: 700px) { .notification-submenu-items { position: static; width: auto; margin-left: .7rem; } }

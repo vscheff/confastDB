@@ -1,0 +1,241 @@
+@using Confast.Web.Features.Chat
+@implements IDisposable
+@inject ChatService Chat
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject ILogger<ChatGifPicker> Logger
+@inject ChatGifCategoryBackgrounds CategoryBackgrounds
+
+<div class="gif-picker" aria-busy="@(busy ? "true" : "false")">
+    <div class="gif-search">
+        @if (resultsView)
+        {
+            <button type="button" class="gif-back" title="Back to categories" aria-label="Back to categories" disabled="@busy" @onclick="ShowCategories">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 5-7 7 7 7M3 12h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+        }
+        <input data-chat-gif-search aria-label="Search GIFs" placeholder="Search GIFs" maxlength="50" value="@query" @oninput="SearchInputChanged" @onkeydown="SearchKeyDown" @onkeydown:stopPropagation />
+    </div>
+    @if (!resultsView)
+    {
+    <div class="gif-categories" aria-label="GIF reactions">
+        <button type="button" class="@(favoritesView ? "selected" : "")" aria-pressed="@(favoritesView ? "true" : "false")" disabled="@busy" @onclick="FavoritesAsync">★ Favorites</button>
+        @foreach (var category in Categories)
+        {
+            <button type="button" class="@(!favoritesView && query == category ? "selected" : "")" aria-pressed="@(!favoritesView && query == category ? "true" : "false")" disabled="@busy" @onclick="() => SearchAsync(category)">
+                @if (covers.TryGetValue(category, out var cover)) { <img src="@cover" alt="" loading="lazy" /> }
+                <span>@category</span>
+            </button>
+        }
+    </div>
+    }
+    else
+    {
+        <div class="gif-results-header">
+            <strong>@(favoritesView ? "Favorites" : resultsQuery)</strong>
+        </div>
+    }
+    @if (error is not null) { <p role="alert">@error</p> }
+    @if (busy) { <p role="status">Loading GIFs…</p> }
+    @if (resultsView)
+    {
+    <div class="gif-grid">
+        @foreach (var gif in gifs)
+        {
+            <div class="gif-tile" @key="gif.Id">
+                <button class="gif-send" type="button" disabled="@busy" title="Send @gif.Title" aria-label="Send @gif.Title" @onclick="() => SendAsync(gif.Id)"><img src="@gif.PreviewUrl" alt="@gif.Title" loading="lazy" /></button>
+                <button class="gif-star @(favorites.Contains(gif.Id) ? "starred" : "")" type="button" disabled="@busy" title="@(favorites.Contains(gif.Id) ? "Remove favorite" : "Favorite GIF")" aria-label="@(favorites.Contains(gif.Id) ? "Remove favorite" : "Favorite GIF")" aria-pressed="@(favorites.Contains(gif.Id) ? "true" : "false")" @onclick="() => StarAsync(gif.Id)">@(favorites.Contains(gif.Id) ? "★" : "☆")</button>
+            </div>
+        }
+    </div>
+    @if (!busy && gifs.Count == 0 && error is null) { <p>@(favoritesView ? "No favorites yet. Star a GIF to save it here." : "No matching GIFs.")</p> }
+    @if (hasMore) { <button type="button" disabled="@busy" @onclick="MoreAsync">Load More</button> }
+    }
+    <span class="gif-attribution">Powered By GIPHY</span>
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> Selected { get; set; }
+    private static readonly IReadOnlyList<string> Categories = ChatGifCategoryBackgrounds.Categories;
+    private readonly Dictionary<string, string> covers = new();
+    private HashSet<string> favorites = [];
+    private IReadOnlyList<string> favoriteIds = [];
+    private List<ChatGif> gifs = [];
+    private string query = string.Empty;
+    private string resultsQuery = string.Empty;
+    private string? error;
+    private bool busy;
+    private bool favoritesView;
+    private bool resultsView;
+    private bool hasMore;
+    private int offset;
+    private string? ApiKey => Configuration["Giphy:ApiKey"];
+    private DotNetObjectReference<ChatService> requestBudget = null!;
+    private CancellationTokenSource? searchDelay;
+    private string? deferredSearch;
+    private bool disposed;
+    protected override void OnInitialized() => requestBudget = DotNetObjectReference.Create(Chat);
+    public void Dispose()
+    {
+        disposed = true;
+        CancelDelayedSearch();
+        requestBudget.Dispose();
+    }
+
+    private void CancelDelayedSearch()
+    {
+        searchDelay?.Cancel();
+        searchDelay?.Dispose();
+        searchDelay = null;
+        deferredSearch = null;
+    }
+
+    private void SearchInputChanged(ChangeEventArgs args)
+    {
+        CancelDelayedSearch();
+        query = args.Value?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(query)) { ShowCategories(); return; }
+        searchDelay = new();
+        // This task observes its own exceptions because input events don't await
+        // the timer. Every keystroke replaces it; closing the picker cancels it.
+        _ = SearchAfterDelayAsync(query, searchDelay.Token);
+    }
+
+    private async Task SearchAfterDelayAsync(string text, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            await InvokeAsync(async () =>
+            {
+                if (disposed || cancellationToken.IsCancellationRequested) return;
+                await SearchAsync(text);
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception ex) { Logger.LogError(ex, "Delayed GIF search failed."); }
+    }
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await ExecuteAsync(async () =>
+        {
+            foreach (var category in Categories)
+            {
+                var cover = await CategoryBackgrounds.GetAsync(category, async () =>
+                {
+                    if (string.IsNullOrWhiteSpace(ApiKey)) return null;
+                    var result = await Chat.ResolveGifSearchAsync(category, 0, 1, () => JS.InvokeAsync<ChatGifResult>("confastChatGifs.search", ApiKey, category, 0, 1).AsTask());
+                    if (result.Error is not null) throw new InvalidOperationException(result.Error);
+                    return result.Gifs.FirstOrDefault()?.PreviewUrl;
+                });
+                if (cover is not null) covers[category] = cover;
+                StateHasChanged();
+            }
+        });
+        StateHasChanged();
+    }
+
+    private async Task ReloadFavoritesAsync()
+    {
+        favoriteIds = await Chat.GetGifFavoritesAsync();
+        favorites = favoriteIds.ToHashSet(StringComparer.Ordinal);
+    }
+
+    private Task SearchKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args) => args.Key == "Enter" ? SearchAsync(query) : Task.CompletedTask;
+    private Task SearchAsync(string text)
+    {
+        CancelDelayedSearch();
+        if (busy) { deferredSearch = text; return Task.CompletedTask; }
+        return ExecuteAsync(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(text)) { ShowCategories(); return; }
+        query = text;
+        resultsQuery = text;
+        favoritesView = false;
+        resultsView = true;
+        offset = 0;
+        await ReloadFavoritesAsync();
+        await LoadAsync(false);
+        });
+    }
+    private Task FavoritesAsync()
+    {
+        CancelDelayedSearch();
+        return ExecuteAsync(async () =>
+    {
+        await ReloadFavoritesAsync();
+        favoritesView = true;
+        resultsView = true;
+        offset = 0;
+        await LoadAsync(false);
+        });
+    }
+    private Task MoreAsync() => ExecuteAsync(() => LoadAsync(true));
+    private async Task LoadAsync(bool append)
+    {
+        if (!append) gifs.Clear();
+        ChatGifResult result;
+        if (favoritesView)
+            result = await Chat.ResolveGifsAsync(favoriteIds.Skip(offset).Take(24).ToArray(), ids => JS.InvokeAsync<ChatGifResult>("confastChatGifs.byIds", ApiKey, ids, requestBudget).AsTask());
+        else
+            result = await Chat.ResolveGifSearchAsync(resultsQuery, offset, 24, () => JS.InvokeAsync<ChatGifResult>("confastChatGifs.search", ApiKey, resultsQuery, offset, 24).AsTask());
+        gifs.AddRange(result.Gifs);
+        error = result.Error;
+        if (error is not null) { hasMore = false; return; }
+        offset += 24;
+        hasMore = favoritesView ? offset < favoriteIds.Count : offset < Math.Min(result.Total, 4999);
+    }
+    private Task StarAsync(string id) => ExecuteAsync(async () =>
+    {
+        await Chat.SetGifFavoriteAsync(id, !favorites.Contains(id));
+        await ReloadFavoritesAsync();
+        if (favoritesView)
+        {
+            offset = 0;
+            await LoadAsync(false);
+        }
+    });
+    private Task SendAsync(string id) => ExecuteAsync(() => Selected.InvokeAsync(id));
+    private void ShowCategories()
+    {
+        CancelDelayedSearch();
+        resultsView = false;
+        favoritesView = false;
+        query = string.Empty;
+        resultsQuery = string.Empty;
+        gifs.Clear();
+        error = null;
+        hasMore = false;
+        offset = 0;
+    }
+    private async Task ExecuteAsync(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true;
+        error = null;
+        try { await action(); }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "GIF picker browser request failed."); error = "Could not load GIFs. Try again."; }
+        catch (UnauthorizedAccessException) { error = "Sign in to use GIFs."; }
+        catch (InvalidOperationException ex) { error = ex.Message; }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)
+        {
+            Logger.LogError(ex, "Could not read or save GIF category backgrounds.");
+            error = "Could not load the saved GIF category backgrounds.";
+        }
+        finally
+        {
+            busy = false;
+            if (!disposed)
+            {
+                StateHasChanged();
+                // A previous request may outlast the typing pause. Run the latest
+                // submitted text when it finishes instead of dropping the search.
+                if (deferredSearch is { } next) await SearchAsync(next);
+            }
+        }
+    }
+}

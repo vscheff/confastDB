@@ -1,0 +1,41 @@
+@using Confast.Web.Features.Chat
+<div class="notification-menu" role="menu" aria-label="Notification Settings">
+    @if (ShowMute)
+    {
+        <ChatMuteMenu Setting="Setting" TargetName="TargetName" Muted="Muted" />
+        <hr />
+    }
+    @if (CategoryDefault is ChatNotificationMode categoryMode)
+    {
+        <button type="button" role="menuitemradio" aria-checked="@(Setting.Mode == ChatNotificationMode.CategoryDefault ? "true" : "false")" @onclick="() => Selected.InvokeAsync(ChatNotificationMode.CategoryDefault)">
+            <span><span class="radio" aria-hidden="true">@(Setting.Mode == ChatNotificationMode.CategoryDefault ? "◉" : "○")</span> Use Category Default</span>
+            <small>@Label(categoryMode)</small>
+        </button>
+    }
+    @foreach (var mode in Modes)
+    {
+        <button type="button" role="menuitemradio" aria-checked="@(IsSelected(mode) ? "true" : "false")" @onclick="() => Selected.InvokeAsync(mode)">
+            <span class="radio" aria-hidden="true">@(IsSelected(mode) ? "◉" : "○")</span> @Label(mode)
+        </button>
+    }
+</div>
+@code {
+    [Parameter, EditorRequired] public ChatNotificationSetting Setting { get; set; } = new(ChatNotificationMode.AllMessages, ChatNotificationMode.AllMessages, false, null);
+    [Parameter] public ChatNotificationMode? CategoryDefault { get; set; }
+    [Parameter] public bool ShowMute { get; set; } = true;
+    [Parameter] public string TargetName { get; set; } = "Channel";
+    [Parameter] public EventCallback<ChatNotificationMode> Selected { get; set; }
+    [Parameter] public EventCallback<MuteSelection> Muted { get; set; }
+    private bool IsSelected(ChatNotificationMode mode) => Setting.Mode == mode
+        || (CategoryDefault is null && Setting.Mode == ChatNotificationMode.CategoryDefault && mode == ChatNotificationMode.AllMessages);
+    public sealed record MuteSelection(bool IsMuted, int? Minutes);
+    public static readonly ChatNotificationMode[] Modes = [ChatNotificationMode.AllMessages, ChatNotificationMode.MentionsAndUnreads, ChatNotificationMode.OnlyMentions, ChatNotificationMode.Nothing];
+    public static readonly (string Label, int? Minutes)[] Durations = [("For 15 Minutes", 15), ("For 1 Hour", 60), ("For 3 Hours", 180), ("For 8 Hours", 480), ("For 24 Hours", 1440), ("Until I turn it back on", null)];
+    public static string Label(ChatNotificationMode mode) => mode switch {
+        ChatNotificationMode.CategoryDefault => "Use Category Default",
+        ChatNotificationMode.AllMessages => "All Messages",
+        ChatNotificationMode.MentionsAndUnreads => "@Mentions + Unreads",
+        ChatNotificationMode.OnlyMentions => "Only @mentions",
+        _ => "Nothing"
+    };
+}

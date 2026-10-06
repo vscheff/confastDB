@@ -4,10 +4,42 @@ namespace Confast.Web.Features.Chat;
 
 public sealed record ChatInboxMessage(long Id, long ConversationId, long? ChannelThreadId,
     string SenderUserId, string SenderName, string Body, DateTime AtUtc,
-    IReadOnlyList<string> AttachmentNames, string? Failure = null);
+    IReadOnlyList<string> AttachmentNames, string? Failure = null, bool IsMention = false);
 
 public sealed partial class ChatService
 {
+    public async Task<ChatInboxMessage?> GetIncomingMessagePreviewAsync(long messageId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        var preference = await db.Users.AsNoTracking().Where(x => x.Id == userId)
+            .Select(x => new { x.PresencePreference, x.PresencePreferenceExpiresAtUtc })
+            .SingleAsync(cancellationToken);
+        if (UserPresenceService.EffectivePreference(preference.PresencePreference,
+                preference.PresencePreferenceExpiresAtUtc, clock.GetUtcNow().UtcDateTime)
+            == UserPresencePreference.DoNotDisturb) return null;
+        var preview = await db.ChatMessages.AsNoTracking()
+            .Where(x => x.Id == messageId && x.DeletedAtUtc == null && x.SenderUserId != userId
+                && (x.Type == ChatMessageType.Text || x.Type == ChatMessageType.Poll)
+                && db.ChatConversationMembers.Any(member => member.ConversationId == x.ConversationId
+                    && member.UserId == userId))
+            .Select(x => new ChatInboxMessage(x.Id, x.ConversationId, x.ChannelThreadId,
+                x.SenderUserId ?? "", x.SenderUser != null ? x.SenderUser.DisplayName : "System",
+                x.Body, x.SentAtUtc, x.Attachments.Select(a => a.FileName).ToArray(), null))
+            .SingleOrDefaultAsync(cancellationToken);
+        if (preview is null) return null;
+        var kind = await db.ChatConversations.Where(x => x.Id == preview.ConversationId)
+            .Select(x => x.Kind).SingleAsync(cancellationToken);
+        if (kind == ConversationKind.Direct) return preview;
+        var settings = await LoadNotificationSettingsAsync(db, userId, cancellationToken);
+        var mentioned = await db.ChatMessages.AnyAsync(x => x.Id == messageId
+            && (x.Mentions.Any(m => m.UserId == userId)
+                || (x.ReplyToMessage != null && x.ReplyToMessage.SenderUserId == userId)), cancellationToken);
+        return settings.Channels.TryGetValue(preview.ConversationId, out var setting)
+            && setting.AllowsPopup(mentioned) ? preview with { IsMention = mentioned } : null;
+    }
+
     // Use the same read boundary as the sidebar. Reading previews never advances it.
     public async Task<IReadOnlyList<ChatInboxMessage>> GetInboxMessagesAsync(bool mentionsOnly = false,
         CancellationToken cancellationToken = default)

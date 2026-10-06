@@ -36,9 +36,10 @@ public sealed partial class ChatService
             if (replyId is long target && !await db.ChatMessages.AnyAsync(x => x.Id == target
                     && x.DeletedAtUtc == null, cancellationToken)) replyId = null;
             await transaction.CreateSavepointAsync("delivery", cancellationToken);
+            long messageId;
             try
             {
-                await SaveOutgoingMessageAsync(db, queued.SenderUserId, queued.ConversationId, queued.Body,
+                messageId = await SaveOutgoingMessageAsync(db, queued.SenderUserId, queued.ConversationId, queued.Body,
                     queued.Attachments.Select(x => new ChatAttachmentUpload(x.FileName, x.Content)).ToArray(),
                     replyId, queued.ChannelThreadId, null, false, cancellationToken);
             }
@@ -57,7 +58,7 @@ public sealed partial class ChatService
             await transaction.CommitAsync(cancellationToken);
             delivered++;
             notifications.Publish(await db.ChatConversationMembers.Where(x => x.ConversationId == queued.ConversationId)
-                .Select(x => x.UserId).ToArrayAsync(cancellationToken));
+                .Select(x => x.UserId).ToArrayAsync(cancellationToken), messageId);
         }
         return delivered;
     }

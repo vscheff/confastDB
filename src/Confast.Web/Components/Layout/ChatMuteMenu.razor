@@ -1,0 +1,33 @@
+@using Confast.Web.Features.Chat
+        <div class="notification-submenu @(muteExpanded ? "expanded" : "")">
+            @if (Setting.IsMuted)
+            {
+                <button type="button" role="menuitem" @onclick="() => Muted.InvokeAsync(new(false, null))">
+                    <span>Unmute @TargetName</span>
+                    @if (Setting.MutedUntilUtc is DateTime until)
+                    {
+                        <small>Unmutes <time data-chat-utc="@until.ToString("O")">@until.ToLocalTime().ToString("g")</time></small>
+                    }
+                </button>
+            }
+            else
+            {
+                <div class="notification-mute-actions">
+                    <button type="button" role="menuitem" @onclick="() => Muted.InvokeAsync(new(true, null))">Mute @TargetName</button>
+                    <button type="button" class="notification-duration-toggle" role="menuitem" aria-label="Choose mute duration" aria-haspopup="menu" aria-expanded="@(muteExpanded ? "true" : "false")" @onclick="() => muteExpanded = !muteExpanded"><span aria-hidden="true">›</span></button>
+                </div>
+                <div class="notification-submenu-items" role="menu" aria-label="Mute duration">
+                    @foreach (var duration in ChatNotificationMenu.Durations)
+                    {
+                        <button type="button" role="menuitem" @onclick="() => Muted.InvokeAsync(new(true, duration.Minutes))">@duration.Label</button>
+                    }
+                </div>
+            }
+        </div>
+
+@code {
+    [Parameter, EditorRequired] public ChatNotificationSetting Setting { get; set; } = new(ChatNotificationMode.AllMessages, ChatNotificationMode.AllMessages, false, null);
+    [Parameter] public string TargetName { get; set; } = "Channel";
+    [Parameter] public EventCallback<ChatNotificationMenu.MuteSelection> Muted { get; set; }
+    private bool muteExpanded;
+}

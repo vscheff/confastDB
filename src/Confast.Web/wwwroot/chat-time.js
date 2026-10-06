@@ -1,4 +1,27 @@
 window.confastChatTime = {
+    openNotificationPopover(id, anchorId, x, y) {
+        const card = document.getElementById(id);
+        if (!card) return;
+        if (anchorId && card.matches(":popover-open")) { card.hidePopover(); return; }
+        if (card.matches(":popover-open")) card.hidePopover();
+        card.showPopover();
+        const anchor = anchorId ? document.getElementById(anchorId)?.getBoundingClientRect() : null;
+        const width = card.offsetWidth;
+        const height = card.offsetHeight;
+        const left = anchor ? anchor.right - width : x;
+        const top = anchor ? anchor.bottom + 6 : y;
+        card.style.left = Math.max(8, Math.min(left ?? 8, window.innerWidth - width - 8)) + "px";
+        card.style.top = Math.max(8, Math.min(top ?? 8, window.innerHeight - height - 8)) + "px";
+        card.classList.toggle("submenu-right", parseFloat(card.style.left) < 245);
+        const formatter = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
+        card.querySelectorAll("time[data-chat-utc]").forEach(time => {
+            time.textContent = formatter.format(new Date(time.dataset.chatUtc));
+        });
+    },
+    hideNotificationPopover(id) {
+        document.getElementById(id)?.hidePopover();
+    },
+
     toggleChannelTopic() {
         const card = document.getElementById("chat-channel-topic-card");
         const panel = card?.closest(".chat-panel");
@@ -486,7 +509,7 @@ window.confastChatTime = {
 
         sidebar.addEventListener("pointerdown", event => {
             if (event.button !== 0) return;
-            if (event.target.closest(".chat-channel-settings, .chat-folder-rename, .chat-folder-add, .chat-channel-action-toggle")) return;
+            if (event.target.closest(".chat-channel-settings, .chat-folder-rename, .chat-folder-add, .chat-folder-settings, .chat-channel-action-toggle")) return;
             const sourceRow = event.target.closest(".chat-layout-row[data-chat-drag-kind]");
             if (!sourceRow || !scroll.contains(sourceRow)) return;
             if (sourceRow.dataset.chatDragKind !== "folder" && sourceRow.dataset.chatDragKind !== "channel") return;
@@ -539,7 +562,7 @@ window.confastChatTime = {
                 sidebar.classList.add("chat-channel-dragging");
                 sourceRow.classList.add("chat-channel-drag-source");
                 preview = sourceRow.cloneNode(true);
-                preview.querySelectorAll(".chat-channel-settings, .chat-channel-action-toggle, .chat-folder-chevron, .chat-folder-add").forEach(x => x.remove());
+                preview.querySelectorAll(".chat-channel-settings, .chat-channel-action-toggle, .chat-folder-chevron, .chat-folder-add, .chat-folder-settings").forEach(x => x.remove());
                 preview.classList.add("chat-channel-drag-preview");
                 preview.setAttribute("aria-hidden", "true");
                 preview.style.width = `${sourceRow.getBoundingClientRect().width}px`;
@@ -761,12 +784,17 @@ window.confastChatTime = {
         popover.style.top = `${Math.round(y)}px`;
         popover.style.visibility = "visible";
     },
-    jumpToMessage(messageId) {
-        const history = document.getElementById("chat-message-history");
+    jumpToMessage(messageId, historyId = "chat-message-history", revealPanel = false) {
+        const history = document.getElementById(historyId);
         const message = Array.from(history?.querySelectorAll("[data-chat-message-id]") ?? [])
             .find(element => element.dataset.chatMessageId === String(messageId));
-        if (!history || !message) return false;
-        message.scrollIntoView({ block: "center", behavior: "smooth" });
+        if (!history || !message) {
+            if (revealPanel) document.querySelector(".chat-panel")?.classList.remove("chat-panel-positioning");
+            return false;
+        }
+        // Position before revealing a newly opened panel, without animating from its old scroll offset.
+        message.scrollIntoView({ block: "center", behavior: "instant" });
+        if (revealPanel) document.querySelector(".chat-panel")?.classList.remove("chat-panel-positioning");
         message.classList.remove("chat-reply-highlight");
         void message.offsetWidth;
         message.classList.add("chat-reply-highlight");

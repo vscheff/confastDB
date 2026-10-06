@@ -256,6 +256,71 @@ short status message. Invisible appears Offline to other users and hides the
 custom status from them. The selected presence preference and custom status
 survive sign-out; actual Online and Idle state always requires a live client.
 
+## Chat GIF provider
+
+The chat GIF picker uses GIPHY. Configure `Giphy:ApiKey` through .NET User Secrets
+for Development, or `Giphy__ApiKey` in the deployment environment. For example:
+
+```powershell
+dotnet user-secrets set "Giphy:ApiKey" "YOUR_GIPHY_API_KEY" --project src/Confast.Web
+```
+
+Use a key intended for the web integration: GIPHY requires direct browser API
+requests, so this key is visible to users of the picker. No key is committed in
+application settings. Without a key the GIF tab explains that search is unavailable;
+Emoji continues to work. Search uses a PG-13 rating filter. Favorites are private to
+each user and persist in PostgreSQL as GIF IDs. Messages also store IDs rather than
+media URLs or downloaded GIFs, and display a fallback when GIPHY cannot resolve them.
+Apply the `AddChatGifs` migration before running the updated app.
+
+The GIF tab initially shows categories only. Selecting a category, searching, or
+opening Favorites replaces the categories with results; the Categories button
+returns to the initial screen. Blank searches return to categories without an API call.
+Category image URLs are selected once and saved in
+`src/Confast.Web/App_Data/chat-gif-category-backgrounds.json`, shared across users
+and retained across application restarts. Keep that file between deployments and
+allow the app to write to `App_Data`. Once saved, category backgrounds are not
+searched again.
+
+Search pages and individual GIF metadata now persist in PostgreSQL (apply the
+`AddChatGifCache` migration). Search keys use trimmed, case-insensitive text, page
+offset/size, PG-13 rating, and English language. Successful pages, including empty
+results, are fresh for `Giphy:SearchCacheLifetimeHours` (default 168, or seven days);
+stale pages refresh on demand if request budget permits. If the refresh fails or
+the budget is low, the existing page is returned without changing its cache age.
+Errors are not cached. Identical
+concurrent searches share the first lookup within one application process.
+Search results populate the shared GIF metadata cache, so sending a selected GIF,
+reopening its chat, or viewing it in Favorites requires no further API lookup.
+Older uncached GIF IDs are resolved once on demand and then saved. Cached Favorites
+remain visible if another uncached favorite cannot be resolved. GIF image bytes
+still load directly from GIPHY's CDN, and removed/broken images may become unavailable.
+This deliberately retains media URLs; GIPHY's published guidelines require explicit
+approval and revalidation for media caching. The application does not automatically
+expire chat GIF metadata or download GIF files. Successful search refreshes update
+metadata for returned GIFs; previously sent GIFs remain cached regardless of search age.
+
+Apply `AddChatGifRequestBudget` for persisted API usage accounting. Configure
+`Giphy:HourlyRequestLimit` (default 100) and `Giphy:RefreshRequestReserve` (default 20)
+to match the API key's actual allowance. Request admission uses a rolling 60-minute
+window shared across users and application instances. Stale refreshes stop when
+remaining capacity reaches the reserve. Uncached searches and GIF ID lookups always
+query the provider, even above the local limit, so the cache can continue growing;
+they still count toward usage and may encounter GIPHY's own rate limit.
+Category initialization searches also count toward usage.
+Cached responses and GIF image downloads do not consume this API budget.
+Search attempts are reserved before invoking the browser; each batched ID lookup
+reserves one request immediately before fetching. Failed/aborted attempts count
+conservatively, and a search reservation is not refunded if the browser cannot
+send it (for example, a disconnected circuit or missing key). Usage records are
+retained for seven days in `chat_gif_api_requests`; grouping `requested_at_utc` by
+UTC hour gives historical hourly counts. Calls made outside this application's
+database are not included, so the configured limit is a local safety budget,
+not an authoritative reading of GIPHY's remaining quota.
+
+Clicking a GIF sends it immediately to the current conversation or thread, with the
+current reply target. Text drafts, uploads, and scheduled text remain in the composer.
+
 ## Integration tests
 
 The integration tests use PostgreSQL because they exercise PostgreSQL-specific

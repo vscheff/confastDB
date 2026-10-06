@@ -1,0 +1,41 @@
+@using Confast.Web.Features.Chat
+@implements IDisposable
+@inject ChatService Chat
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject ILogger<ChatGifImage> Logger
+@if (gif is not null)
+{
+    <button type="button" class="chat-gif-image-button" aria-label="Expand @gif.Title" @onclick="ExpandAsync">
+        <img src="@gif.Url" alt="@gif.Title" loading="lazy" @onerror="() => gif = null" />
+    </button>
+}
+else { <span>@(loaded ? "GIF unavailable" : "Loading GIF…")</span> }
+@code {
+    [Parameter, EditorRequired] public string GiphyId { get; set; } = string.Empty;
+    [Parameter] public EventCallback<ChatGif> Expanded { get; set; }
+    private Task ExpandAsync() => gif is null ? Task.CompletedTask : Expanded.InvokeAsync(gif);
+    private ChatGif? gif;
+    private bool loaded;
+    private string? resolvedId;
+    private DotNetObjectReference<ChatService> requestBudget = null!;
+    protected override void OnInitialized() => requestBudget = DotNetObjectReference.Create(Chat);
+    public void Dispose() => requestBudget.Dispose();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (resolvedId == GiphyId) return;
+        var id = GiphyId;
+        resolvedId = id;
+        try
+        {
+            var result = await Chat.ResolveGifsAsync(new[] { id }, ids => JS.InvokeAsync<ChatGifResult>("confastChatGifs.byIds", Configuration["Giphy:ApiKey"], ids, requestBudget).AsTask());
+            if (id == GiphyId) gif = result.Gifs.FirstOrDefault();
+        }
+        catch (UnauthorizedAccessException) { }
+        catch (InvalidOperationException ex) { Logger.LogWarning(ex, "Invalid chat GIF metadata."); }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not resolve a chat GIF."); }
+        loaded = true;
+        StateHasChanged();
+    }
+}

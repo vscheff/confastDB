@@ -12,7 +12,7 @@ namespace Confast.Web.Features.Chat;
 public sealed record ChatUser(string Id, string Name, string? UserName = null);
 public sealed record ChatConversationRow(long Id, ConversationKind Kind, ChannelVisibility? Visibility,
     string Name, DateTime ActivityAtUtc, int UnreadCount, bool HasUnreadMention, bool IsOwner,
-    long? ChannelGroupId, int ChannelSortOrder, string? OtherUserId, bool IsManuallyUnread, string? Topic = null);
+    long? ChannelGroupId, int ChannelSortOrder, string? OtherUserId, bool IsManuallyUnread, string? Topic = null, DateTime? PinnedToTopAtUtc = null);
 public sealed record ChatChannelGroupRow(long Id, string Name, long? ParentGroupId, int SortOrder, bool CanManage);
 public sealed record ChatChannelThreadRow(long Id, long ConversationId, string Title, string CreatedByName,
     DateTime CreatedAtUtc, DateTime LastMessageAtUtc, int MessageCount, string? LatestMessage,
@@ -21,7 +21,7 @@ public sealed record ChatMessageRow(long Id, ChatMessageType Type, string? Sende
     DateTime SentAtUtc, DateTime? EditedAtUtc, bool IsDeleted, DateTime? PinnedAtUtc,
     IReadOnlyList<ChatReactionRow> Reactions, IReadOnlyList<ChatMessagePart> Parts,
     long? ReplyToMessageId, string? ReplyToSenderUserId, string? ReplyToSenderName, string? ReplyToBody,
-    IReadOnlyList<ChatAttachmentRow> Attachments, long? ChannelThreadId = null, ChatPollRow? Poll = null);
+    IReadOnlyList<ChatAttachmentRow> Attachments, long? ChannelThreadId = null, ChatPollRow? Poll = null, string? GiphyId = null);
 public sealed record ChatAttachmentRow(long Id, string FileName, ChatAttachmentKind Kind, int Size, string? Text);
 public sealed record ChatAttachmentUpload(string FileName, byte[] Content);
 public sealed record ChatAttachmentFile(string FileName, string ContentType, ChatAttachmentKind Kind, byte[] Content);
@@ -35,22 +35,24 @@ public sealed record ChatThread(ChatConversationRow Conversation, IReadOnlyList<
 // A reconnect always reloads persisted state; events are hints, not the source of truth.
 public sealed class ChatNotifications(ILogger<ChatNotifications> logger)
 {
-    private readonly ConcurrentDictionary<Guid, (string UserId, Action Callback)> subscriptions = new();
+    private readonly ConcurrentDictionary<Guid, (string UserId, Action<long?> Callback)> subscriptions = new();
 
-    public IDisposable Subscribe(string userId, Action callback)
+    public IDisposable Subscribe(string userId, Action callback) => Subscribe(userId, _ => callback());
+
+    public IDisposable Subscribe(string userId, Action<long?> callback)
     {
         var key = Guid.NewGuid();
         subscriptions[key] = (userId, callback);
         return new Subscription(() => subscriptions.TryRemove(key, out _));
     }
 
-    public void Publish(IEnumerable<string> userIds)
+    public void Publish(IEnumerable<string> userIds, long? incomingMessageId = null)
     {
         var recipients = userIds.ToHashSet(StringComparer.Ordinal);
         foreach (var (key, subscription) in subscriptions)
         {
             if (!recipients.Contains(subscription.UserId)) continue;
-            try { subscription.Callback(); }
+            try { subscription.Callback(incomingMessageId); }
             catch (Exception ex)
             {
                 // A disconnected circuit must not make a committed send look like a failure.
@@ -70,7 +72,9 @@ public sealed partial class ChatService(
     IDbContextFactory<AppDbContext> dbFactory,
     ICurrentUser currentUser,
     ChatNotifications notifications,
-    TimeProvider clock)
+    TimeProvider clock,
+    Microsoft.Extensions.Options.IOptions<ChatGifCacheOptions>? gifCacheOptions = null,
+    ILogger<ChatService>? logger = null)
 {
     public static readonly TimeSpan ChannelThreadActiveFor = TimeSpan.FromDays(3);
     private sealed record ResolvedMentions(string Body, IReadOnlySet<string> Recipients, IReadOnlyList<ChatMentionToken> Tags);
@@ -98,6 +102,7 @@ public sealed partial class ChatService(
             FROM chat_conversations AS channel
             WHERE channel.kind = {(int)ConversationKind.Channel}
                 AND channel.visibility = {(int)ChannelVisibility.Public}
+                AND channel.deleted_at_utc IS NULL
                 AND NOT EXISTS (
                     SELECT 1 FROM chat_conversation_members AS member
                     WHERE member.conversation_id = channel.id AND member.user_id = {userId})
@@ -309,7 +314,7 @@ public sealed partial class ChatService(
                     ? m.Conversation.Members.OrderBy(x => x.UserId == userId)
                         .Select(x => x.UserId).FirstOrDefault()
                     : null,
-                m.IsManuallyUnread, m.Conversation.Topic))
+                m.IsManuallyUnread, m.Conversation.Topic, m.PinnedToTopAtUtc))
             .ToListAsync(cancellationToken);
     }
 
@@ -391,11 +396,11 @@ public sealed partial class ChatService(
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         var group = await RequireManageableGroupAsync(db, groupId, userId, cancellationToken);
-        var nextOrder = await NextSiblingOrderAsync(db, group.ParentGroupId, cancellationToken);
+        var nextOrder = await NextSiblingOrderAsync(db, null, cancellationToken);
         var children = await db.ChatChannelGroups.Where(x => x.ParentGroupId == groupId).ToListAsync(cancellationToken);
         var channels = await db.ChatConversations.Where(x => x.ChannelGroupId == groupId).ToListAsync(cancellationToken);
         foreach (var item in OrderedItems(children, channels, groupId))
-            item.MoveTo(group.ParentGroupId, nextOrder++);
+            item.MoveTo(null, nextOrder++);
         db.ChatChannelGroups.Remove(group);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -797,12 +802,7 @@ public sealed partial class ChatService(
         var mentions = await ResolveMentionsAsync(db, conversationId, userId, initialMessage, now, cancellationToken);
         if (mentions.Body.Length is < 1 or > 4000)
             throw new InvalidOperationException("The first thread message must be 1 to 4000 characters.");
-        db.ChatMessages.AddRange(new ChatMessage
-        {
-            ConversationId = conversationId, ChannelThreadId = channelThread.Id,
-            SenderUserId = userId, Type = ChatMessageType.ThreadNotice,
-            Body = "started a thread", SentAtUtc = now
-        }, new ChatMessage
+        var firstMessage = new ChatMessage
         {
             ConversationId = conversationId, ChannelThreadId = channelThread.Id,
             SenderUserId = userId, Type = ChatMessageType.Text,
@@ -812,7 +812,13 @@ public sealed partial class ChatService(
             {
                 Start = token.Start, Length = token.Length, Kind = token.Kind, UserId = token.UserId
             }).ToList()
-        });
+        };
+        db.ChatMessages.AddRange(new ChatMessage
+        {
+            ConversationId = conversationId, ChannelThreadId = channelThread.Id,
+            SenderUserId = userId, Type = ChatMessageType.ThreadNotice,
+            Body = "started a thread", SentAtUtc = now
+        }, firstMessage);
         try { await db.SaveChangesAsync(cancellationToken); }
         catch (DbUpdateException exception) when (IsCharacterEncodingFailure(exception))
         {
@@ -825,7 +831,7 @@ public sealed partial class ChatService(
         var recipients = await db.ChatConversationMembers.AsNoTracking()
             .Where(x => x.ConversationId == conversationId).Select(x => x.UserId)
             .ToListAsync(cancellationToken);
-        notifications.Publish(recipients);
+        notifications.Publish(recipients, firstMessage.Id);
         return channelThread.Id;
     }
 
@@ -913,7 +919,7 @@ public sealed partial class ChatService(
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUser == null
                     ? "System" : x.ReplyToMessage.SenderUser.DisplayName,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.DeletedAtUtc == null
-                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null))
+                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null, x.GiphyId))
             .ToListAsync(cancellationToken);
         var messageIds = messages.Select(x => x.Id).ToArray();
         var polls = await ReadPollsAsync(db, messageIds, userId, cancellationToken);
@@ -1042,14 +1048,18 @@ public sealed partial class ChatService(
         await transaction.CommitAsync(cancellationToken);
         if (scheduledAtUtc is null)
             notifications.Publish(await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId)
-                .Select(x => x.UserId).ToArrayAsync(cancellationToken));
+                .Select(x => x.UserId).ToArrayAsync(cancellationToken), id);
         return id;
     }
 
     private async Task<long> SaveOutgoingMessageAsync(AppDbContext db, string userId, long conversationId,
         string body, IReadOnlyList<ChatAttachmentUpload> attachments, long? replyToMessageId,
-        long? channelThreadId, DateTime? scheduledAtUtc, bool markSenderRead, CancellationToken cancellationToken)
+        long? channelThreadId, DateTime? scheduledAtUtc, bool markSenderRead, CancellationToken cancellationToken, string? giphyId = null)
     {
+        var activeConversation = await db.ChatConversations.FromSqlInterpolated($"""
+            SELECT * FROM chat_conversations WHERE id = {conversationId} FOR SHARE
+            """).AnyAsync(cancellationToken);
+        if (!activeConversation) throw new UnauthorizedAccessException("This conversation is no longer available.");
         body = body.Trim();
         if (attachments.Count > ChatAttachmentTypes.MaximumFilesPerMessage)
             throw new InvalidOperationException($"A message can include at most {ChatAttachmentTypes.MaximumFilesPerMessage} files.");
@@ -1107,7 +1117,7 @@ public sealed partial class ChatService(
         var message = new ChatMessage
         {
             ConversationId = conversationId, ChannelThreadId = channelThreadId,
-            SenderUserId = userId, Body = mentions.Body,
+            SenderUserId = userId, Body = mentions.Body, GiphyId = giphyId,
             ReplyToMessageId = replyToMessageId,
             SentAtUtc = now, Type = ChatMessageType.Text,
             Attachments = messageAttachments,
@@ -1460,6 +1470,8 @@ public sealed partial class ChatService(
             throw new UnauthorizedAccessException("You can only edit your own messages in conversations you belong to.");
         if (message.DeletedAtUtc is not null)
             throw new InvalidOperationException("Deleted messages cannot be edited.");
+        if (message.GiphyId is not null)
+            throw new InvalidOperationException("GIF messages cannot be edited. Delete the message to remove it.");
         if (message.Body == body) return;
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);

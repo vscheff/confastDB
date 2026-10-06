@@ -1,6 +1,7 @@
 using Confast.Web.Features.Chat;
 using Confast.Web.Features.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Tests;
 
@@ -8,6 +9,222 @@ namespace Confast.Web.Tests;
 public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
     private readonly ChatNotifications notifications = new(NullLogger<ChatNotifications>.Instance);
+
+    private static ChatGif CachedGif(string id) => new(id, "Test GIF", $"https://media.giphy.com/{id}/preview.gif",
+        $"https://media.giphy.com/{id}/image.gif", $"https://giphy.com/gifs/{id}", "GIPHY");
+
+    private ChatService GifService(string userId, TimeProvider time, int limit = 100, int reserve = 20) =>
+        new(database, new TestCurrentUser(userId), notifications, time,
+            Microsoft.Extensions.Options.Options.Create(new ChatGifCacheOptions
+            { SearchCacheLifetimeHours = 1, HourlyRequestLimit = limit, RefreshRequestReserve = reserve }));
+
+    [Fact]
+    public async Task GifCache_RefreshesExpiredPagesAndMetadataButServesFreshPagesWithoutSpendingBudget()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero));
+        var chat = GifService(owner, time);
+        await chat.ResolveGifSearchAsync("hello", 0, 24, () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 1, null)));
+        time.Now += TimeSpan.FromMinutes(59);
+        await GifService(member, time).ResolveGifSearchAsync("hello", 0, 24, () => throw new Exception("Fresh page fetched"));
+        time.Now += TimeSpan.FromMinutes(1);
+        var updated = CachedGif("abc123") with { Title = "Refreshed title" };
+        var refreshed = await GifService(member, time).ResolveGifSearchAsync("hello", 0, 24,
+            () => Task.FromResult(new ChatGifResult([updated, CachedGif("def456")], 2, null)));
+        Assert.Equal(2, refreshed.Total);
+        Assert.Equal("Refreshed title", (await chat.ResolveGifsAsync(["abc123"], _ => throw new Exception("Cached image fetched"))).Gifs[0].Title);
+        await chat.ResolveGifSearchAsync("hello", 0, 24, () => throw new Exception("Refreshed page fetched again"));
+        await using var db = database.CreateDbContext();
+        var requests = await db.Set<ChatGifApiRequest>().OrderBy(x => x.RequestedAtUtc).ToArrayAsync();
+        Assert.Equal(2, requests.Length);
+        Assert.False(requests[0].IsRefresh);
+        Assert.True(requests[1].IsRefresh);
+    }
+
+    [Fact]
+    public async Task GifCache_PreservesReserveForMissesAndResumesRefreshingAfterRollingHour()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(new DateTimeOffset(2026, 10, 6, 12, 30, 0, TimeSpan.Zero));
+        var chat = GifService(owner, time, limit: 3, reserve: 1);
+        await chat.ResolveGifSearchAsync("hello", 0, 24, () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 1, null)));
+        // Age the stored page while retaining a recent request in the rolling window.
+        await using (var db = database.CreateDbContext())
+            await db.Set<ChatGifSearchPage>().ExecuteUpdateAsync(x => x.SetProperty(p => p.CachedAtUtc, time.Now.UtcDateTime.AddHours(-2)));
+        var other = GifService(member, time, limit: 3, reserve: 1);
+        await other.RecordGifRequestAsync();
+        time.Now += TimeSpan.FromMinutes(31); // Crossing 13:00 does not reset the budget.
+        var stale = await chat.ResolveGifSearchAsync("hello", 0, 24, () => throw new Exception("Reserve spent on refresh"));
+        Assert.Equal("abc123", Assert.Single(stale.Gifs).Id);
+        Assert.Null(stale.Error);
+        await other.ResolveGifSearchAsync("new", 0, 24, () => Task.FromResult(new ChatGifResult([], 0, null)));
+        await chat.RecordGifRequestAsync();
+        var uncached = await chat.ResolveGifSearchAsync("another", 0, 24,
+            () => Task.FromResult(new ChatGifResult([CachedGif("def456")], 1, null)));
+        Assert.Null(uncached.Error); // Cache misses still fetch after exceeding the hourly budget.
+        await chat.ResolveGifSearchAsync("hello", 0, 24, () => throw new Exception("Refresh exceeded budget"));
+        time.Now += TimeSpan.FromHours(1); // All recent requests leave the rolling window.
+        var refreshed = await chat.ResolveGifSearchAsync("hello", 0, 24,
+            () => Task.FromResult(new ChatGifResult([CachedGif("def456")], 1, null)));
+        Assert.Equal("def456", Assert.Single(refreshed.Gifs).Id);
+    }
+
+    [Fact]
+    public async Task GifCache_FailedRefreshRetainsResultsAndOriginalCacheTimestamp()
+    {
+        var (owner, _, _) = await UsersAsync();
+        var time = new MutableTimeProvider(new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero));
+        var chat = GifService(owner, time);
+        await chat.ResolveGifSearchAsync("hello", 0, 24, () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 1, null)));
+        time.Now += TimeSpan.FromHours(2);
+        var fallback = await chat.ResolveGifSearchAsync("hello", 0, 24, () => Task.FromResult(new ChatGifResult([], 0, "429")));
+        Assert.Single(fallback.Gifs);
+        Assert.Null(fallback.Error);
+        Assert.Single((await chat.ResolveGifSearchAsync("hello", 0, 24,
+            () => throw new Microsoft.JSInterop.JSException("Disconnected"))).Gifs);
+        await using var db = database.CreateDbContext();
+        Assert.Equal(time.Now.UtcDateTime.AddHours(-2), (await db.Set<ChatGifSearchPage>().SingleAsync()).CachedAtUtc);
+        Assert.Equal(3, await db.Set<ChatGifApiRequest>().CountAsync());
+    }
+
+    [Fact]
+    public async Task GifBudget_RecordsEveryConcurrentUncachedRequestEvenAboveBudget()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero));
+        await Task.WhenAll(Enumerable.Range(0, 16).Select(i =>
+            GifService(i % 2 == 0 ? owner : member, time, limit: 5, reserve: 2).RecordGifRequestAsync()));
+        await using var db = database.CreateDbContext();
+        Assert.Equal(16, await db.Set<ChatGifApiRequest>().CountAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => GifService("missing", time).RecordGifRequestAsync());
+    }
+
+    [Fact]
+    public async Task GifBudget_ConcurrentStaleRefreshesCannotConsumeTheReserve()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(new DateTimeOffset(2026, 10, 6, 12, 0, 0, TimeSpan.Zero));
+        var chat = GifService(owner, time, limit: 9, reserve: 1);
+        for (var i = 0; i < 6; i++)
+            await chat.ResolveGifSearchAsync("query" + i, 0, 24,
+                () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 1, null)));
+        await using (var db = database.CreateDbContext())
+            await db.Set<ChatGifSearchPage>().ExecuteUpdateAsync(x => x.SetProperty(p => p.CachedAtUtc, time.Now.UtcDateTime.AddHours(-2)));
+        var refreshes = 0;
+        await Task.WhenAll(Enumerable.Range(0, 6).Select(i => GifService(i % 2 == 0 ? owner : member, time, limit: 9, reserve: 1)
+            .ResolveGifSearchAsync("query" + i, 0, 24, async () =>
+            {
+                Interlocked.Increment(ref refreshes);
+                await Task.Delay(20);
+                return new ChatGifResult([CachedGif("def456")], 1, null);
+            })));
+        Assert.Equal(2, refreshes);
+        await using var finalDb = database.CreateDbContext();
+        Assert.Equal(8, await finalDb.Set<ChatGifApiRequest>().CountAsync());
+        Assert.Equal(2, await finalDb.Set<ChatGifApiRequest>().CountAsync(x => x.IsRefresh));
+    }
+
+    [Fact]
+    public async Task GifCache_SharesSearchPagesAndMetadataAcrossUsersAndConcurrentRequests()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var calls = 0;
+        async Task<ChatGifResult> Fetch()
+        {
+            Interlocked.Increment(ref calls);
+            await Task.Delay(20);
+            return new([CachedGif("abc123"), CachedGif("def456")], 99, null);
+        }
+        var results = await Task.WhenAll(Service(owner).ResolveGifSearchAsync(" LOL ", 0, 24, Fetch),
+            Service(member).ResolveGifSearchAsync("lol", 0, 24, Fetch));
+        Assert.Equal(1, calls);
+        Assert.All(results, x => Assert.Equal(["abc123", "def456"], x.Gifs.Select(g => g.Id)));
+        var page = await Service(member).ResolveGifSearchAsync("LOL", 0, 24, () => throw new Exception("Cache miss"));
+        Assert.Equal(99, page.Total);
+        var images = await Service(member).ResolveGifsAsync(["def456", "abc123"], _ => throw new Exception("API must not be called"));
+        Assert.Equal(["def456", "abc123"], images.Gifs.Select(x => x.Id));
+        await Service(owner).ResolveGifSearchAsync("lol", 24, 24, Fetch);
+        await Service(owner).ResolveGifSearchAsync("lol", 0, 1, () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 99, null)));
+        Assert.Equal(2, calls);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service("missing-user").ResolveGifSearchAsync("lol", 0, 24, Fetch));
+    }
+
+    [Fact]
+    public async Task GifCache_DoesNotPersistFailuresOrUntrustedUrlsAndCachesEmptySearches()
+    {
+        var (owner, _, _) = await UsersAsync();
+        var chat = Service(owner);
+        await chat.ResolveGifSearchAsync("retry", 0, 24, () => Task.FromResult(new ChatGifResult([], 0, "Rate limit")));
+        var invalid = CachedGif("abc123") with { Url = "https://evil.example/test.gif" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.ResolveGifSearchAsync("retry", 0, 24,
+            () => Task.FromResult(new ChatGifResult([invalid], 1, null))));
+        var good = await chat.ResolveGifSearchAsync("retry", 0, 24,
+            () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 1, null)));
+        Assert.Single(good.Gifs);
+        await chat.ResolveGifSearchAsync("nothing", 0, 24, () => Task.FromResult(new ChatGifResult([], 0, null)));
+        Assert.Empty((await chat.ResolveGifSearchAsync("nothing", 0, 24, () => throw new Exception("Empty page wasn't cached"))).Gifs);
+    }
+
+    [Fact]
+    public async Task GifCache_ResolvesOnlyMissingIdsAndKeepsCachedFavoritesDuringRateLimits()
+    {
+        var (owner, _, _) = await UsersAsync();
+        var chat = Service(owner);
+        await chat.ResolveGifsAsync(["abc123"], ids => Task.FromResult(new ChatGifResult([CachedGif(ids[0])], 1, null)));
+        var partial = await chat.ResolveGifsAsync(["abc123", "def456"], ids =>
+        {
+            Assert.Equal(["def456"], ids);
+            return Task.FromResult(new ChatGifResult([], 0, "Rate limit"));
+        });
+        Assert.Equal("abc123", Assert.Single(partial.Gifs).Id);
+        Assert.Equal("Rate limit", partial.Error);
+        await chat.ResolveGifsAsync(["def456"], ids => Task.FromResult(new ChatGifResult([CachedGif(ids[0])], 1, null)));
+        Assert.Equal(2, (await Service(owner).ResolveGifsAsync(["abc123", "def456"], _ => throw new Exception("Cache miss"))).Gifs.Length);
+    }
+
+    [Fact]
+    public async Task GifFavorites_ArePrivatePersistentAndIdempotent()
+    {
+        var (owner, member, _) = await UsersAsync();
+        await Task.WhenAll(Service(owner).SetGifFavoriteAsync("abc123", true), Service(owner).SetGifFavoriteAsync("abc123", true));
+        Assert.Equal(["abc123"], await Service(owner).GetGifFavoritesAsync());
+        Assert.Empty(await Service(member).GetGifFavoritesAsync());
+        await Service(member).SetGifFavoriteAsync("abc123", true);
+        await Service(owner).SetGifFavoriteAsync("abc123", false);
+        await Service(owner).SetGifFavoriteAsync("abc123", false);
+        Assert.Empty(await Service(owner).GetGifFavoritesAsync());
+        Assert.Equal(["abc123"], await Service(member).GetGifFavoritesAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(owner).SetGifFavoriteAsync("https://example.com/file.gif", true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service("missing-user").GetGifFavoritesAsync());
+    }
+
+    [Fact]
+    public async Task GifMessages_UseNormalPermissionsThreadsRepliesUnreadAndDeletion()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var chat = Service(owner);
+        var channel = await chat.CreateChannelAsync("GIFs", ChannelVisibility.Private, [member]);
+        var reply = await chat.SendAsync(channel, "Reply here");
+        var id = await chat.SendGifAsync(channel, "abc123", replyToMessageId: reply);
+        var message = Assert.Single((await Service(member).GetThreadAsync(channel)).Messages, x => x.Id == id);
+        Assert.Equal("abc123", message.GiphyId);
+        Assert.Equal(reply, message.ReplyToMessageId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.EditOwnMessageAsync(id, "Changed"));
+        Assert.True((await Service(member).GetConversationsAsync()).Single(x => x.Id == channel).UnreadCount > 0);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SendGifAsync(channel, "abc123"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.SendGifAsync(channel, "../invalid"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.SendGifAsync(channel, "abc123", channelThreadId: long.MaxValue));
+        var thread = await chat.CreateChannelThreadAsync(channel, "GIF thread", "First message");
+        var threadMessageId = await chat.SendGifAsync(channel, "def456", channelThreadId: thread);
+        Assert.Contains((await Service(member).GetThreadAsync(channel, channelThreadId: thread)).Messages,
+            x => x.Id == threadMessageId && x.GiphyId == "def456");
+        await chat.DeleteOwnMessageAsync(id);
+        Assert.DoesNotContain((await Service(member).GetThreadAsync(channel)).Messages, x => x.Id == id);
+        await using var db = database.CreateDbContext();
+        var stored = await db.ChatMessages.SingleAsync(x => x.Id == id);
+        Assert.NotNull(stored.DeletedAtUtc);
+        Assert.Equal("abc123", stored.GiphyId);
+    }
 
     public Task InitializeAsync() => database.ResetAsync();
     public Task DisposeAsync() => Task.CompletedTask;
@@ -34,6 +251,329 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
             new ApplicationUser { Id = ids.Item3, UserName = "outsider", DisplayName = "Outsider", IsActive = true });
         await db.SaveChangesAsync();
         return ids;
+    }
+
+
+    [Fact]
+    public async Task ChannelActions_PinsArePersonalAndDuplicationCopiesOnlyConfiguration()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var chat = Service(owner);
+        var source = await chat.CreateChannelAsync("Source", ChannelVisibility.Private, [member]);
+        var category = await chat.CreateChannelGroupAsync("Category", source);
+        await chat.SetChannelTopicAsync(source, "Topic");
+        await chat.SendAsync(source, "History stays in source");
+        await chat.SetChannelPinnedToTopAsync(source, true);
+        await chat.SetChannelNotificationModeAsync(source, ChatNotificationMode.Nothing);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SetChannelPinnedToTopAsync(source, true));
+        Assert.NotNull((await chat.GetConversationsAsync()).Single(x => x.Id == source).PinnedToTopAtUtc);
+        Assert.Null((await Service(member).GetConversationsAsync()).Single(x => x.Id == source).PinnedToTopAtUtc);
+        var copy = await chat.DuplicateChannelAsync(source, "Copy");
+        var row = (await chat.GetConversationsAsync()).Single(x => x.Id == copy);
+        Assert.Equal(category, row.ChannelGroupId);
+        Assert.Equal("Topic", row.Topic);
+        Assert.Null(row.PinnedToTopAtUtc);
+        Assert.Empty((await chat.GetThreadAsync(copy)).Messages);
+        Assert.Contains(await Service(member).GetConversationsAsync(), x => x.Id == copy);
+        Assert.DoesNotContain(await Service(outsider).GetConversationsAsync(), x => x.Id == copy);
+        Assert.Equal(ChatNotificationMode.CategoryDefault, (await chat.GetNotificationSettingsAsync()).Channels[copy].Mode);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).DuplicateChannelAsync(source, "Forbidden"));
+        await chat.SetChannelPinnedToTopAsync(source, false);
+        Assert.Null((await chat.GetConversationsAsync()).Single(x => x.Id == source).PinnedToTopAtUtc);
+    }
+
+    [Fact]
+    public async Task ChannelActions_CategoryEdgesAndDeletionPreserveAuditAndDenyFurtherAccess()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var chat = Service(owner);
+        var first = await chat.CreateChannelAsync("First", ChannelVisibility.Public, []);
+        var category = await chat.CreateChannelGroupAsync("Category", first);
+        var second = await chat.CreateChannelAsync("Second", ChannelVisibility.Public, [], category);
+        var third = await chat.CreateChannelAsync("Third", ChannelVisibility.Public, [], category);
+        await chat.MoveChannelToCategoryEdgeAsync(third, true);
+        Assert.Equal([third, first, second], (await chat.GetConversationsAsync()).OrderBy(x => x.ChannelSortOrder).Select(x => x.Id));
+        await chat.MoveChannelToCategoryEdgeAsync(third, false);
+        Assert.Equal([first, second, third], (await chat.GetConversationsAsync()).OrderBy(x => x.ChannelSortOrder).Select(x => x.Id));
+        var message = await chat.SendAsync(second, "Audit record");
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(member).DeleteChannelAsync(second));
+        await chat.DeleteChannelAsync(second);
+        Assert.DoesNotContain(await Service(outsider).GetConversationsAsync(), x => x.Id == second);
+        Assert.DoesNotContain(await Service(member).GetConversationsAsync(), x => x.Id == second);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.GetThreadAsync(second));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.SendAsync(second, "Forbidden"));
+        await using var db = database.CreateDbContext();
+        var deleted = await db.ChatConversations.IgnoreQueryFilters().SingleAsync(x => x.Id == second);
+        Assert.Equal(owner, deleted.DeletedByUserId);
+        Assert.NotNull(deleted.DeletedAtUtc);
+        Assert.True(await db.ChatMessages.AnyAsync(x => x.Id == message));
+    }
+
+    [Theory]
+    [InlineData(ChatNotificationMode.AllMessages, true, true, 2)]
+    [InlineData(ChatNotificationMode.MentionsAndUnreads, false, true, 2)]
+    [InlineData(ChatNotificationMode.OnlyMentions, false, true, 1)]
+    [InlineData(ChatNotificationMode.Nothing, false, false, 0)]
+    public async Task NotificationModes_FilterPopupsAndToastsWithoutChangingUnreadHistory(
+        ChatNotificationMode mode, bool ordinaryPopup, bool mentionPopup, int toastCount)
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channel = await sender.CreateChannelAsync("Notifications", ChannelVisibility.Private, [member]);
+        await recipient.SetChannelNotificationModeAsync(channel, mode);
+        var ordinary = await sender.SendAsync(channel, "Ordinary");
+        Assert.Equal(mode is ChatNotificationMode.AllMessages or ChatNotificationMode.MentionsAndUnreads ? 1 : 0,
+            (await recipient.GetNotificationUnreadCountsAsync())[channel].Count);
+        var mentioned = await sender.SendAsync(channel, "Hello @member");
+        Assert.Equal(ordinaryPopup, await recipient.GetIncomingMessagePreviewAsync(ordinary) != null);
+        Assert.Equal(mentionPopup, await recipient.GetIncomingMessagePreviewAsync(mentioned) != null);
+        var summary = await recipient.GetNotificationUnreadSummaryAsync();
+        Assert.Equal(toastCount, summary.Count);
+        Assert.Equal(summary, (await recipient.GetNotificationUnreadCountsAsync())[channel]);
+        Assert.Equal(toastCount > 0, summary.HasAlert);
+        Assert.Equal(2, await recipient.GetTotalUnreadCountAsync());
+        Assert.Equal(2, (await recipient.GetInboxMessagesAsync()).Count);
+        Assert.Equal(ChatNotificationMode.CategoryDefault,
+            (await sender.GetNotificationSettingsAsync()).Channels[channel].Mode);
+    }
+
+    [Fact]
+    public async Task NotificationCategories_DefaultsFollowMovesAndDeletionWhileOverridesRemainPersonal()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channel = await sender.CreateChannelAsync("Inherited", ChannelVisibility.Private, [member]);
+        var parent = await sender.CreateChannelGroupAsync("Parent");
+        var group = await sender.CreateChannelGroupAsync("Category", channel, parent);
+        var defaults = (await recipient.GetNotificationSettingsAsync()).Channels[channel];
+        Assert.Equal(ChatNotificationMode.CategoryDefault, defaults.Mode);
+        Assert.Equal(ChatNotificationMode.AllMessages, defaults.EffectiveMode);
+        await recipient.SetCategoryNotificationModeAsync(group, ChatNotificationMode.OnlyMentions);
+        Assert.Equal(ChatNotificationMode.OnlyMentions,
+            (await recipient.GetNotificationSettingsAsync()).Channels[channel].EffectiveMode);
+        Assert.Equal(ChatNotificationMode.AllMessages,
+            (await sender.GetNotificationSettingsAsync()).Channels[channel].EffectiveMode);
+        await recipient.SetChannelNotificationModeAsync(channel, ChatNotificationMode.Nothing);
+        await recipient.SetCategoryNotificationModeAsync(group, ChatNotificationMode.AllMessages);
+        Assert.Equal(ChatNotificationMode.Nothing,
+            (await Service(member).GetNotificationSettingsAsync()).Channels[channel].EffectiveMode);
+        await recipient.SetChannelNotificationModeAsync(channel, ChatNotificationMode.CategoryDefault);
+        await recipient.SetCategoryNotificationModeAsync(group, ChatNotificationMode.Nothing);
+        await sender.MoveChannelAsync(channel, null, null);
+        Assert.Equal(ChatNotificationMode.AllMessages,
+            (await recipient.GetNotificationSettingsAsync()).Channels[channel].EffectiveMode);
+        await sender.MoveChannelAsync(channel, group, null);
+        await sender.DeleteChannelGroupAsync(group);
+        Assert.Null((await recipient.GetConversationsAsync()).Single().ChannelGroupId);
+        Assert.DoesNotContain(group, (await recipient.GetNotificationSettingsAsync()).Categories.Keys);
+        Assert.Equal(ChatNotificationMode.AllMessages,
+            (await recipient.GetNotificationSettingsAsync()).Channels[channel].EffectiveMode);
+    }
+
+    [Theory]
+    [InlineData(15)]
+    [InlineData(60)]
+    [InlineData(180)]
+    [InlineData(480)]
+    [InlineData(1440)]
+    [InlineData(null)]
+    public async Task NotificationMute_PersistsUntilExactExpiryAndPreservesSelectedMode(int? minutes)
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var sender = Service(owner, time);
+        var recipient = Service(member, time);
+        var channel = await sender.CreateChannelAsync("Muted", ChannelVisibility.Private, [member]);
+        await recipient.SetChannelNotificationModeAsync(channel, ChatNotificationMode.MentionsAndUnreads);
+        await recipient.SetChannelMutedAsync(channel, true, minutes);
+        var id = await sender.SendAsync(channel, "@everyone hello");
+        var setting = (await Service(member, time).GetNotificationSettingsAsync()).Channels[channel];
+        Assert.True(setting.IsMuted);
+        Assert.Equal(ChatNotificationMode.MentionsAndUnreads, setting.Mode);
+        Assert.Equal(minutes is int duration ? time.Now.UtcDateTime.AddMinutes(duration) : (DateTime?)null, setting.MutedUntilUtc);
+        Assert.Null(await recipient.GetIncomingMessagePreviewAsync(id));
+        Assert.Equal(0, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+        Assert.Equal(new ChatNotificationUnreadSummary(0, false), (await recipient.GetNotificationUnreadCountsAsync())[channel]);
+        Assert.Equal(1, await recipient.GetTotalUnreadCountAsync());
+        if (minutes is int value)
+        {
+            time.Now = time.Now.AddMinutes(value).AddTicks(-10);
+            Assert.Null(await recipient.GetIncomingMessagePreviewAsync(id));
+            time.Now = time.Now.AddTicks(10);
+            Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(id));
+            Assert.False((await recipient.GetNotificationSettingsAsync()).Channels[channel].IsMuted);
+            Assert.Equal(1, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+        }
+        else
+        {
+            time.Now = time.Now.AddYears(1);
+            Assert.Null(await recipient.GetIncomingMessagePreviewAsync(id));
+        }
+        await recipient.SetChannelMutedAsync(channel, false);
+        Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(id));
+    }
+
+    [Fact]
+    public async Task NotificationCategoryMute_IncludesNestedChannelsAndLeavesOtherUsersAndModesAlone()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var first = await sender.CreateChannelAsync("First", ChannelVisibility.Private, [member]);
+        var second = await sender.CreateChannelAsync("Nested", ChannelVisibility.Private, [member]);
+        var other = await sender.CreateChannelAsync("Other", ChannelVisibility.Private, [member]);
+        var category = await sender.CreateChannelGroupAsync("Category", first);
+        await sender.CreateChannelGroupAsync("Nested Category", second, category);
+        await recipient.SetChannelNotificationModeAsync(first, ChatNotificationMode.OnlyMentions);
+        await recipient.SetCategoryNotificationModeAsync(category, ChatNotificationMode.MentionsAndUnreads);
+        await recipient.SetCategoryMutedAsync(category, true, 60);
+        var settings = await recipient.GetNotificationSettingsAsync();
+        Assert.True(settings.Categories[category].IsMuted);
+        Assert.True(settings.Channels[first].IsMuted);
+        Assert.True(settings.Channels[second].IsMuted);
+        Assert.False(settings.Channels[other].IsMuted);
+        Assert.Equal(ChatNotificationMode.OnlyMentions, settings.Channels[first].Mode);
+        Assert.Equal(ChatNotificationMode.MentionsAndUnreads, settings.Categories[category].Mode);
+        Assert.False((await sender.GetNotificationSettingsAsync()).Channels[first].IsMuted);
+        await recipient.SetChannelMutedAsync(first, false);
+        Assert.False((await recipient.GetNotificationSettingsAsync()).Channels[first].IsMuted);
+        await recipient.SetCategoryMutedAsync(category, false);
+        Assert.False((await recipient.GetNotificationSettingsAsync()).Channels[second].IsMuted);
+    }
+
+    [Fact]
+    public async Task NotificationBadgeCounts_ApplyCategoryDefaultsAndChannelOverridesWithoutClearingUnread()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var inherited = await sender.CreateChannelAsync("Inherited", ChannelVisibility.Private, [member]);
+        var explicitAll = await sender.CreateChannelAsync("All", ChannelVisibility.Private, [member]);
+        var mentionsOnly = await sender.CreateChannelAsync("Mentions", ChannelVisibility.Private, [member]);
+        var category = await sender.CreateChannelGroupAsync("Category", inherited);
+        await sender.MoveChannelAsync(explicitAll, category, null);
+        await sender.MoveChannelAsync(mentionsOnly, category, null);
+        await recipient.SetCategoryNotificationModeAsync(category, ChatNotificationMode.Nothing);
+        await recipient.SetChannelNotificationModeAsync(explicitAll, ChatNotificationMode.AllMessages);
+        await recipient.SetChannelNotificationModeAsync(mentionsOnly, ChatNotificationMode.OnlyMentions);
+        foreach (var channel in new[] { inherited, explicitAll, mentionsOnly })
+        {
+            await sender.SendAsync(channel, "Ordinary");
+            await sender.SendAsync(channel, "Hello @member");
+        }
+        var counts = await recipient.GetNotificationUnreadCountsAsync();
+        Assert.Equal(new ChatNotificationUnreadSummary(0, false), counts[inherited]);
+        Assert.Equal(new ChatNotificationUnreadSummary(2, true), counts[explicitAll]);
+        Assert.Equal(new ChatNotificationUnreadSummary(1, true), counts[mentionsOnly]);
+        Assert.Equal(3, counts.Values.Sum(x => x.Count));
+        Assert.Equal(6, await recipient.GetTotalUnreadCountAsync());
+        await recipient.SetCategoryMutedAsync(category, true);
+        Assert.All((await recipient.GetNotificationUnreadCountsAsync()).Values,
+            count => Assert.Equal(new ChatNotificationUnreadSummary(0, false), count));
+        Assert.Equal(6, await recipient.GetTotalUnreadCountAsync());
+        await recipient.SetCategoryMutedAsync(category, false);
+        Assert.Equal(3, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+    }
+
+    [Fact]
+    public async Task NotificationSettings_RejectUnauthorizedTargetsAndInvalidSelections()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var channel = await sender.CreateChannelAsync("Private", ChannelVisibility.Private, [member]);
+        var group = await sender.CreateChannelGroupAsync("Private Category", channel);
+        var other = Service(outsider);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => other.SetChannelMutedAsync(channel, true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => other.SetChannelNotificationModeAsync(channel, ChatNotificationMode.Nothing));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => other.SetCategoryMutedAsync(group, true));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => other.SetCategoryNotificationModeAsync(group, ChatNotificationMode.Nothing));
+        var direct = await sender.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => sender.SetChannelMutedAsync(direct, true));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sender.SetChannelNotificationModeAsync(channel, (ChatNotificationMode)99));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sender.SetCategoryNotificationModeAsync(group, ChatNotificationMode.CategoryDefault));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sender.SetChannelMutedAsync(channel, true, 2));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sender.SetCategoryMutedAsync(group, true, 2));
+    }
+
+    [Fact]
+    public async Task IncomingPreviews_DoNotDisturbSuppressesCardsUntilExpiryWithoutChangingUnread()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var sender = Service(owner, time);
+        var recipient = Service(member, time);
+        var presence = new UserPresenceService(database, new TestCurrentUser(member), notifications, time);
+        var channel = await sender.CreateChannelAsync("Quiet", ChannelVisibility.Private, [member]);
+        await presence.SetPreferenceAsync(UserPresencePreference.DoNotDisturb, TimeSpan.FromMinutes(15));
+        var id = await sender.SendAsync(channel, "Incoming while busy");
+        Assert.Null(await recipient.GetIncomingMessagePreviewAsync(id));
+        Assert.Equal(id, Assert.Single(await recipient.GetInboxMessagesAsync()).Id);
+        Assert.Equal(1, await recipient.GetTotalUnreadCountAsync());
+        time.Now = time.Now.AddMinutes(15);
+        Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(id));
+        await presence.SetPreferenceAsync(UserPresencePreference.DoNotDisturb);
+        time.Now = time.Now.AddDays(1);
+        Assert.Null(await recipient.GetIncomingMessagePreviewAsync(id));
+        await presence.SetPreferenceAsync(UserPresencePreference.Online);
+        Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(id));
+    }
+
+    [Fact]
+    public async Task IncomingPreviews_IdentifySendsAndRespectMembershipDeletionAndSender()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var channel = await sender.CreateChannelAsync("Previews", ChannelVisibility.Private, [member]);
+        var events = new List<long?>();
+        using var subscription = notifications.Subscribe(member, id => events.Add(id));
+        var id = await sender.SendWithAttachmentsAsync(channel, "Incoming",
+            [new("note.txt", System.Text.Encoding.UTF8.GetBytes("Attachment"))]);
+        Assert.Equal(id, Assert.Single(events));
+        var preview = Assert.IsType<ChatInboxMessage>(await recipient.GetIncomingMessagePreviewAsync(id));
+        Assert.Equal("Incoming", preview.Body);
+        Assert.Equal("Owner", preview.SenderName);
+        Assert.Equal("note.txt", Assert.Single(preview.AttachmentNames));
+        Assert.Null(await sender.GetIncomingMessagePreviewAsync(id));
+        Assert.Null(await Service(outsider).GetIncomingMessagePreviewAsync(id));
+        Assert.Equal(1, await recipient.GetTotalUnreadCountAsync());
+        await recipient.MarkMessageReadAsync(channel, id);
+        Assert.Null(events.Last());
+        Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(id));
+        await sender.DeleteOwnMessageAsync(id);
+        Assert.Null(events.Last());
+        Assert.Null(await recipient.GetIncomingMessagePreviewAsync(id));
+    }
+
+    [Fact]
+    public async Task IncomingPreviews_IncludeThreadMessagesPollsAndDeliveredSchedules()
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var sender = Service(owner, time);
+        var recipient = Service(member, time);
+        var channel = await sender.CreateChannelAsync("Previews", ChannelVisibility.Private, [member]);
+        var events = new List<long?>();
+        using var subscription = notifications.Subscribe(member, id => events.Add(id));
+        var threadId = await sender.CreateChannelThreadAsync(channel, "Thread", "First message");
+        var firstId = Assert.IsType<long>(Assert.Single(events));
+        Assert.Equal(threadId, (await recipient.GetIncomingMessagePreviewAsync(firstId))!.ChannelThreadId);
+        var reply = await sender.SendAsync(channel, "Thread reply", channelThreadId: threadId);
+        Assert.Equal(reply, events.Last());
+        Assert.Equal(threadId, (await recipient.GetIncomingMessagePreviewAsync(reply))!.ChannelThreadId);
+        var poll = await sender.CreatePollAsync(channel, "Question?", [new("Yes"), new("No")]);
+        Assert.Equal(poll, events.Last());
+        Assert.Equal("Question?", (await recipient.GetIncomingMessagePreviewAsync(poll))!.Body);
+        var count = events.Count;
+        var due = time.Now.AddMinutes(1).UtcDateTime;
+        await sender.SendWithAttachmentsAsync(channel, "Later", [], scheduledAtUtc: due);
+        Assert.Equal(count, events.Count);
+        time.Now = new DateTimeOffset(due);
+        Assert.Equal(1, await sender.DeliverDueMessagesAsync());
+        var deliveredId = Assert.IsType<long>(events.Last());
+        Assert.Equal("Later", (await recipient.GetIncomingMessagePreviewAsync(deliveredId))!.Body);
     }
 
     [Fact]

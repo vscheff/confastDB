@@ -57,7 +57,7 @@ public sealed partial class ChatService
                 .SetProperty(x => x.IsManuallyUnread, false), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         notifications.Publish(await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId)
-            .Select(x => x.UserId).ToArrayAsync(cancellationToken));
+            .Select(x => x.UserId).ToArrayAsync(cancellationToken), message.Id);
         return message.Id;
     }
 
