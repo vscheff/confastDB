@@ -3,6 +3,7 @@ using System;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Confast.Web.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261008133840_AddGroupChats")]
+    partial class AddGroupChats
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -759,20 +762,6 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("character varying(900)")
                         .HasColumnName("direct_pair_key");
 
-                    b.Property<string>("IconContentType")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("icon_content_type");
-
-                    b.Property<byte[]>("IconData")
-                        .HasColumnType("bytea")
-                        .HasColumnName("icon_data");
-
-                    b.Property<string>("IconGiphyId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("icon_giphy_id");
-
                     b.Property<int>("Kind")
                         .HasColumnType("integer")
                         .HasColumnName("kind");
@@ -810,8 +799,6 @@ namespace Confast.Web.Data.Migrations
 
                     b.ToTable("chat_conversations", null, t =>
                         {
-                            t.HasCheckConstraint("CK_chat_conversations_icon", "(icon_data IS NULL AND icon_content_type IS NULL AND icon_giphy_id IS NULL) OR (kind = 2 AND icon_data IS NOT NULL AND octet_length(icon_data) BETWEEN 1 AND 1048576 AND icon_content_type IS NOT NULL AND icon_content_type IN ('image/png', 'image/jpeg', 'image/gif', 'image/webp') AND icon_giphy_id IS NULL) OR (kind = 2 AND icon_data IS NULL AND icon_content_type IS NULL AND icon_giphy_id IS NOT NULL AND icon_giphy_id ~ '^[A-Za-z0-9]{1,100}$')");
-
                             t.HasCheckConstraint("CK_chat_conversations_shape", "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL AND channel_group_id IS NULL AND channel_sort_order = 0) OR (kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0) OR (kind = 2 AND visibility IS NULL AND (name IS NULL OR btrim(name) <> '') AND direct_pair_key IS NULL AND channel_group_id IS NULL AND channel_sort_order = 0)");
                         });
                 });

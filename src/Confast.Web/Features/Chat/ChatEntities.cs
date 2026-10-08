@@ -2,7 +2,7 @@ using Confast.Web.Features.Identity;
 
 namespace Confast.Web.Features.Chat;
 
-public enum ConversationKind { Direct, Channel }
+public enum ConversationKind { Direct, Channel, Group }
 public enum ChannelVisibility { Public, Private }
 public enum ChatMessageType { Text, PinNotice, ThreadNotice, Poll }
 
@@ -41,6 +41,9 @@ public sealed class Conversation
     public ConversationKind Kind { get; set; }
     public ChannelVisibility? Visibility { get; set; }
     public string? Name { get; set; }
+    public byte[]? IconData { get; set; }
+    public string? IconContentType { get; set; }
+    public string? IconGiphyId { get; set; }
     public string? Topic { get; set; }
     public DateTime? DeletedAtUtc { get; set; }
     public string? DeletedByUserId { get; set; }

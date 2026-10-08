@@ -6,14 +6,22 @@
 @inject ILogger<ChatGifImage> Logger
 @if (gif is not null)
 {
+    @if (IsIcon)
+    {
+        <img class="chat-gif-icon" src="@gif.PreviewUrl" alt="Group chat GIF icon" title="@($"{gif.Title} — Powered by GIPHY")" loading="lazy" @onerror="() => gif = null" />
+    }
+    else
+    {
     <button type="button" class="chat-gif-image-button" aria-label="Expand @gif.Title" @onclick="ExpandAsync">
         <img src="@gif.Url" alt="@gif.Title" loading="lazy" @onerror="() => gif = null" />
     </button>
+    }
 }
 else { <span>@(loaded ? "GIF unavailable" : "Loading GIF…")</span> }
 @code {
     [Parameter, EditorRequired] public string GiphyId { get; set; } = string.Empty;
     [Parameter] public EventCallback<ChatGif> Expanded { get; set; }
+    [Parameter] public bool IsIcon { get; set; }
     private Task ExpandAsync() => gif is null ? Task.CompletedTask : Expanded.InvokeAsync(gif);
     private ChatGif? gif;
     private bool loaded;

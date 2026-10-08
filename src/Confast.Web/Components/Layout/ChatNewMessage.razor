@@ -1,0 +1,353 @@
+@using Confast.Web.Features.Chat
+@using Confast.Web.Features.Identity
+@implements IAsyncDisposable
+@inject ChatService Chat
+@inject IJSRuntime JS
+@inject IConfiguration Configuration
+@inject ChatGifCategoryBackgrounds CategoryBackgrounds
+@inject ILogger<ChatNewMessage> Logger
+
+<section class="new-message-card" role="dialog" aria-modal="true" aria-labelledby="@TitleId" @onkeydown="HandleKeyDown" @onclick:stopPropagation>
+    <h2 id="@TitleId">@(EditingConversation is null ? "New Message" : "Edit Group Chat")</h2>
+    @if (EditingConversation is null)
+    {
+    <label for="new-message-search">Find people</label>
+    <input id="new-message-search" type="search" placeholder="Search users" @ref="searchInput" @bind="search" @bind:event="oninput" />
+    <p class="new-message-hint">You are included automatically.</p>
+    <div class="new-message-users" role="group" aria-label="Select users">
+        @foreach (var user in AvailableUsers)
+        {
+            <label @key="user.Id">
+                <span class="new-message-user-avatar" aria-hidden="true">
+                    @if (PictureUrl(user.Id) is { } url) { <img src="@url" alt="" /> }
+                    else { @Initials(user.Name) }
+                </span>
+                <span class="new-message-user-name">@user.Name</span>
+                <input type="checkbox" checked="@selected.Contains(user.Id)" disabled="@busy" @onchange="() => ToggleUser(user.Id)" />
+            </label>
+        }
+        @if (!AvailableUsers.Any()) { <p>No matching users.</p> }
+    </div>
+    <p class="new-message-hint">@selected.Count selected</p>
+    }
+    @if (selected.Count > 1 || EditingConversation is not null)
+    {
+        <div class="new-message-group-details">
+            <button type="button" class="new-message-icon-button" aria-label="Choose group chat icon" disabled="@busy" popovertarget="@IconCardId" @onclick="OpenIconCardAsync">
+                <span class="new-message-icon-circle">
+                    @if (picturePreview is not null) { <img src="@picturePreview" alt="Selected group icon" /> }
+                    else if (giphyId is not null) { <ChatGifImage GiphyId="@giphyId" IsIcon="true" /> }
+                    else if (EditingConversation is not null) { <ChatGroupIcon Conversation="PreviewConversation" PictureUrl="PictureUrl" /> }
+                </span>
+                <span class="new-message-icon-pencil" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5" /></svg></span>
+            </button>
+            <div class="new-message-name-field">
+                <label for="@NameId">Chat name</label>
+                <input id="@NameId" @ref="nameInput" autofocus="@(EditingConversation is not null)" maxlength="120" placeholder="Use members’ names" disabled="@busy" @bind="name" @bind:event="oninput" />
+            </div>
+        </div>
+        <section id="@IconCardId" class="new-message-icon-card" popover="manual" aria-label="Group chat icon" @onkeydown:stopPropagation>
+            <div class="new-message-icon-heading">
+                <h2>@(showPictureEditor ? "Edit Icon Picture" : "Change Icon")</h2>
+                <button type="button" class="new-message-icon-close" aria-label="Close icon card" disabled="@busy" popovertarget="@IconCardId" popovertargetaction="hide" @onclick="CancelPictureCropAsync"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6" /></svg></button>
+            </div>
+            @if (showPictureEditor)
+            {
+                <canvas id="@PictureCanvasId" class="new-message-picture-canvas" width="600" height="600" tabindex="0" aria-label="Drag to position the picture, or use the arrow keys"></canvas>
+                <div class="new-message-picture-zoom">
+                    <span aria-hidden="true">−</span>
+                    <input id="@PictureZoomId" type="range" min="1" max="4" step="0.01" value="1" aria-label="Zoom group icon" disabled="@busy" />
+                    <span aria-hidden="true">＋</span>
+                </div>
+                <div class="new-message-picture-actions">
+                    <button type="button" class="button button-secondary" disabled="@busy" @onclick="ResetPictureCropAsync">Reset</button>
+                    <button type="button" class="button button-secondary" disabled="@busy" @onclick="CancelPictureCropAsync">Cancel</button>
+                    <button type="button" class="button button-primary" disabled="@busy" @onclick="ApplyPictureCropAsync">@(busy ? "Preparing…" : "Apply")</button>
+                </div>
+            }
+            else
+            {
+            <div class="new-message-icon-options">
+                <div class="new-message-upload-option">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3H5v18h10M14 3v5h5M14 3l5 5v5M16 18h6M19 15v6M7 15l3-4 3 4" /></svg>
+                    <span>Upload Image</span>
+                    <InputFile id="@PictureInputId" aria-label="Upload Image" autofocus OnChange="UploadIconAsync" accept="image/png,image/jpeg,image/gif,image/webp" disabled="@busy" />
+                </div>
+                <button type="button" class="new-message-gif-option" disabled="@busy" aria-expanded="@showGifPicker" @onclick="() => showGifPicker = !showGifPicker">
+                    <span class="new-message-gif-examples" aria-hidden="true">
+                        @foreach (var category in IconExampleCategories)
+                        {
+                            <span>@if (exampleCovers.TryGetValue(category, out var cover)) { <img src="@cover" alt="" /> }</span>
+                        }
+                    </span>
+                    <span class="new-message-gif-option-label"><span class="new-message-gif-badge" aria-hidden="true">GIF</span> Choose GIF</span>
+                </button>
+            </div>
+            <span class="new-message-example-attribution">Powered By GIPHY</span>
+            @if (picture is not null || giphyId is not null || (!iconChanged && EditingConversation?.HasIconPicture == true)) { <button type="button" class="button button-secondary new-message-remove-icon" disabled="@busy" @onclick="RemoveIconAsync">Remove Icon</button> }
+            <p class="new-message-hint">PNG, JPEG, GIF, or WebP. Pictures are resized and compressed automatically.</p>
+            @if (showGifPicker) { <div class="new-message-gif-picker"><ChatGifPicker SelectionVerb="Use" Selected="SelectGifAsync" /></div> }
+            }
+            @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
+        </section>
+    }
+    @if (matches.Count > 0)
+    {
+        <section id="new-message-existing-card" class="new-message-existing-card" popover="auto" role="dialog" aria-labelledby="new-message-existing-title" @onkeydown:stopPropagation>
+            <h2 id="new-message-existing-title">Existing Conversation</h2>
+            <p>You already have a group chat with these people. Open it below, or start a new conversation.</p>
+            <div class="new-message-existing-list">
+            @foreach (var match in matches)
+            {
+                <button type="button" class="new-message-existing-chat" aria-label="Open conversation: @match.Name" disabled="@busy" @onclick="() => Created.InvokeAsync(match.Id)">
+                    <span class="new-message-existing-icon" aria-hidden="true">
+                        <ChatGroupIcon Conversation="match" PictureUrl="PictureUrl" />
+                    </span>
+                    <span class="new-message-existing-name" title="@match.Name">@match.Name</span>
+                </button>
+            }
+            </div>
+            @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
+            <div class="new-message-actions">
+                <button type="button" class="button button-secondary" autofocus disabled="@busy" popovertarget="new-message-existing-card" popovertargetaction="hide">Cancel</button>
+                <button type="button" class="button button-primary" disabled="@busy" @onclick="() => StartMessageAsync(createAnother: true)">New Conversation</button>
+            </div>
+        </section>
+    }
+    @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
+    <div class="new-message-actions">
+        <button type="button" class="button button-secondary" disabled="@busy" @onclick="Closed">Cancel</button>
+        <button type="button" class="button button-primary" disabled="@(busy || showPictureEditor || (EditingConversation is null && selected.Count == 0))" @onclick="CreateAsync">@(EditingConversation is null ? "Create Message" : "Save")</button>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ChatUser> Users { get; set; } = [];
+    [Parameter, EditorRequired] public string CurrentUserId { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public Func<string, string?> PictureUrl { get; set; } = _ => null;
+    [Parameter] public EventCallback<long> Created { get; set; }
+    [Parameter] public EventCallback Closed { get; set; }
+    [Parameter] public ChatConversationRow? EditingConversation { get; set; }
+    private bool iconChanged;
+    private long? initializedConversationId;
+    private string TitleId => EditingConversation is null ? "new-message-title" : "edit-group-title";
+    private string NameId => EditingConversation is null ? "new-message-name" : "edit-group-name";
+    private string IconCardId => EditingConversation is null ? "new-message-icon-card" : "edit-group-icon-card";
+    private string PictureInputId => IconCardId + "-input";
+    private string PictureCanvasId => IconCardId + "-canvas";
+    private string PictureZoomId => IconCardId + "-zoom";
+    private bool showPictureEditor, pictureEditorNeedsMount, pictureEditorPrepared;
+    private ChatConversationRow PreviewConversation => iconChanged
+        ? EditingConversation! with { HasIconPicture = false, IconGiphyId = null }
+        : EditingConversation!;
+
+    protected override void OnParametersSet()
+    {
+        if (EditingConversation is not { } conversation || initializedConversationId == conversation.Id) return;
+        initializedConversationId = conversation.Id;
+        name = conversation.UsesDefaultName ? string.Empty : conversation.Name;
+        giphyId = conversation.IconGiphyId;
+    }
+    private readonly HashSet<string> selected = new(StringComparer.Ordinal);
+    private IEnumerable<ChatUser> AvailableUsers => Users.Where(x => x.Id != CurrentUserId && x.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+    private string search = string.Empty;
+    private string name = string.Empty;
+    private byte[]? picture;
+    private string? picturePreview;
+    private string? giphyId;
+    private bool busy;
+    private bool showGifPicker;
+    private string? error;
+    private IReadOnlyList<ChatConversationRow> matches = [];
+    private ElementReference searchInput;
+    private ElementReference nameInput;
+    private static readonly string[] IconExampleCategories = ["Hello", "LOL", "Love", "Wow"];
+    private readonly Dictionary<string, string> exampleCovers = new();
+    private bool loadingExamples;
+    private bool iconCardWatched;
+    private bool openExistingCard;
+
+    private async Task OpenIconCardAsync()
+    {
+        await JS.InvokeVoidAsync("confastChatTime.watchManualIconCard", IconCardId);
+        iconCardWatched = true;
+        showGifPicker = false;
+        if (loadingExamples || exampleCovers.Count == IconExampleCategories.Length) return;
+        loadingExamples = true;
+        try
+        {
+            foreach (var category in IconExampleCategories)
+            {
+                // Reuse the picker's durable artwork cache across users, cards, and restarts.
+                var cover = await CategoryBackgrounds.GetAsync(category, async () =>
+                {
+                    var key = Configuration["Giphy:ApiKey"];
+                    if (string.IsNullOrWhiteSpace(key)) return null;
+                    var result = await Chat.ResolveGifSearchAsync(category, 0, 1,
+                        () => JS.InvokeAsync<ChatGifResult>("confastChatGifs.search", key, category, 0, 1).AsTask());
+                    if (result.Error is not null) throw new InvalidOperationException(result.Error);
+                    return result.Gifs.FirstOrDefault()?.PreviewUrl;
+                });
+                if (cover is not null) exampleCovers[category] = cover;
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (Exception ex) when (ex is InvalidOperationException or JSException or IOException)
+        {
+            Logger.LogWarning(ex, "Could not load group icon GIF examples.");
+            error = "GIF examples could not load. You can still choose a GIF or upload an image.";
+        }
+        finally { loadingExamples = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pictureEditorNeedsMount)
+        {
+            pictureEditorNeedsMount = false;
+            try { await JS.InvokeVoidAsync("confastGroupIconEditor.mount", PictureCanvasId, PictureZoomId, $"#{IconCardId} .new-message-icon-close"); }
+            catch (JSDisconnectedException) { }
+            catch (JSException ex)
+            {
+                Logger.LogWarning(ex, "Could not mount the group icon picture editor.");
+                error = "Could not open the picture editor. Try another file.";
+                StateHasChanged();
+            }
+        }
+        if (firstRender)
+        {
+            try { if (EditingConversation is null) await searchInput.FocusAsync(); else await nameInput.FocusAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+        if (openExistingCard)
+        {
+            openExistingCard = false;
+            try { await JS.InvokeVoidAsync("confastChatTime.showCenteredPopover", "new-message-existing-card"); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+
+    private void ToggleUser(string userId)
+    {
+        if (!selected.Add(userId)) selected.Remove(userId);
+        matches = [];
+        error = null;
+        if (selected.Count <= 1) showGifPicker = false;
+    }
+
+    private void ClearIcon() { picture = null; picturePreview = null; giphyId = null; iconChanged = true; }
+    private static string Initials(string name) => new(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Take(2).Select(part => char.ToUpperInvariant(part[0])).ToArray());
+    private Task CloseIconCardAsync() => JS.InvokeVoidAsync("confastChatTime.hideNotificationPopover", IconCardId).AsTask();
+    private async Task RemoveIconAsync() { ClearIcon(); await CloseIconCardAsync(); }
+    private async Task SelectGifAsync(string id) { ClearIcon(); giphyId = id; showGifPicker = false; error = null; await CloseIconCardAsync(); }
+
+    private async Task UploadIconAsync(InputFileChangeEventArgs args)
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            if (args.File.Size is 0 or > UserProfilePictureService.MaximumSourcePictureBytes)
+                throw new InvalidOperationException("Choose a picture smaller than 25 MB.");
+            if (args.File.ContentType is not ("image/png" or "image/jpeg" or "image/gif" or "image/webp"))
+                throw new InvalidOperationException("Choose a PNG, JPEG, GIF, or WebP picture.");
+            await JS.InvokeVoidAsync("confastGroupIconEditor.prepare", PictureInputId, UserProfilePictureService.MaximumSourcePictureBytes);
+            pictureEditorPrepared = true;
+            showPictureEditor = pictureEditorNeedsMount = true;
+            showGifPicker = false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException) { error = ex.Message; }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not open a group icon picture."); error = "Could not open this picture. Try another file."; }
+        finally { busy = false; }
+    }
+
+    private Task ResetPictureCropAsync() => JS.InvokeVoidAsync("confastGroupIconEditor.reset").AsTask();
+
+    private async Task CancelPictureCropAsync()
+    {
+        if (busy || !pictureEditorPrepared) return;
+        await ReleasePictureEditorAsync();
+        error = null;
+    }
+
+    private async Task ReleasePictureEditorAsync()
+    {
+        showPictureEditor = pictureEditorNeedsMount = false;
+        if (!pictureEditorPrepared) return;
+        pictureEditorPrepared = false;
+        try { await JS.InvokeVoidAsync("confastGroupIconEditor.dispose"); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private async Task ApplyPictureCropAsync()
+    {
+        if (busy) return;
+        busy = true;
+        error = null;
+        try
+        {
+            await using var image = await JS.InvokeAsync<IJSStreamReference>("confastGroupIconEditor.render", UserProfilePictureService.MaximumPictureBytes);
+            await using var stream = await image.OpenReadStreamAsync(UserProfilePictureService.MaximumPictureBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            var data = buffer.ToArray();
+            var contentType = UserProfilePictureService.DetectContentType(data)
+                ?? throw new InvalidOperationException("The edited picture could not be prepared.");
+            ClearIcon();
+            picture = data;
+            picturePreview = $"data:{contentType};base64,{Convert.ToBase64String(data)}";
+            await ReleasePictureEditorAsync();
+            await CloseIconCardAsync();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException) { error = ex.Message; }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not crop or compress a group icon."); error = "Could not prepare this picture. Try another file."; }
+        finally { busy = false; }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await ReleasePictureEditorAsync();
+        if (!iconCardWatched) return;
+        try { await JS.InvokeVoidAsync("confastChatTime.stopManualIconCard", IconCardId); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private Task CreateAsync() => StartMessageAsync(createAnother: false);
+
+    private async Task StartMessageAsync(bool createAnother)
+    {
+        if (busy || showPictureEditor || (EditingConversation is null && selected.Count == 0)) return;
+        busy = true;
+        error = null;
+        try
+        {
+            if (EditingConversation is { } conversation)
+            {
+                await Chat.UpdateGroupAsync(conversation.Id, name, new(picture, giphyId), changeIcon: iconChanged);
+                await Created.InvokeAsync(conversation.Id);
+                return;
+            }
+            var ids = selected.ToArray();
+            if (ids.Length == 1)
+            {
+                await Created.InvokeAsync(await Chat.OpenDirectAsync(ids[0]));
+                return;
+            }
+            var result = await Chat.StartGroupAsync(ids, name, new(picture, giphyId), createAnother);
+            if (result.CreatedConversationId is long id) await Created.InvokeAsync(id);
+            else
+            {
+                matches = result.ExistingConversations;
+                openExistingCard = matches.Count > 0;
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs args) => args.Key == "Escape" && !busy ? Closed.InvokeAsync() : Task.CompletedTask;
+
+}

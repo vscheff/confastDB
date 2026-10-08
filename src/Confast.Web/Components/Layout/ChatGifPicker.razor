@@ -43,7 +43,7 @@
         @foreach (var gif in gifs)
         {
             <div class="gif-tile" @key="gif.Id">
-                <button class="gif-send" type="button" disabled="@busy" title="Send @gif.Title" aria-label="Send @gif.Title" @onclick="() => SendAsync(gif.Id)"><img src="@gif.PreviewUrl" alt="@gif.Title" loading="lazy" /></button>
+                <button class="gif-send" type="button" disabled="@busy" title="@($"{SelectionVerb} {gif.Title}")" aria-label="@($"{SelectionVerb} {gif.Title}")" @onclick="() => SendAsync(gif.Id)"><img src="@gif.PreviewUrl" alt="@gif.Title" loading="lazy" /></button>
                 <button class="gif-star @(favorites.Contains(gif.Id) ? "starred" : "")" type="button" disabled="@busy" title="@(favorites.Contains(gif.Id) ? "Remove favorite" : "Favorite GIF")" aria-label="@(favorites.Contains(gif.Id) ? "Remove favorite" : "Favorite GIF")" aria-pressed="@(favorites.Contains(gif.Id) ? "true" : "false")" @onclick="() => StarAsync(gif.Id)">@(favorites.Contains(gif.Id) ? "★" : "☆")</button>
             </div>
         }
@@ -56,6 +56,7 @@
 
 @code {
     [Parameter] public EventCallback<string> Selected { get; set; }
+    [Parameter] public string SelectionVerb { get; set; } = "Send";
     private static readonly IReadOnlyList<string> Categories = ChatGifCategoryBackgrounds.Categories;
     private readonly Dictionary<string, string> covers = new();
     private HashSet<string> favorites = [];

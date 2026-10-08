@@ -1,0 +1,33 @@
+@using Confast.Web.Features.Chat
+
+<span class="chat-group-icon">
+    @if (Conversation.HasIconPicture)
+    {
+        <img src="@($"/chat/group-icons/{Conversation.Id}?v={ImageRevision}")" alt="" />
+    }
+    else if (Conversation.IconGiphyId is { } gifId)
+    {
+        <ChatGifImage GiphyId="@gifId" IsIcon="true" />
+    }
+    else if (Conversation.IconMembers.Count > 0)
+    {
+        <span class="chat-group-collage collage-@Math.Min(4, Conversation.IconMembers.Count)">
+            @foreach (var member in Conversation.IconMembers.Take(4))
+            {
+                <span class="chat-group-collage-member" @key="member.Id">
+                    @if (PictureUrl(member.Id) is { } url) { <img src="@url" alt="" /> }
+                    else { @Initials(member.Name) }
+                </span>
+            }
+        </span>
+    }
+    else { @Initials(Conversation.Name) }
+</span>
+
+@code {
+    [Parameter, EditorRequired] public ChatConversationRow Conversation { get; set; } = null!;
+    [Parameter, EditorRequired] public Func<string, string?> PictureUrl { get; set; } = _ => null;
+    [Parameter] public long ImageRevision { get; set; }
+    private static string Initials(string name) => new(name.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Take(2).Select(part => char.ToUpperInvariant(part[0])).ToArray());
+}

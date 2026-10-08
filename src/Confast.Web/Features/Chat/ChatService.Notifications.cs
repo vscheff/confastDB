@@ -154,7 +154,7 @@ public sealed partial class ChatService
         foreach (var row in rows)
         {
             var setting = settings.Channels[row.ConversationId];
-            var direct = row.Kind == ConversationKind.Direct;
+            var direct = row.Kind != ConversationKind.Channel;
             var allowed = direct || setting.AllowsToast(false);
             var unread = allowed ? Math.Max(row.IsManuallyUnread ? 1 : 0, row.Count)
                 : setting.AllowsToast(true) ? row.Mentions : 0;

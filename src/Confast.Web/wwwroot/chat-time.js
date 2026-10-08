@@ -1,4 +1,8 @@
 window.confastChatTime = {
+    showCenteredPopover(id) {
+        const card = document.getElementById(id);
+        if (card && !card.matches(":popover-open")) card.showPopover();
+    },
     openNotificationPopover(id, anchorId, x, y) {
         const card = document.getElementById(id);
         if (!card) return;
@@ -20,6 +24,95 @@ window.confastChatTime = {
     },
     hideNotificationPopover(id) {
         document.getElementById(id)?.hidePopover();
+    },
+
+    hidePopoverStack(id) {
+        const card = document.getElementById(id);
+        if (!card) return;
+        // Manual popovers do not automatically dismiss their nested cards.
+        for (const child of Array.from(card.querySelectorAll('[popover]')).reverse()) {
+            if (child.matches(':popover-open')) child.hidePopover();
+        }
+        if (card.matches(':popover-open')) card.hidePopover();
+    },
+
+    watchManualIconCard(id) {
+        const card = document.getElementById(id);
+        if (!card) return;
+        card.iconDismissCleanup?.();
+        const onDown = event => {
+            if (!card.matches(':popover-open') || card.contains(event.target)) return;
+            // The invoker's native action already toggles the card.
+            if (event.target instanceof Element && event.target.closest(`[popovertarget="${id}"]`)) return;
+            card.hidePopover();
+        };
+        const onKey = event => {
+            if (event.key !== 'Escape' || !card.matches(':popover-open')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            card.querySelector('.new-message-icon-close')?.click();
+        };
+        const cleanup = () => {
+            document.removeEventListener('pointerdown', onDown, true);
+            document.removeEventListener('keydown', onKey, true);
+            card.removeEventListener('toggle', onToggle);
+            card.iconDismissCleanup = null;
+        };
+        const onToggle = event => { if (event.newState === 'closed') cleanup(); };
+        card.iconDismissCleanup = cleanup;
+        document.addEventListener('pointerdown', onDown, true);
+        document.addEventListener('keydown', onKey, true);
+        card.addEventListener('toggle', onToggle);
+    },
+
+    stopManualIconCard(id) {
+        document.getElementById(id)?.iconDismissCleanup?.();
+    },
+
+    toggleGroupEditor() {
+        const card = document.getElementById("chat-group-rename");
+        const panel = card?.closest(".chat-panel");
+        if (!card || !panel) return;
+        if (card.matches(":popover-open")) { this.hidePopoverStack(card.id); return; }
+        this.groupEditorCleanup?.();
+        const cleanup = () => {
+            observer.disconnect();
+            window.removeEventListener("resize", position);
+            card.removeEventListener("toggle", onToggle);
+            document.removeEventListener("pointerdown", onDown, true);
+            document.removeEventListener("keydown", onKey, true);
+            this.groupEditorCleanup = null;
+        };
+        const position = () => {
+            if (!card.isConnected || !panel.isConnected) { cleanup(); return; }
+            const bounds = panel.getBoundingClientRect();
+            card.style.left = `${bounds.left + bounds.width / 2}px`;
+            card.style.top = `${bounds.top + bounds.height / 2}px`;
+            card.style.width = `${Math.min(480, Math.max(0, bounds.width - 32))}px`;
+            card.style.maxHeight = `${Math.max(0, bounds.height - 32)}px`;
+        };
+        const onToggle = event => { if (event.newState === "closed") cleanup(); };
+        const onDown = event => {
+            if (card.contains(event.target)) return;
+            if (event.target instanceof Element && event.target.closest('[aria-controls="chat-group-rename"]')) return;
+            this.hidePopoverStack(card.id);
+        };
+        const onKey = event => {
+            if (event.key !== 'Escape' || card.querySelector('.new-message-icon-card:popover-open')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.hidePopoverStack(card.id);
+        };
+        const observer = new ResizeObserver(position);
+        this.groupEditorCleanup = cleanup;
+        position();
+        card.addEventListener("toggle", onToggle);
+        document.addEventListener("pointerdown", onDown, true);
+        document.addEventListener("keydown", onKey, true);
+        window.addEventListener("resize", position);
+        observer.observe(panel);
+        observer.observe(card);
+        card.showPopover();
     },
 
     toggleChannelTopic() {
@@ -390,13 +483,7 @@ window.confastChatTime = {
         return value;
     },
     scrollToLatestMessage() {
-        const history = document.getElementById("chat-message-history");
-        if (!history) return;
-        history.scrollTop = history.scrollHeight;
-        const conversationId = history.getAttribute("data-conversation-id");
-        if (conversationId) {
-            window.confastChatTime.conversationScrollPositions.set(conversationId, history.scrollTop);
-        }
+        this.restoreConversationScrollPosition(true);
     },
     isNearLatestMessage() {
         const history = document.getElementById("chat-message-history");
@@ -411,7 +498,12 @@ window.confastChatTime = {
         window.confastChatTime.scrollToLatestMessage();
         if (button) button.hidden = true;
     },
-    restoreConversationScrollPosition() {
+    stopConversationScrollTracking() {
+        this.conversationScrollCleanup?.();
+        this.conversationScrollCleanup = null;
+    },
+    restoreConversationScrollPosition(toLatest = false) {
+        this.stopConversationScrollTracking();
         const history = document.getElementById("chat-message-history");
         if (!history) return;
 
@@ -419,21 +511,71 @@ window.confastChatTime = {
         if (!conversationId) return;
 
         const scrollPositions = window.confastChatTime.conversationScrollPositions;
-        const savedPosition = scrollPositions.get(conversationId);
-        history.scrollTop = savedPosition ?? history.scrollHeight;
-        scrollPositions.set(conversationId, history.scrollTop);
-
-        if (history.getAttribute("data-scroll-tracking-attached") !== "true") {
-            history.addEventListener("scroll", () => {
-                const currentConversationId = history.getAttribute("data-conversation-id");
-                if (currentConversationId) {
-                    scrollPositions.set(currentConversationId, history.scrollTop);
-                }
-                window.confastChatTime.positionReactionPicker();
-                window.confastChatTime.updateNewMessageJump();
-            }, { passive: true });
-            history.setAttribute("data-scroll-tracking-attached", "true");
-        }
+        let position = toLatest ? { atBottom: true } : scrollPositions.get(conversationId) ?? { atBottom: true };
+        let appliedTop;
+        let contentHeight;
+        let viewportHeight;
+        const messages = () => [...history.querySelectorAll("[data-chat-message-id]")];
+        const active = () => history.isConnected && history.getAttribute("data-conversation-id") === conversationId;
+        const capture = () => {
+            const top = history.getBoundingClientRect().top + history.clientTop;
+            const anchor = messages().find(message => message.getBoundingClientRect().bottom > top);
+            position = {
+                atBottom: history.scrollHeight - history.clientHeight - history.scrollTop <= 4,
+                scrollTop: history.scrollTop,
+                messageId: anchor?.getAttribute("data-chat-message-id"),
+                offset: anchor ? anchor.getBoundingClientRect().top - top : 0
+            };
+            scrollPositions.set(conversationId, position);
+        };
+        const apply = () => {
+            if (!active()) return;
+            // Media can arrive after the first render. Keep the bottom, or the same
+            // visible message, rather than a pixel offset measured before it loaded.
+            if (position.atBottom) history.scrollTop = history.scrollHeight;
+            else {
+                const anchor = messages().find(message => message.getAttribute("data-chat-message-id") === position.messageId);
+                history.scrollTop = anchor
+                    ? history.scrollTop + anchor.getBoundingClientRect().top
+                        - history.getBoundingClientRect().top - history.clientTop - position.offset
+                    : position.scrollTop ?? 0;
+            }
+            appliedTop = history.scrollTop;
+            contentHeight = history.scrollHeight;
+            viewportHeight = history.clientHeight;
+            scrollPositions.set(conversationId, position);
+            this.updateNewMessageJump();
+        };
+        const onScroll = () => {
+            if (!active()) return;
+            if (history.scrollHeight !== contentHeight || history.clientHeight !== viewportHeight) apply();
+            else if (history.scrollTop !== appliedTop) {
+                capture();
+                appliedTop = history.scrollTop;
+            }
+            this.positionReactionPicker();
+            this.updateNewMessageJump();
+        };
+        const observer = new ResizeObserver(apply);
+        const observeContent = () => {
+            observer.disconnect();
+            observer.observe(history);
+            for (const child of history.children) observer.observe(child);
+            apply();
+        };
+        const mutations = new MutationObserver(observeContent);
+        mutations.observe(history, { childList: true });
+        history.addEventListener("scroll", onScroll, { passive: true });
+        history.addEventListener("load", apply, true);
+        observeContent();
+        this.conversationScrollCleanup = () => {
+            if (active() && history.scrollTop !== appliedTop
+                && history.scrollHeight === contentHeight && history.clientHeight === viewportHeight) capture();
+            observer.disconnect();
+            mutations.disconnect();
+            history.removeEventListener("scroll", onScroll);
+            history.removeEventListener("load", apply, true);
+        };
     },
     attachChannelDragAndDrop(dotNet) {
         const sidebar = document.getElementById("chat-conversation-sidebar");
@@ -509,16 +651,17 @@ window.confastChatTime = {
 
         sidebar.addEventListener("pointerdown", event => {
             if (event.button !== 0) return;
-            if (event.target.closest(".chat-channel-settings, .chat-folder-rename, .chat-folder-add, .chat-folder-settings, .chat-channel-action-toggle")) return;
-            const sourceRow = event.target.closest(".chat-layout-row[data-chat-drag-kind]");
+            if (event.target.closest(".chat-channel-settings, .chat-folder-rename, .chat-folder-add, .chat-channel-action-toggle")) return;
+            const sourceRow = event.target.closest(".chat-layout-row[data-chat-item-kind]");
             if (!sourceRow || !scroll.contains(sourceRow)) return;
-            if (sourceRow.dataset.chatDragKind !== "folder" && sourceRow.dataset.chatDragKind !== "channel") return;
+            const isFolder = sourceRow.dataset.chatItemKind === "folder";
+            const isTouch = event.pointerType === "touch";
+            if (!(isTouch && isFolder) && sourceRow.dataset.chatDragKind !== "folder" && sourceRow.dataset.chatDragKind !== "channel") return;
             const itemId = Number(sourceRow.dataset.chatDragId);
-            const isFolder = sourceRow.dataset.chatDragKind === "folder";
             const pointerId = event.pointerId;
             const startX = event.clientX;
             const startY = event.clientY;
-            const isTouch = event.pointerType === "touch";
+            let menuOpened = false;
             let moved = false;
             let scrolling = false;
             let previousY = startY;
@@ -562,7 +705,7 @@ window.confastChatTime = {
                 sidebar.classList.add("chat-channel-dragging");
                 sourceRow.classList.add("chat-channel-drag-source");
                 preview = sourceRow.cloneNode(true);
-                preview.querySelectorAll(".chat-channel-settings, .chat-channel-action-toggle, .chat-folder-chevron, .chat-folder-add, .chat-folder-settings").forEach(x => x.remove());
+                preview.querySelectorAll(".chat-channel-settings, .chat-channel-action-toggle, .chat-folder-chevron, .chat-folder-add").forEach(x => x.remove());
                 preview.classList.add("chat-channel-drag-preview");
                 preview.setAttribute("aria-hidden", "true");
                 preview.style.width = `${sourceRow.getBoundingClientRect().width}px`;
@@ -580,6 +723,7 @@ window.confastChatTime = {
             };
             const onPointerMove = moveEvent => {
                 if (moveEvent.pointerId !== pointerId) return;
+                if (menuOpened) { moveEvent.preventDefault(); return; }
                 if (isTouch && !moved) {
                     if (!scrolling && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 8) {
                         scrolling = true;
@@ -605,7 +749,7 @@ window.confastChatTime = {
                 if (moved) showSlot(upEvent);
                 const target = currentSlot;
                 clear();
-                if (moved || scrolling) {
+                if (moved || scrolling || menuOpened) {
                     const suppressClick = clickEvent => {
                         clickEvent.preventDefault();
                         clickEvent.stopPropagation();
@@ -624,7 +768,13 @@ window.confastChatTime = {
             document.addEventListener("pointerup", onPointerUp);
             document.addEventListener("pointercancel", onPointerCancel);
             if (isTouch) holdTimer = setTimeout(() => {
-                if (!scrolling) startDrag({ clientX: startX, clientY: startY });
+                if (scrolling) return;
+                if (isFolder) {
+                    menuOpened = true;
+                    sourceRow.dispatchEvent(new MouseEvent("contextmenu", {
+                        bubbles: true, cancelable: true, clientX: startX, clientY: startY
+                    }));
+                } else startDrag({ clientX: startX, clientY: startY });
             }, 400);
         });
         sidebar.dataset.channelDragAttached = "true";

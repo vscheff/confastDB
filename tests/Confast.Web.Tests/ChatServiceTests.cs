@@ -253,6 +253,248 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         return ids;
     }
 
+    [Fact]
+    public async Task GroupChat_StartOffersExactMemberMatchesButAllowsExplicitDuplicates()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var id = (await Service(owner).StartGroupAsync([member, third], "  Team  ")).CreatedConversationId!.Value;
+        Assert.Equal("Team", (await Service(member).GetConversationsAsync()).Single().Name);
+        var duplicate = await Service(member).StartGroupAsync([third, owner, owner], "Different Name");
+        Assert.Null(duplicate.CreatedConversationId);
+        Assert.Equal(id, Assert.Single(duplicate.ExistingConversations).Id);
+        var another = await Service(owner).StartGroupAsync([third, member], createAnother: true);
+        Assert.NotEqual(id, another.CreatedConversationId);
+        var matches = await Service(third).StartGroupAsync([owner, member]);
+        Assert.Equal(2, matches.ExistingConversations.Count);
+        var fourth = Guid.NewGuid().ToString();
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(new ApplicationUser { Id = fourth, UserName = "fourth", DisplayName = "Fourth", IsActive = true });
+            await db.SaveChangesAsync();
+        }
+        var different = await Service(owner).StartGroupAsync([member, fourth]);
+        Assert.NotNull(different.CreatedConversationId);
+        Assert.Empty(different.ExistingConversations);
+        var superset = await Service(owner).StartGroupAsync([member, third, fourth]);
+        Assert.NotNull(superset.CreatedConversationId);
+        Assert.Empty(superset.ExistingConversations);
+    }
+
+    [Fact]
+    public async Task GroupChat_ConcurrentStartsOfferTheFirstCommittedGroup()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var results = await Task.WhenAll(Service(owner).StartGroupAsync([member, third]),
+            Service(member).StartGroupAsync([third, owner]));
+        var created = Assert.Single(results, x => x.CreatedConversationId != null);
+        var offered = Assert.Single(results, x => x.CreatedConversationId == null);
+        Assert.Equal(created.CreatedConversationId, Assert.Single(offered.ExistingConversations).Id);
+        await using var db = database.CreateDbContext();
+        Assert.Single(await db.ChatConversations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task GroupChat_IconPicturesPersistAndAreOnlyAccessibleToActiveMembers()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var fourth = Guid.NewGuid().ToString();
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(new ApplicationUser { Id = fourth, UserName = "fourth", DisplayName = "Fourth", IsActive = true });
+            await db.SaveChangesAsync();
+        }
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=");
+        var id = (await Service(owner).StartGroupAsync([member, fourth], icon: new(png))).CreatedConversationId!.Value;
+        var row = (await Service(member).GetConversationsAsync()).Single();
+        Assert.True(row.HasIconPicture);
+        Assert.Null(row.IconGiphyId);
+        var picture = await Service(owner).GetGroupIconForHttpUserAsync(id, member);
+        Assert.Equal(png, picture!.Value.Data);
+        Assert.Equal("image/png", picture.Value.ContentType);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(owner).GetGroupIconForHttpUserAsync(id, outsider));
+        await using var db2 = database.CreateDbContext();
+        await db2.Users.Where(x => x.Id == member).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(owner).GetGroupIconForHttpUserAsync(id, member));
+        var invalidIcon = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db2.ChatConversations
+            .Where(x => x.Id == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.IconGiphyId, "validId")));
+        Assert.Equal("23514", invalidIcon.SqlState);
+    }
+
+    [Fact]
+    public async Task GroupChat_MembersCanEditNameAndIconTogetherButInvalidEditsLeaveBothUnchanged()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var fourth = Guid.NewGuid().ToString();
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(new ApplicationUser { Id = fourth, UserName = "fourth", DisplayName = "Fourth", IsActive = true });
+            await db.SaveChangesAsync();
+        }
+        var id = await Service(owner).CreateGroupAsync([member, fourth]);
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=");
+        await Service(member).UpdateGroupAsync(id, "Edited", new(png));
+        var row = (await Service(owner).GetConversationsAsync()).Single();
+        Assert.Equal("Edited", row.Name);
+        Assert.True(row.HasIconPicture);
+        Assert.False(row.UsesDefaultName);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).UpdateGroupAsync(id, "Forged", new(GiphyId: "abc123")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(member).UpdateGroupAsync(id, "Invalid", new([1, 2, 3])));
+        Assert.Equal("Edited", (await Service(owner).GetConversationsAsync()).Single().Name);
+        Assert.Equal(png, (await Service(owner).GetGroupIconForHttpUserAsync(id, member))!.Value.Data);
+        await Service(member).RenameGroupAsync(id, "Name only");
+        Assert.True((await Service(owner).GetConversationsAsync()).Single().HasIconPicture);
+        await Service(member).UpdateGroupAsync(id, "GIF icon", new(GiphyId: "abc123"));
+        row = (await Service(owner).GetConversationsAsync()).Single();
+        Assert.False(row.HasIconPicture);
+        Assert.Equal("abc123", row.IconGiphyId);
+        await Service(member).UpdateGroupAsync(id, "", new());
+        row = (await Service(owner).GetConversationsAsync()).Single();
+        Assert.True(row.UsesDefaultName);
+        Assert.Null(row.IconGiphyId);
+        Assert.False(row.HasIconPicture);
+        Assert.Equal(2, row.IconMembers.Count);
+    }
+
+    [Fact]
+    public async Task GroupChat_ValidatesCustomNamesAndIconInputsBeforeSaving()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var chat = Service(owner);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.StartGroupAsync([member, third], new string('x', 121)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.StartGroupAsync([member, third], icon: new([1, 2, 3])));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.StartGroupAsync([member, third], icon: new(new byte[1_048_577])));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.StartGroupAsync([member, third], icon: new(GiphyId: "https://evil.invalid/file")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.StartGroupAsync([member, third], icon: new("GIF89a"u8.ToArray(), "validId")));
+        Assert.Empty(await chat.GetConversationsAsync());
+        var id = (await chat.StartGroupAsync([member, third], " ", new(GiphyId: "validId"))).CreatedConversationId!.Value;
+        var row = (await Service(member).GetThreadAsync(id)).Conversation;
+        Assert.Equal("Member, Outsider, Owner", row.Name);
+        Assert.Equal("validId", row.IconGiphyId);
+        Assert.False(row.HasIconPicture);
+        Assert.Null(await chat.GetGroupIconForHttpUserAsync(id, member));
+    }
+
+    [Fact]
+    public async Task GroupChat_CreatesDistinctMembershipsAndGeneratesCurrentMemberNames()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var id = await Service(owner).CreateGroupAsync([member, third, member, owner]);
+        foreach (var userId in new[] { owner, member, third })
+        {
+            var row = Assert.Single(await Service(userId).GetConversationsAsync());
+            Assert.Equal(ConversationKind.Group, row.Kind);
+            Assert.Equal("Member, Outsider, Owner", row.Name);
+            Assert.Null(row.OtherUserId);
+            Assert.Equal(2, row.IconMembers.Count);
+            Assert.DoesNotContain(row.IconMembers, x => x.Id == userId);
+            Assert.Equal(3, (await Service(userId).GetThreadAsync(id)).Members.Count);
+        }
+        await using var db = database.CreateDbContext();
+        var conversation = await db.ChatConversations.SingleAsync();
+        Assert.Null(conversation.Name);
+        Assert.Null(conversation.DirectPairKey);
+        await db.Users.Where(x => x.Id == third).ExecuteUpdateAsync(s => s.SetProperty(x => x.DisplayName, new string('Z', 120)));
+        Assert.True((await Service(owner).GetConversationsAsync()).Single().Name.Length > 120);
+        // Groups do not consume or replace the unique direct pair.
+        Assert.NotEqual(id, await Service(owner).OpenDirectAsync(member));
+    }
+
+    [Theory]
+    [InlineData(1, 3)]
+    [InlineData(2, 4)]
+    [InlineData(3, 4)]
+    public async Task GroupChat_DefaultIconMembersExcludeViewerAndCapAtFour(int additionalPeople, int expectedCount)
+    {
+        var (owner, member, third) = await UsersAsync();
+        await using var db = database.CreateDbContext();
+        var extra = Enumerable.Range(0, additionalPeople).Select(index => new ApplicationUser
+        {
+            Id = Guid.NewGuid().ToString(), UserName = $"extra{index}", DisplayName = $"Extra {index}", IsActive = true
+        }).ToArray();
+        db.Users.AddRange(extra);
+        await db.SaveChangesAsync();
+        var participants = new[] { member, third }.Concat(extra.Select(x => x.Id)).ToArray();
+        var result = await Service(owner).StartGroupAsync(participants, "Named group without an icon");
+        var row = (await Service(owner).GetConversationsAsync()).Single(x => x.Id == result.CreatedConversationId);
+        Assert.Equal("Named group without an icon", row.Name);
+        Assert.Equal(expectedCount, row.IconMembers.Count);
+        Assert.DoesNotContain(row.IconMembers, x => x.Id == owner);
+        Assert.Equal(extra.Select(x => x.DisplayName).Concat(["Member", "Outsider"])
+            .OrderBy(x => x, StringComparer.Ordinal).Take(4), row.IconMembers.Select(x => x.Name));
+        var anotherViewer = (await Service(member).GetConversationsAsync()).Single(x => x.Id == row.Id);
+        Assert.DoesNotContain(anotherViewer.IconMembers, x => x.Id == member);
+    }
+
+    [Fact]
+    public async Task GroupChat_RejectsTooFewDistinctPeopleAndInactiveOrUnknownMembers()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var chat = Service(owner);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreateGroupAsync([owner, member, member]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreateGroupAsync([member, "missing"]));
+        await using var db = database.CreateDbContext();
+        await db.Users.Where(x => x.Id == third).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.CreateGroupAsync([member, third]));
+        Assert.Empty(await db.ChatConversations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task GroupChat_AllMembersCanRenameAndResetButOutsidersCannotAccessIt()
+    {
+        var (owner, member, outsider) = await UsersAsync();
+        var fourth = Guid.NewGuid().ToString();
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(new ApplicationUser { Id = fourth, UserName = "fourth", DisplayName = "Fourth", IsActive = true });
+            await db.SaveChangesAsync();
+        }
+        var id = await Service(owner).CreateGroupAsync([member, fourth]);
+        Assert.Empty(await Service(outsider).GetConversationsAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).GetThreadAsync(id));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).SendAsync(id, "Intrusion"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).RenameGroupAsync(id, "Intrusion"));
+        foreach (var userId in new[] { owner, member, fourth })
+        {
+            await Service(userId).RenameGroupAsync(id, "  Project Team  ");
+            Assert.Equal("Project Team", (await Service(member).GetConversationsAsync()).Single().Name);
+            await Service(userId).RenameGroupAsync(id, " ");
+            Assert.Equal("Fourth, Member, Owner", (await Service(owner).GetConversationsAsync()).Single().Name);
+        }
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(member).RenameGroupAsync(id, new string('x', 121)));
+        var direct = await Service(owner).OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(owner).RenameGroupAsync(direct, "Direct"));
+        var channel = await Service(owner).CreateChannelAsync("Channel", ChannelVisibility.Private, [member]);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(owner).RenameGroupAsync(channel, "Channel"));
+    }
+
+    [Fact]
+    public async Task GroupChat_DeliversMessagesUnreadAlertsAndPreviewsToEachMember()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var published = new List<string>();
+        using var firstSubscription = notifications.Subscribe(member, () => published.Add(member));
+        using var secondSubscription = notifications.Subscribe(third, () => published.Add(third));
+        var id = await Service(owner).CreateGroupAsync([member, third]);
+        Assert.Contains(member, published);
+        Assert.Contains(third, published);
+        published.Clear();
+        var message = await Service(owner).SendAsync(id, "Group message");
+        foreach (var userId in new[] { member, third })
+        {
+            Assert.Contains(userId, published);
+            Assert.Equal(1, (await Service(userId).GetConversationsAsync()).Single().UnreadCount);
+            Assert.True(await Service(userId).HasUnreadAlertAsync());
+            Assert.True((await Service(userId).GetNotificationUnreadSummaryAsync()).HasAlert);
+            Assert.NotNull(await Service(userId).GetIncomingMessagePreviewAsync(message));
+        }
+        await Service(member).MarkConversationReadAsync(id);
+        Assert.Equal(0, (await Service(member).GetConversationsAsync()).Single().UnreadCount);
+        Assert.Equal(1, (await Service(third).GetConversationsAsync()).Single().UnreadCount);
+        published.Clear();
+        await Service(member).RenameGroupAsync(id, "Renamed");
+        Assert.Contains(third, published);
+    }
+
 
     [Fact]
     public async Task ChannelActions_PinsArePersonalAndDuplicationCopiesOnlyConfiguration()

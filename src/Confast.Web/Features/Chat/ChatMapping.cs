@@ -30,10 +30,18 @@ public static class ChatMapping
         group.HasIndex(x => x.Name);
 
         var conversation = model.Entity<Conversation>();
-        conversation.ToTable("chat_conversations", t => t.HasCheckConstraint(
+        conversation.ToTable("chat_conversations", t =>
+        {
+            t.HasCheckConstraint("CK_chat_conversations_icon",
+                "(icon_data IS NULL AND icon_content_type IS NULL AND icon_giphy_id IS NULL) OR " +
+                "(kind = 2 AND icon_data IS NOT NULL AND octet_length(icon_data) BETWEEN 1 AND 1048576 AND icon_content_type IS NOT NULL AND icon_content_type IN ('image/png', 'image/jpeg', 'image/gif', 'image/webp') AND icon_giphy_id IS NULL) OR " +
+                "(kind = 2 AND icon_data IS NULL AND icon_content_type IS NULL AND icon_giphy_id IS NOT NULL AND icon_giphy_id ~ '^[A-Za-z0-9]{1,100}$')");
+            t.HasCheckConstraint(
             "CK_chat_conversations_shape",
             "(kind = 0 AND visibility IS NULL AND name IS NULL AND direct_pair_key IS NOT NULL AND channel_group_id IS NULL AND channel_sort_order = 0) OR " +
-            "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0)"));
+            "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0) OR " +
+            "(kind = 2 AND visibility IS NULL AND (name IS NULL OR btrim(name) <> '') AND direct_pair_key IS NULL AND channel_group_id IS NULL AND channel_sort_order = 0)");
+        });
         // Retain unfiltered messages/threads for audit. User-facing reads require an active membership.
         conversation.HasQueryFilter(x => x.DeletedAtUtc == null);
         conversation.HasKey(x => x.Id);
@@ -42,6 +50,9 @@ public static class ChatMapping
         conversation.Property(x => x.Kind).HasColumnName("kind");
         conversation.Property(x => x.Visibility).HasColumnName("visibility");
         conversation.Property(x => x.Name).HasColumnName("name").HasMaxLength(120);
+        conversation.Property(x => x.IconData).HasColumnName("icon_data");
+        conversation.Property(x => x.IconContentType).HasColumnName("icon_content_type").HasMaxLength(30);
+        conversation.Property(x => x.IconGiphyId).HasColumnName("icon_giphy_id").HasMaxLength(100);
         conversation.Property(x => x.DeletedAtUtc).HasColumnName("deleted_at_utc");
         conversation.Property(x => x.DeletedByUserId).HasColumnName("deleted_by_user_id");
         conversation.HasOne<Confast.Web.Features.Identity.ApplicationUser>().WithMany().HasForeignKey(x => x.DeletedByUserId).OnDelete(DeleteBehavior.Restrict);

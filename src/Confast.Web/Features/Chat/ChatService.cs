@@ -12,7 +12,11 @@ namespace Confast.Web.Features.Chat;
 public sealed record ChatUser(string Id, string Name, string? UserName = null);
 public sealed record ChatConversationRow(long Id, ConversationKind Kind, ChannelVisibility? Visibility,
     string Name, DateTime ActivityAtUtc, int UnreadCount, bool HasUnreadMention, bool IsOwner,
-    long? ChannelGroupId, int ChannelSortOrder, string? OtherUserId, bool IsManuallyUnread, string? Topic = null, DateTime? PinnedToTopAtUtc = null);
+    long? ChannelGroupId, int ChannelSortOrder, string? OtherUserId, bool IsManuallyUnread, string? Topic = null, DateTime? PinnedToTopAtUtc = null,
+    bool HasIconPicture = false, string? IconGiphyId = null, bool UsesDefaultName = false)
+{
+    public IReadOnlyList<ChatUser> IconMembers { get; init; } = [];
+}
 public sealed record ChatChannelGroupRow(long Id, string Name, long? ParentGroupId, int SortOrder, bool CanManage);
 public sealed record ChatChannelThreadRow(long Id, long ConversationId, string Title, string CreatedByName,
     DateTime CreatedAtUtc, DateTime LastMessageAtUtc, int MessageCount, string? LatestMessage,
@@ -282,7 +286,7 @@ public sealed partial class ChatService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
-        return await db.ChatConversationMembers.AsNoTracking()
+        var rows = await db.ChatConversationMembers.AsNoTracking()
             .Where(m => m.UserId == userId)
             .OrderByDescending(m => m.Conversation.LastActivityAtUtc)
             .ThenByDescending(m => m.ConversationId)
@@ -291,7 +295,7 @@ public sealed partial class ChatService(
                 m.Conversation.Kind == ConversationKind.Direct
                     ? m.Conversation.Members.OrderBy(x => x.UserId == userId)
                         .Select(x => x.User.DisplayName).FirstOrDefault() ?? "Direct Message"
-                    : m.Conversation.Name!,
+                    : m.Conversation.Name ?? "",
                 m.Conversation.LastActivityAtUtc,
                 Math.Max(m.IsManuallyUnread ? 1 : 0,
                     db.ChatMessages.Count(x => x.ConversationId == m.ConversationId
@@ -314,8 +318,29 @@ public sealed partial class ChatService(
                     ? m.Conversation.Members.OrderBy(x => x.UserId == userId)
                         .Select(x => x.UserId).FirstOrDefault()
                     : null,
-                m.IsManuallyUnread, m.Conversation.Topic, m.PinnedToTopAtUtc))
+                m.IsManuallyUnread, m.Conversation.Topic, m.PinnedToTopAtUtc,
+                m.Conversation.IconData != null, m.Conversation.IconGiphyId,
+                m.Conversation.Kind == ConversationKind.Group && m.Conversation.Name == null))
             .ToListAsync(cancellationToken);
+        var groupsNeedingMembers = rows.Where(x => x.Kind == ConversationKind.Group)
+            .Select(x => x.Id).ToArray();
+        if (groupsNeedingMembers.Length == 0) return rows;
+        var members = await db.ChatConversationMembers.AsNoTracking()
+            .Where(x => groupsNeedingMembers.Contains(x.ConversationId))
+            .OrderBy(x => x.User.DisplayName).ThenBy(x => x.UserId)
+            .Select(x => new { x.ConversationId, x.UserId, x.User.DisplayName }).ToListAsync(cancellationToken);
+        var byConversation = members.GroupBy(x => x.ConversationId).ToDictionary(x => x.Key, x => x.ToArray());
+        return rows.Select(row =>
+        {
+            if (!byConversation.TryGetValue(row.Id, out var groupMembers)) return row;
+            return row with
+            {
+                Name = row.Name.Length == 0 ? string.Join(", ", groupMembers.Select(member => member.DisplayName)) : row.Name,
+                // Alphabetical order with an ID tie-break keeps the collage predictable.
+                IconMembers = groupMembers.Where(member => member.UserId != userId).Take(4)
+                    .Select(member => new ChatUser(member.UserId, member.DisplayName)).ToArray()
+            };
+        }).ToArray();
     }
 
     public async Task<IReadOnlyList<ChatChannelGroupRow>> GetChannelGroupsAsync(
@@ -636,7 +661,7 @@ public sealed partial class ChatService(
         var userId = await RequireUserAsync(db, cancellationToken);
         return await db.ChatConversationMembers.AsNoTracking().Where(member => member.UserId == userId)
             .AnyAsync(member =>
-                (member.Conversation.Kind == ConversationKind.Direct &&
+                (member.Conversation.Kind != ConversationKind.Channel &&
                     (member.IsManuallyUnread || db.ChatMessages.Any(message =>
                         message.ConversationId == member.ConversationId
                         && message.Id > (member.LastReadMessageId ?? 0)

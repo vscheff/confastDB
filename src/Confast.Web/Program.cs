@@ -263,6 +263,21 @@ app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
     }
     catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
 }).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+app.MapGet("/chat/group-icons/{conversationId:long}", async Task<IResult> (
+    long conversationId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (userId is null) return Results.Unauthorized();
+    try
+    {
+        var picture = await chat.GetGroupIconForHttpUserAsync(conversationId, userId, cancellationToken);
+        if (picture is null) return Results.NotFound();
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        context.Response.Headers.CacheControl = "private, no-store";
+        return Results.File(picture.Value.Data, picture.Value.ContentType);
+    }
+    catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
+}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet("/chat/attachments/{attachmentId:long}", async Task<IResult> (
     long attachmentId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
 {

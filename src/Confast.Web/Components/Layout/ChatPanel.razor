@@ -80,7 +80,7 @@
             <aside id="chat-conversation-sidebar" class="chat-sidebar">
                 <div class="chat-sidebar-scroll">
                 <div class="chat-tabs" aria-label="Chat views">
-                    <button type="button" class="@(view is ChatView.Conversations or ChatView.NewDirect ? "active" : "")" @onclick="() => ChangeViewAsync(ChatView.Conversations)">
+                    <button type="button" class="@(view == ChatView.Conversations ? "active" : "")" @onclick="() => ChangeViewAsync(ChatView.Conversations)">
                         Conversations
                         @if (unreadConversations > 0)
                         {
@@ -98,16 +98,34 @@
                 @if (view == ChatView.Conversations)
                 {
                     <div class="chat-create-actions">
-                        <button class="button button-secondary" type="button" @onclick="() => ChangeViewAsync(ChatView.NewDirect)">New Message</button>
+                        <button class="button button-secondary" type="button" @onclick="StartNewMessageAsync">New Message</button>
                     </div>
-                    @if (!conversations.Any(x => x.Kind == ConversationKind.Direct))
+                    @if (!conversations.Any(x => x.Kind != ConversationKind.Channel))
                     {
-                        <p class="chat-empty">No direct messages yet.</p>
+                        <p class="chat-empty">No conversations yet.</p>
                     }
-                    @foreach (var row in conversations.Where(x => x.Kind == ConversationKind.Direct))
+                    @foreach (var row in conversations.Where(x => x.Kind != ConversationKind.Channel))
                     {
                         <button @key="row.Id" type="button" class="chat-conversation @(selectedId == row.Id ? "selected" : "")" @onclick="() => OpenThreadAsync(row.Id)">
-                            <span class="chat-conversation-top"><strong class="@(row.UnreadCount > 0 ? "unread" : "")"><span class="chat-presence-dot @PresenceClass(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span> @row.Name</strong>@if (row.UnreadCount > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count attention">@row.UnreadCount</b></span> }</span>
+                            <span class="chat-conversation-top">
+                                @if (row.Kind == ConversationKind.Group)
+                                {
+                                    <span class="chat-group-avatar" aria-hidden="true">
+                                        <ChatGroupIcon Conversation="row" PictureUrl="PictureUrl" ImageRevision="conversationRefreshVersion" />
+                                    </span>
+                                }
+                                else if (row.Kind == ConversationKind.Direct)
+                                {
+                                    <span class="chat-conversation-user-avatar">
+                                        <span class="chat-conversation-user-picture" aria-hidden="true">
+                                            @if (PictureUrl(row.OtherUserId) is { } userPictureUrl) { <img src="@userPictureUrl" alt="" /> }
+                                            else { @Initials(row.Name) }
+                                        </span>
+                                        <span class="chat-presence-dot @PresenceClass(row.OtherUserId)" role="img" aria-label="@PresenceDescription(row.OtherUserId)" title="@PresenceDescription(row.OtherUserId)"></span>
+                                    </span>
+                                }
+                                <strong class="@(row.UnreadCount > 0 ? "unread" : "")" title="@row.Name">@row.Name</strong>@if (row.UnreadCount > 0) { <span class="chat-conversation-meta"><b class="chat-unread-count attention">@row.UnreadCount</b></span> }
+                            </span>
                         </button>
                     }
                 }
@@ -155,7 +173,6 @@
                                                 }
                                             </span>
                                         </button>
-                                        <button type="button" class="chat-folder-settings" aria-label="Category settings for @group.Name" title="Category Settings" @onclick="args => OpenCategoryContext(group, args)">⋯</button>
                                         <button type="button" class="chat-folder-add" aria-label="Add channel to @group.Name" title="Add channel to @group.Name" @onclick="() => StartNewChannel(group.Id)">＋</button>
                                 </div>
                             </div>
@@ -255,19 +272,6 @@
                             </form>
                         </section>
                     }
-                }
-                else if (view == ChatView.NewDirect)
-                {
-                    <h3>New Message</h3>
-                    <label for="chat-direct-user">User</label>
-                    <select id="chat-direct-user" @bind="directUserId">
-                        <option value="">Select a user</option>
-                        @foreach (var user in users) { <option value="@user.Id">@user.Name — @PresenceLabel(PresenceOf(user.Id)?.State ?? UserPresenceState.Offline) @PresenceOf(user.Id)?.StatusEmoji @PresenceOf(user.Id)?.StatusMessage</option> }
-                    </select>
-                    <div class="chat-form-actions">
-                        <button type="button" class="button button-primary" disabled="@string.IsNullOrWhiteSpace(directUserId)" @onclick="StartDirectAsync">Open Conversation</button>
-                        <button type="button" class="button button-secondary" @onclick="CancelNewDirect">Cancel</button>
-                    </div>
                 }
                 </div>
                 @if (showPresenceEditor)
@@ -387,7 +391,7 @@
                     <div class="chat-thread-header">
                         <button type="button" class="chat-back" @onclick="BackToList" aria-label="Back to conversations">←</button>
                         <div class="chat-thread-heading">
-                        <strong>
+                        <strong class="@(thread.Conversation.Kind == ConversationKind.Group ? "chat-group-heading-name" : null)" title="@thread.Conversation.Name">
                             @if (thread.ChannelThread is { } fullThread)
                             {
                                 <button type="button" class="chat-thread-breadcrumb" @onclick="ReturnToChannelAsync"># @thread.Conversation.Name</button>
@@ -405,6 +409,13 @@
                         }
                         </div>
                         <div class="chat-thread-header-actions">
+                            @if (thread.Conversation.Kind == ConversationKind.Group)
+                            {
+                                <button type="button" class="chat-icon-button" title="Edit Group Chat" aria-label="Edit Group Chat" aria-haspopup="dialog" aria-controls="chat-group-rename" @onclick="OpenGroupEditorAsync">✎</button>
+                                <section @key="thread.Conversation.Id" id="chat-group-rename" class="chat-group-edit" popover="manual" aria-label="Edit Group Chat">
+                                    <ChatNewMessage @key="(thread.Conversation.Id, groupEditRevision)" EditingConversation="thread.Conversation" Users="users" CurrentUserId="@(currentUserId ?? string.Empty)" PictureUrl="PictureUrl" Created="GroupEditedAsync" Closed="CloseGroupEditorAsync" />
+                                </section>
+                            }
                             @if (thread.Conversation.Kind == ConversationKind.Channel)
                             {
                                 <div class="chat-thread-list-control" data-chat-thread-menu>
@@ -1473,6 +1484,12 @@
             </section>
         </div>
     }
+    @if (showNewMessageCard && currentUserId is { } newMessageUserId)
+    {
+        <div class="chat-delete-backdrop">
+            <ChatNewMessage Users="users" CurrentUserId="@newMessageUserId" PictureUrl="PictureUrl" Created="OpenCreatedMessageAsync" Closed="CloseNewMessage" />
+        </div>
+    }
     @if (showCreateChannelCard)
     {
         <div class="chat-delete-backdrop" @onclick="CancelNewChannel">
@@ -1753,7 +1770,7 @@
         if (selectedId is long id) await LoadThreadAsync(id);
         if (sidebarChannelThreadId is long sideId) await LoadSidebarThreadAsync(sideId);
     });
-    private enum ChatView { Conversations, Channels, NewDirect, NewChannel }
+    private enum ChatView { Conversations, Channels, NewChannel }
     private sealed record EmojiSupportResult(double MaxVersion, string[] UnsupportedEmoji);
     private sealed record PresenceActivity(double IdleSeconds);
     private sealed record MentionQuery(int Start, string Query);
@@ -1777,7 +1794,7 @@
     private bool pictureEditorNeedsMount;
     private bool savingPicture;
     private string? pictureEditorError;
-    private const long MaximumSourcePictureBytes = 25L * 1024 * 1024;
+    private const long MaximumSourcePictureBytes = UserProfilePictureService.MaximumSourcePictureBytes;
     private string? statusEmojiDraft;
     private string statusMessageDraft = string.Empty;
     private string statusEmojiSearch = string.Empty;
@@ -1874,7 +1891,7 @@
     private bool pinnedMenuOutsideClickAttached;
     private int unreadTotal;
     private bool hasUnreadAlert;
-    private int unreadConversations => conversations.Where(x => x.Kind == ConversationKind.Direct).Sum(x => x.UnreadCount);
+    private int unreadConversations => conversations.Where(x => x.Kind != ConversationKind.Channel).Sum(x => x.UnreadCount);
     private int unreadChannels => conversations.Where(x => x.Kind == ConversationKind.Channel).Sum(x => NotificationUnread(x.Id).Count);
     private bool sidebarCollapsed;
     private bool sidebarResizeAttached;
@@ -1921,7 +1938,8 @@
     private bool sidebarComposerEmojiPickerOpen;
     private bool sidebarDraftTextareaNeedsResize;
     private string? error;
-    private string directUserId = string.Empty;
+    private bool showNewMessageCard;
+    private int groupEditRevision;
     private string channelName = string.Empty;
     private long? newChannelGroupId;
     private ChannelVisibility channelVisibility = ChannelVisibility.Public;
@@ -2539,6 +2557,7 @@
         channelContext = duplicateChannelSource = pendingDeleteChannel = null;
         showCreateChannelCard = false;
         conversations = [];
+        showNewMessageCard = false;
         unreadTotal = 0;
         hasUnreadAlert = false;
         presenceByUser = new Dictionary<string, UserPresence>();
@@ -2711,6 +2730,9 @@
         showInbox = false;
         if (savingPicture) return;
         if (showPictureEditor) await CancelPictureEditorAsync();
+        try { await JS.InvokeVoidAsync("confastChatTime.stopConversationScrollTracking"); }
+        catch (JSDisconnectedException) { }
+        catch (JSException ex) { Logger.LogWarning(ex, "Could not stop chat scroll tracking."); }
         if (sidebarResizeAttached)
         {
             try { await JS.InvokeVoidAsync("confastChatTime.stopSidebarResize"); }
@@ -2804,8 +2826,8 @@
             var savedId = await JS.InvokeAsync<long?>("confastChatTime.selectedChatThread", userId, storageView);
             if (savedId is not long id) return;
 
-            var kind = view == ChatView.Channels ? ConversationKind.Channel : ConversationKind.Direct;
-            if (conversations.Any(row => row.Id == id && row.Kind == kind))
+            if (conversations.Any(row => row.Id == id &&
+                (view == ChatView.Channels ? row.Kind == ConversationKind.Channel : row.Kind != ConversationKind.Channel)))
             {
                 await OpenThreadAsync(id);
                 if (selectedId != id)
@@ -3151,12 +3173,6 @@
             await RunAsync(() => Chat.MoveLayoutItemAsync(isFolder, itemId, parentId, beforeIsFolder, beforeId));
             StateHasChanged();
         });
-
-    private async Task CancelNewDirect()
-    {
-        directUserId = string.Empty;
-        await ChangeViewAsync(ChatView.Conversations);
-    }
 
     private Task CancelNewChannel()
     {
@@ -3703,11 +3719,35 @@
         { error = ex.Message; }
     }
 
-    private Task StartDirectAsync() => RunAsync(async () =>
+    private Task StartNewMessageAsync() => RunAsync(async () =>
     {
-        var id = await Chat.OpenDirectAsync(directUserId);
+        users = await Chat.GetActiveUsersAsync();
+        showNewMessageCard = true;
+    });
+
+    private void CloseNewMessage() => showNewMessageCard = false;
+
+    private Task OpenCreatedMessageAsync(long id) => RunAsync(async () =>
+    {
+        showNewMessageCard = false;
         view = ChatView.Conversations;
         await OpenThreadAsync(id);
+    });
+
+    private async Task OpenGroupEditorAsync()
+    {
+        groupEditRevision++;
+        await JS.InvokeVoidAsync("confastChatTime.toggleGroupEditor");
+    }
+
+    private Task CloseGroupEditorAsync() => JS.InvokeVoidAsync("confastChatTime.hidePopoverStack", "chat-group-rename").AsTask();
+
+    private Task GroupEditedAsync(long conversationId) => RunAsync(async () =>
+    {
+        await CloseGroupEditorAsync();
+        await RefreshAsync();
+        if (thread?.Conversation.Id == conversationId)
+            thread = thread with { Conversation = conversations.Single(x => x.Id == conversationId) };
     });
 
     private void ToggleMessageProfile(string userId, string name, string anchorKey)
@@ -4985,6 +5025,9 @@
             catch (JSException) { }
         }
         threadControlsReference?.Dispose();
+        try { await JS.InvokeVoidAsync("confastChatTime.stopConversationScrollTracking"); }
+        catch (JSDisconnectedException) { }
+        catch (JSException) { }
         reactionPickerReference?.Dispose();
         moreActionsReference?.Dispose();
         textMenuReference?.Dispose();

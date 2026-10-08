@@ -1,3 +1,4 @@
 .chat-gif-image-button { display: block; max-width: 100%; min-height: 0; padding: 0; border: 0; border-radius: .4rem; background: transparent; cursor: zoom-in; }
 .chat-gif-image-button img { display: block; max-width: 100%; max-height: 280px; border-radius: .4rem; }
 .chat-gif-image-button:focus-visible { outline: 2px solid #176b9c; outline-offset: 2px; }
+.chat-gif-icon { display: block; width: 100%; height: 100%; object-fit: cover; }

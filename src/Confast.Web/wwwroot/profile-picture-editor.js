@@ -1,5 +1,8 @@
 window.confastProfilePictureEditor = {
     state: null,
+    create() {
+        return { ...this, state: null };
+    },
 
     async prepare(inputId, maxSourceBytes) {
         this.dispose();
@@ -23,10 +26,10 @@ window.confastProfilePictureEditor = {
         }
     },
 
-    mount() {
+    mount(canvasId = "chat-picture-edit-canvas", sliderId = "chat-picture-zoom", closeSelector = ".chat-picture-edit-close") {
         const state = this.state;
-        const canvas = document.getElementById("chat-picture-edit-canvas");
-        const slider = document.getElementById("chat-picture-zoom");
+        const canvas = document.getElementById(canvasId);
+        const slider = document.getElementById(sliderId);
         if (!state || !(canvas instanceof HTMLCanvasElement) || !(slider instanceof HTMLInputElement))
             throw new Error("The picture editor is unavailable.");
 
@@ -72,7 +75,7 @@ window.confastProfilePictureEditor = {
         slider.addEventListener("input", zoomInput);
         state.handlers = { pointerDown, pointerMove, pointerUp, keyDown, zoomInput };
         this.draw();
-        document.querySelector(".chat-picture-edit-close")?.focus();
+        document.querySelector(closeSelector)?.focus();
     },
 
     draw() {
@@ -162,3 +165,4 @@ window.confastProfilePictureEditor = {
         this.state = null;
     }
 };
+window.confastGroupIconEditor = window.confastProfilePictureEditor.create();
