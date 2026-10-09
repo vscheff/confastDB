@@ -8,6 +8,142 @@ public sealed record ChatGroupStartResult(long? CreatedConversationId, IReadOnly
 
 public sealed partial class ChatService
 {
+    public async Task HideDirectConversationAsync(long conversationId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Serialize hiding with message delivery, so a newer incoming message always restores visibility.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT id FROM chat_conversations WHERE id = {conversationId} FOR UPDATE", cancellationToken);
+        var updated = await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId && x.UserId == userId
+                && x.Conversation.Kind == ConversationKind.Direct)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsHidden, true), cancellationToken);
+        if (updated == 0) throw new UnauthorizedAccessException("You do not belong to this direct conversation.");
+        await transaction.CommitAsync(cancellationToken);
+        notifications.Publish([userId]);
+    }
+
+    private static Task<int> RestoreDirectVisibilityAsync(Confast.Web.Data.AppDbContext db, long conversationId,
+        CancellationToken cancellationToken) =>
+        db.ChatConversationMembers.Where(x => x.ConversationId == conversationId && x.IsHidden
+                && x.Conversation.Kind == ConversationKind.Direct)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsHidden, false), cancellationToken);
+
+    public async Task SetConversationPinnedToTopAsync(long conversationId, bool pinned,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var updated = await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId && x.UserId == userId
+                && x.Conversation.Kind != ConversationKind.Channel)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.PinnedToTopAtUtc,
+                x => pinned ? x.PinnedToTopAtUtc ?? now : null), cancellationToken);
+        if (updated == 0) throw new UnauthorizedAccessException("You do not belong to this conversation.");
+        notifications.Publish([userId]);
+    }
+
+    public async Task SetConversationMutedAsync(long conversationId, bool muted, int? minutes = null,
+        CancellationToken cancellationToken = default)
+    {
+        var until = MuteDeadline(muted, minutes);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        var updated = await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId && x.UserId == userId
+                && x.Conversation.Kind != ConversationKind.Channel)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsMuted, muted)
+                .SetProperty(x => x.MutedUntilUtc, until), cancellationToken);
+        if (updated == 0) throw new UnauthorizedAccessException("You do not belong to this conversation.");
+        notifications.Publish([userId]);
+    }
+
+    public async Task LeaveGroupAsync(long conversationId, CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Use the same lock as additions, so joining and leaving cannot race over the member set.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT id FROM chat_conversations WHERE id = {conversationId} FOR UPDATE", cancellationToken);
+        var group = await db.ChatConversations.Include(x => x.Members)
+            .SingleOrDefaultAsync(x => x.Id == conversationId && x.Kind == ConversationKind.Group
+                && x.Members.Any(m => m.UserId == userId), cancellationToken)
+            ?? throw new UnauthorizedAccessException("You do not belong to this group chat.");
+        var recipients = group.Members.Select(x => x.UserId).ToArray();
+        db.ChatConversationMembers.Remove(group.Members.Single(x => x.UserId == userId));
+        var now = clock.GetUtcNow().UtcDateTime;
+        db.ChatMessages.Add(new ChatMessage
+        {
+            ConversationId = conversationId, SenderUserId = userId, Type = ChatMessageType.MemberLeftNotice,
+            Body = "left the group.", SentAtUtc = now
+        });
+        group.LastActivityAtUtc = now;
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        notifications.Publish(recipients);
+    }
+
+    public async Task<long> AddConversationMembersAsync(long conversationId, IEnumerable<string> memberUserIds,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var userId = await RequireUserAsync(db, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Serialize membership additions so overlapping selections create each membership and event once.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT id FROM chat_conversations WHERE id = {conversationId} FOR UPDATE", cancellationToken);
+        var source = await db.ChatConversations.Include(x => x.Members)
+            .SingleOrDefaultAsync(x => x.Id == conversationId && x.Members.Any(m => m.UserId == userId), cancellationToken)
+            ?? throw new UnauthorizedAccessException("You do not belong to this conversation.");
+        if (source.Kind is not (ConversationKind.Direct or ConversationKind.Group))
+            throw new InvalidOperationException("Use channel settings to manage channel members.");
+
+        var existingIds = source.Members.Select(x => x.UserId).ToHashSet(StringComparer.Ordinal);
+        var addedIds = memberUserIds.Distinct(StringComparer.Ordinal).Where(id => !existingIds.Contains(id)).ToArray();
+        if (addedIds.Length == 0)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return source.Id;
+        }
+        var addedUsers = await db.Users.Where(x => addedIds.Contains(x.Id) && x.IsActive)
+            .OrderBy(x => x.DisplayName).ThenBy(x => x.Id)
+            .Select(x => new { x.Id, Name = x.DisplayName ?? x.UserName ?? "User" }).ToArrayAsync(cancellationToken);
+        if (addedUsers.Length != addedIds.Length)
+            throw new InvalidOperationException("Select active users to add to the conversation.");
+        var now = clock.GetUtcNow().UtcDateTime;
+        var destination = source;
+        if (source.Kind == ConversationKind.Direct)
+        {
+            if (existingIds.Count + addedIds.Length < 3)
+                throw new InvalidOperationException("A group chat needs at least three people, including you.");
+            // The direct chat and its private history stay intact; only its participants carry forward.
+            destination = new Conversation
+            {
+                Kind = ConversationKind.Group, CreatedByUserId = userId,
+                CreatedAtUtc = now, LastActivityAtUtc = now,
+                Members = existingIds.Select(id => new ConversationMember { UserId = id, JoinedAtUtc = now }).ToList()
+            };
+            db.ChatConversations.Add(destination);
+        }
+        foreach (var added in addedUsers)
+        {
+            destination.Members.Add(new ConversationMember { UserId = added.Id, JoinedAtUtc = now });
+            db.ChatMessages.Add(new ChatMessage
+            {
+                Conversation = destination, SenderUserId = userId, Type = ChatMessageType.MemberAddedNotice,
+                Body = $"added {added.Name} to the conversation.", SentAtUtc = now,
+                Tags = [new ChatMessageTag { Start = 6, Length = added.Name.Length,
+                    Kind = ChatMentionKind.User, UserId = added.Id }]
+            });
+        }
+        destination.LastActivityAtUtc = now;
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        notifications.Publish(existingIds.Concat(addedIds));
+        return destination.Id;
+    }
+
     public async Task<long> CreateGroupAsync(IEnumerable<string> memberUserIds,
         CancellationToken cancellationToken = default) =>
         (await StartGroupAsync(memberUserIds, createAnother: true, cancellationToken: cancellationToken)).CreatedConversationId!.Value;

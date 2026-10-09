@@ -23,7 +23,7 @@ public sealed partial class ChatService
             .Where(x => x.Id == messageId && x.DeletedAtUtc == null && x.SenderUserId != userId
                 && (x.Type == ChatMessageType.Text || x.Type == ChatMessageType.Poll)
                 && db.ChatConversationMembers.Any(member => member.ConversationId == x.ConversationId
-                    && member.UserId == userId))
+                    && member.UserId == userId && !member.IsHidden))
             .Select(x => new ChatInboxMessage(x.Id, x.ConversationId, x.ChannelThreadId,
                 x.SenderUserId ?? "", x.SenderUser != null ? x.SenderUser.DisplayName : "System",
                 x.Body, x.SentAtUtc, x.Attachments.Select(a => a.FileName).ToArray(), null))
@@ -31,8 +31,10 @@ public sealed partial class ChatService
         if (preview is null) return null;
         var kind = await db.ChatConversations.Where(x => x.Id == preview.ConversationId)
             .Select(x => x.Kind).SingleAsync(cancellationToken);
-        if (kind != ConversationKind.Channel) return preview;
         var settings = await LoadNotificationSettingsAsync(db, userId, cancellationToken);
+        if (kind != ConversationKind.Channel)
+            return settings.Channels.TryGetValue(preview.ConversationId, out var conversationSetting)
+                && !conversationSetting.IsMuted ? preview : null;
         var mentioned = await db.ChatMessages.AnyAsync(x => x.Id == messageId
             && (x.Mentions.Any(m => m.UserId == userId)
                 || (x.ReplyToMessage != null && x.ReplyToMessage.SenderUserId == userId)), cancellationToken);
@@ -49,7 +51,7 @@ public sealed partial class ChatService
         var query = db.ChatMessages.AsNoTracking().Where(message => message.DeletedAtUtc == null
             && !message.Reads.Any(read => read.UserId == userId)
             && (message.ChannelThreadId == null || message.Type == ChatMessageType.ThreadNotice)
-            && db.ChatConversationMembers.Any(member => member.UserId == userId
+            && db.ChatConversationMembers.Any(member => member.UserId == userId && !member.IsHidden
                 && member.ConversationId == message.ConversationId
                 && ((message.Id > (member.LastReadMessageId ?? 0) && message.SenderUserId != userId)
                     || (!mentionsOnly && member.IsManuallyUnread

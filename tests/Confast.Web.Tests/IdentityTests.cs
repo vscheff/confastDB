@@ -1,4 +1,6 @@
 using Confast.Web.Data;
+using Confast.Web.Features.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
 using Confast.Web.Features.Chat;
 using Confast.Web.Features.Gages;
 using Confast.Web.Features.Identity;
@@ -11,9 +13,14 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    public async Task InitializeAsync() => await database.ResetAsync();
+    private readonly AuthorizationTestSession authorization = new(database);
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+    }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task CreatingAnActiveUser_AddsThemToExistingPublicChannels()
@@ -45,6 +52,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         var administration = services.GetRequiredService<UserAdministrationService>();
         var result = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "new.colleague", DisplayName = "New Colleague", Email = "new@example.com"
         });
 
@@ -74,6 +82,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
 
         var createResult = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "quality.person",
             DisplayName = "Quality Person",
             JobTitle = "Quality Engineer",
@@ -92,22 +101,23 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
             [AppRoles.Quality, AppRoles.ReadOnly],
             edit.Roles.Order(StringComparer.Ordinal));
 
-        edit.Roles = [AppRoles.Production];
+        edit.Roles = [AppRoles.Production, AppRoles.ReadOnly];
         var updateResult = await administration.UpdateUserAsync(edit);
 
         Assert.True(updateResult.Succeeded, string.Join(" ", updateResult.Errors));
         var updated = await administration.GetUserForEditAsync(createResult.UserId!);
-        Assert.Equal([AppRoles.Production], updated!.Roles);
+        Assert.Equal([AppRoles.Production, AppRoles.ReadOnly], updated!.Roles.Order(StringComparer.Ordinal));
     }
 
     [Fact]
-    public async Task QualityUserDisplayNames_IncludeOnlyQualityUsersInDisplayNameOrder()
+    public async Task InspectorChoices_IncludeQualifiedUsersInDisplayNameOrder()
     {
         await using var services = CreateServices();
         var administration = services.GetRequiredService<UserAdministrationService>();
 
         var qualityUser = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "zeta.quality",
             DisplayName = "Zeta Quality",
             Email = "zeta.quality@example.com",
@@ -115,6 +125,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         });
         var secondQualityUser = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "alpha.quality",
             DisplayName = "Alpha Quality",
             Email = "alpha.quality@example.com",
@@ -122,6 +133,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         });
         var productionUser = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "production.person",
             DisplayName = "Production Person",
             Email = "production.person@example.com",
@@ -132,7 +144,8 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         Assert.True(secondQualityUser.Succeeded);
         Assert.True(productionUser.Succeeded);
 
-        var displayNames = await administration.GetQualityUserDisplayNamesAsync();
+        var displayNames = (await services.GetRequiredService<InspectorEligibilityService>().GetCandidatesAsync())
+            .Where(x => x.UserId != authorization.ActorId).Select(x => x.DisplayName);
 
         Assert.Equal(["Alpha Quality", "Zeta Quality"], displayNames);
     }
@@ -155,6 +168,8 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         Assert.True(await userManager.IsInRoleAsync(user, AppRoles.Quality));
         Assert.True(await userManager.IsInRoleAsync(user, AppRoles.Production));
         Assert.False(await userManager.IsInRoleAsync(user, AppRoles.Administrator));
+        Assert.True(await userManager.IsInRoleAsync(user, AppRoles.ReadOnly));
+        Assert.False(await userManager.IsInRoleAsync(user, AppRoles.Root));
     }
 
     [Fact]
@@ -241,12 +256,13 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     }
 
     [Fact]
-    public async Task LastActiveAdministrator_CannotBeDeactivated()
+    public async Task LastOrdinaryAdministrator_CanBeDeactivatedAfterExplicitRootProvisioning()
     {
         await using var services = CreateServices();
         var administration = services.GetRequiredService<UserAdministrationService>();
         var createResult = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "only.admin",
             DisplayName = "Only Admin",
             Email = "admin@example.com",
@@ -257,8 +273,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
 
         var result = await administration.UpdateUserAsync(edit);
 
-        Assert.False(result.Succeeded);
-        Assert.Contains(result.Errors, x => x.Contains("last active administrator", StringComparison.OrdinalIgnoreCase));
+        Assert.True(result.Succeeded, string.Join(" ", result.Errors));
     }
 
     [Fact]
@@ -300,6 +315,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
         var administrator = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "deleting.admin",
             DisplayName = "Deleting Admin",
             Email = "deleting.admin@example.com",
@@ -307,21 +323,19 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
         });
         var target = await administration.CreateUserAsync(new CreateUserInput
         {
+            Version = (await administration.GetAdministrationStateAsync()).Version,
             Username = "delete.target",
             DisplayName = "Delete Target",
             Email = "delete.target@example.com",
             Roles = [AppRoles.Quality]
         });
 
-        var selfDeleteResult = await administration.DeleteUserAsync(
-            administrator.UserId!,
-            administrator.UserId);
-        var deleteResult = await administration.DeleteUserAsync(
-            target.UserId!,
-            administrator.UserId);
+        await authorization.SignInAsync(administrator.UserId!);
+        var self = (await administration.GetUserForEditAsync(administrator.UserId!))!;
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => administration.DeleteUserAsync(self.Id, self.Version, self.ConcurrencyStamp));
+        var toDelete = (await administration.GetUserForEditAsync(target.UserId!))!;
+        var deleteResult = await administration.DeleteUserAsync(toDelete.Id, toDelete.Version, toDelete.ConcurrencyStamp);
 
-        Assert.False(selfDeleteResult.Succeeded);
-        Assert.Contains(selfDeleteResult.Errors, x => x.Contains("own account", StringComparison.OrdinalIgnoreCase));
         Assert.True(deleteResult.Succeeded, string.Join(" ", deleteResult.Errors));
         Assert.Null(await userManager.FindByIdAsync(target.UserId!));
         Assert.NotNull(await userManager.FindByIdAsync(administrator.UserId!));
@@ -355,10 +369,12 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
                 options.Password.RequireUppercase = true;
                 options.Password.RequireNonAlphanumeric = true;
             })
-            .AddRoles<IdentityRole>()
+            .AddRoles<ApplicationRole>()
             .AddEntityFrameworkStores<AppDbContext>()
             .AddSignInManager<ApplicationSignInManager>()
             .AddDefaultTokenProviders();
+        services.AddSingleton<AuthenticationStateProvider>(authorization);
+        services.AddConfastAuthorization();
         services.AddScoped<UserAdministrationService>();
         return services.BuildServiceProvider();
     }

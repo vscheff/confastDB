@@ -22,6 +22,2952 @@ namespace Confast.Web.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationChangeDetail", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("FieldName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("field_name");
+
+                    b.Property<long>("HistoryId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("history_id");
+
+                    b.Property<bool?>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<bool?>("IsPresent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_present");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("ParentRoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("parent_role_id");
+
+                    b.Property<string>("PermissionKey")
+                        .HasColumnType("text")
+                        .HasColumnName("permission_key");
+
+                    b.Property<string>("PreviousName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("previous_name");
+
+                    b.Property<string>("PreviousValue")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("previous_value");
+
+                    b.Property<string>("ResultingName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("resulting_name");
+
+                    b.Property<string>("ResultingValue")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("resulting_value");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("role_id");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<bool?>("WasEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("was_enabled");
+
+                    b.Property<bool?>("WasPresent")
+                        .HasColumnType("boolean")
+                        .HasColumnName("was_present");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("HistoryId");
+
+                    b.ToTable("authorization_change_details", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationChangeHistory", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ActorKind")
+                        .HasColumnType("integer")
+                        .HasColumnName("actor_kind");
+
+                    b.Property<string>("ActorUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<string>("DirectAnchorRoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("direct_anchor_role_id");
+
+                    b.Property<Guid>("InstallationGeneration")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_generation");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<long>("PreviousEpoch")
+                        .HasColumnType("bigint")
+                        .HasColumnName("previous_epoch");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("purpose");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ResultingEpoch")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resulting_epoch");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InstallationGeneration", "ResultingEpoch");
+
+                    b.ToTable("authorization_change_history", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_authorization_history_actor", "(actor_kind = 0 AND actor_user_id IS NOT NULL) OR (actor_kind = 1 AND actor_user_id IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BaselineRoleId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("baseline_role_id");
+
+                    b.Property<string>("CatalogVersion")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("catalog_version");
+
+                    b.Property<long>("GlobalEpoch")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("global_epoch");
+
+                    b.Property<Guid>("InstallationGeneration")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_generation")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("Readiness")
+                        .HasColumnType("integer")
+                        .HasColumnName("readiness");
+
+                    b.Property<string>("RootRoleId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("root_role_id");
+
+                    b.Property<string>("RootUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("root_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BaselineRoleId");
+
+                    b.HasIndex("RootRoleId");
+
+                    b.HasIndex("RootUserId");
+
+                    b.ToTable("authorization_state", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_authorization_readiness", "(readiness = 0 AND root_user_id IS NULL) OR (readiness = 1 AND root_user_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_authorization_singleton", "id = 1 AND global_epoch >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.PermissionManifest", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasColumnType("text")
+                        .HasColumnName("key");
+
+                    b.Property<bool>("AllowedInBaseline")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allowed_in_baseline");
+
+                    b.Property<int>("Authority")
+                        .HasColumnType("integer")
+                        .HasColumnName("authority");
+
+                    b.Property<string>("CatalogVersion")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("catalog_version");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("category");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("display_name");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("permissions", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Key = "Users.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Users",
+                            DisplayName = "Read Users",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Users.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Users",
+                            DisplayName = "Create Users",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Users.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Users",
+                            DisplayName = "Update Users",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Users.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Users",
+                            DisplayName = "Delete Users",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Users.ManageRoles",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Users",
+                            DisplayName = "Assign User Roles",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Users.ResetPasswords",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Users",
+                            DisplayName = "Issue Password Reset Links",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Customers.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Customers",
+                            DisplayName = "Read Customers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Customers.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Customers",
+                            DisplayName = "Create Customers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Customers.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Customers",
+                            DisplayName = "Update Customers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Plants.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plants",
+                            DisplayName = "Read Customer Plants",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Plants.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plants",
+                            DisplayName = "Create Customer Plants",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Plants.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plants",
+                            DisplayName = "Update Customer Plants",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Plants.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plants",
+                            DisplayName = "Delete Customer Plants",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PlantCertificationRecipients.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plant Certification Delivery",
+                            DisplayName = "Read Plant Certification Recipients",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PlantCertificationRecipients.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plant Certification Delivery",
+                            DisplayName = "Create Plant Certification Recipients",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PlantCertificationRecipients.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plant Certification Delivery",
+                            DisplayName = "Update Plant Certification Recipients",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PlantCertificationRecipients.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plant Certification Delivery",
+                            DisplayName = "Delete Plant Certification Recipients",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PlantCertificationSettings.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plant Certification Delivery",
+                            DisplayName = "Read Plant Certification Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PlantCertificationSettings.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Plant Certification Delivery",
+                            DisplayName = "Update Plant Certification Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Parts.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Parts",
+                            DisplayName = "Read Parts",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Parts.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Parts",
+                            DisplayName = "Create Parts",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Parts.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Parts",
+                            DisplayName = "Update Parts",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Parts.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Parts",
+                            DisplayName = "Delete Parts",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartFlipDefinitions.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Part Flip Definitions",
+                            DisplayName = "Read Part Flip Configuration",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartFlipDefinitions.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Part Flip Definitions",
+                            DisplayName = "Create Part Flip Definitions",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartFlipDefinitions.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Part Flip Definitions",
+                            DisplayName = "Update Part Flip Definitions",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartFlipDefinitions.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Part Flip Definitions",
+                            DisplayName = "Delete Part Flip Definitions",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Gages.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Gages",
+                            DisplayName = "Read Gages",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Gages.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Gages",
+                            DisplayName = "Create Gages",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Gages.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Gages",
+                            DisplayName = "Update Gages",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "GageTypes.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Gages",
+                            DisplayName = "Read Gage Types",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "GageTypes.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Gages",
+                            DisplayName = "Create Gage Types",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "GageTypes.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Gages",
+                            DisplayName = "Update Gage Types",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "InspectionCriteria.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Read Inspection Criteria",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "InspectionCriteria.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Create Inspection Criteria Revisions",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "InspectionCriteria.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Update Inspection Criteria Revisions",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "InspectionCriteria.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Delete Inspection Criteria Revisions",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "InspectionCriteria.Publish",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Publish Inspection Criteria Revision",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "MasterPrints.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Read Master Prints",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "MasterPrints.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Upload or Replace Master Prints",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "MasterPrints.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspection Criteria",
+                            DisplayName = "Delete Master Prints",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Inspections.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Read Inspections",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Inspections.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Create Inspections",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Inspections.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Update Inspections",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Inspections.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Delete Inspections",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Inspections.Duplicate",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Duplicate Inspection Lots",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Inspections.Flip",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Flip Inspection to Another Part",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Inspections.TransferQuantity",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Transfer Additional Lot Quantity",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Inspections.UndoLineage",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Undo Lot Lineage Operation",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Inspections.ApproveDeviation",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Change Deviation Approval",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "InspectionSheets.Export",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Inspections",
+                            DisplayName = "Export Inspection Sheets",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Certifications.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Certifications",
+                            DisplayName = "Read Certification Documents",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Certifications.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Certifications",
+                            DisplayName = "Upload Certification Documents",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Certifications.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Certifications",
+                            DisplayName = "Delete Certification Documents",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Certifications.BuildPackage",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Certifications",
+                            DisplayName = "Build and Export Certification Packages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Certifications.SendEmail",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Certifications",
+                            DisplayName = "Send Certification Package Email",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Certifications.TemporarilyCompletePackage",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Certifications",
+                            DisplayName = "Temporarily Complete Package Rendering",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "CertificationEmailTemplates.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Email Administration",
+                            DisplayName = "Read Certification Email Templates",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "CertificationEmailTemplates.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Email Administration",
+                            DisplayName = "Update Certification Email Templates",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "CertificationEmailSettings.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Email Administration",
+                            DisplayName = "Read Global Certification Email Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "CertificationEmailSettings.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Email Administration",
+                            DisplayName = "Update Global Certification Email Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "NominalToleranceSettings.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Global Settings",
+                            DisplayName = "Read Nominal Tolerance Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "NominalToleranceSettings.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Global Settings",
+                            DisplayName = "Update Nominal Tolerance Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Development.SetBusinessDate",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Development",
+                            DisplayName = "Set Development Business Date",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Development.SendTestEmail",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Development",
+                            DisplayName = "Send Development SMTP Test",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Suppliers.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Suppliers",
+                            DisplayName = "Read Suppliers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Suppliers.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Suppliers",
+                            DisplayName = "Create Suppliers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Suppliers.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Suppliers",
+                            DisplayName = "Update Suppliers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Shipments.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Read Shipments",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Shipments.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Create Shipments",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Shipments.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Update Shipments",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Shipments.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Delete Shipments",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Containers.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Read Containers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Containers.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Create Containers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Containers.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Update Containers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Containers.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Delete Containers",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ContainerContents.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Replace Container Contents",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "BillsOfLading.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Read Bills of Lading",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "BillsOfLading.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Create Bills of Lading",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "BillsOfLading.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Update Bills of Lading",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Containers.Receive",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Receive Containers",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Containers.CorrectReceipt",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Correct or Reconcile Container Receipt",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Containers.Unreceive",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Unreceive Containers",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Containers.CorrectReceivedQuantities",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Correct Actual Received Quantities",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Containers.CorrectDepartedMetadata",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Correct Departed Container Metadata",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Containers.DeleteDeparted",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Delete Departed Containers",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "BillsOfLading.CorrectDeparted",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Logistics",
+                            DisplayName = "Correct Bills Shared with Departed Containers",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Receiving.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Receiving",
+                            DisplayName = "Read Received Parts and Candidates",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Receiving.BeginInspection",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Receiving",
+                            DisplayName = "Begin Inspection from Receipt",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Receiving.BumpQuantity",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Receiving",
+                            DisplayName = "Add Received Quantity to Inspection",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Receiving.ReverseAllocation",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Receiving",
+                            DisplayName = "Reverse Receipt Allocation",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.Read",
+                            AllowedInBaseline = true,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Read Production Schedules",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionJobs.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Create Production Jobs",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionJobs.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Update Production Jobs",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionJobs.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Delete Production Jobs",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "MachineDowntime.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Create Planned Machine Downtime",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "MachineDowntime.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Update Planned Machine Downtime",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "MachineDowntime.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Delete Planned Machine Downtime",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.Arrange",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Arrange Planned Production Work",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.Optimize",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Apply Production Optimization",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.AppendContainerPart",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Append Eligible Container Part",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.StartWork",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Start Planned Production Work",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.RecordProgress",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Record Additional Production Progress",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.CompleteWork",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Complete Planned Production Work",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionSchedules.CorrectProgress",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Scheduling",
+                            DisplayName = "Correct Cumulative Production Progress",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "SortingMachines.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Read Sorting Machine Configuration",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "SortingMachines.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Create Sorting Machines",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "SortingMachines.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Update Sorting Machines",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartMachineEligibility.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Read Part Machine Eligibility and Rates",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartMachineEligibility.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Add Part Machine Eligibility",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartMachineEligibility.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Update Part Machine Rate or Preference",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "PartMachineEligibility.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Remove Part Machine Eligibility",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionCalendars.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Read Default Working Calendar",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionCalendars.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Update Default Working Calendar",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionHolidays.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Read Production Holidays",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionHolidays.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Create Production Holidays",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionHolidays.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Update Production Holidays",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionHolidays.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Delete Production Holidays",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionDowntimeReasons.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Read Planned Downtime Reasons",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionDowntimeReasons.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Create Planned Downtime Reasons",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionDowntimeReasons.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Update Planned Downtime Reasons",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionDowntimeReasons.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Delete Planned Downtime Reasons",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionSettings.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Read Production Efficiency Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionSettings.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Configuration",
+                            DisplayName = "Update Production Efficiency Settings",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Read Production Logs",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Open or Create Production Logs",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Update Production Log Comments",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.StartRun",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Start Production Run Interval",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.StopRun",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Stop Production Run Interval",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.ResumeRun",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Resume Production Run Interval",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "ProductionLogs.CorrectLine",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Correct Production Run Details",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "SortLogDowntimeCauses.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Read Sort Log Downtime Causes",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "SortLogDowntimeCauses.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Create Sort Log Downtime Causes",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "SortLogDowntimeCauses.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Update Sort Log Downtime Causes",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "SortLogDowntimeCauses.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Tracking",
+                            DisplayName = "Delete Sort Log Downtime Causes",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "ProductionReports.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Production Reporting",
+                            DisplayName = "Read Production Review Reports",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Chat.Access",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Access Chat",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Chat.CreateConversations",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Create Direct and Group Conversations",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.SendMessages",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Send Chat Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.ScheduleMessages",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Schedule Chat Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.CreateThreads",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Create Channel Threads",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.CreatePolls",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Create Chat Polls",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.VotePolls",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Vote in Chat Polls",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.React",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "React to Chat Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.PinMessages",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Pin Chat Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.EditOwnMessages",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Edit Own Chat Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.DeleteOwnMessages",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Delete Own Chat Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.DeleteOthersMessages",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Delete Other Users' Messages",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.CreateChannels",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Create or Duplicate Channels",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.UpdateChannels",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Update Owned Channel Metadata",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.DeleteChannels",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Delete Owned Channels",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.ManagePrivateChannelMembers",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Manage Owned Private Channel Members",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.CreateCategories",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Create Chat Categories",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.ManageCategories",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Manage Accessible Chat Categories",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.ReorderChannels",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Reorder and Relocate Accessible Channels",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.ManageGroupConversations",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Manage Group Conversation Membership and Metadata",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Chat.AdministerChannels",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Chat",
+                            DisplayName = "Administer Any Channel Metadata or Deletion",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Roles.Read",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Role Administration",
+                            DisplayName = "Read Ordinary Roles and Effective Grants",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Roles.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Role Administration",
+                            DisplayName = "Create Ordinary Roles",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Roles.Update",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Role Administration",
+                            DisplayName = "Edit Ordinary Role Metadata",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Roles.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Role Administration",
+                            DisplayName = "Delete Ordinary Roles",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "Roles.ManagePermissions",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Role Administration",
+                            DisplayName = "Edit Ordinary Role Permission Grants",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Roles.ManageInheritance",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Role Administration",
+                            DisplayName = "Edit Ordinary Role Parents",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "Authorization.ManageSecurity",
+                            AllowedInBaseline = false,
+                            Authority = 1,
+                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            Category = "Authorization Security",
+                            DisplayName = "Manage Protected Authorization and Root Security",
+                            Kind = 1
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.RoleInheritance", b =>
+                {
+                    b.Property<string>("ChildRoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("child_role_id");
+
+                    b.Property<string>("ParentRoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("parent_role_id");
+
+                    b.HasKey("ChildRoleId", "ParentRoleId");
+
+                    b.HasIndex("ParentRoleId");
+
+                    b.ToTable("role_inheritance", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_role_inheritance_not_self", "child_role_id <> parent_role_id");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            ChildRoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            ParentRoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b"
+                        },
+                        new
+                        {
+                            ChildRoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            ParentRoleId = "56b3fc07-e152-42ca-b074-a823900c93b3"
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.RolePermission", b =>
+                {
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("role_id");
+
+                    b.Property<string>("PermissionKey")
+                        .HasColumnType("text")
+                        .HasColumnName("permission_key");
+
+                    b.HasKey("RoleId", "PermissionKey");
+
+                    b.HasIndex("PermissionKey");
+
+                    b.ToTable("role_permissions", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Customers.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Plants.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "PlantCertificationRecipients.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "PlantCertificationSettings.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Parts.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Gages.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "GageTypes.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "InspectionCriteria.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "MasterPrints.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Inspections.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Certifications.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Suppliers.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Shipments.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "Containers.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "BillsOfLading.Read"
+                        },
+                        new
+                        {
+                            RoleId = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            PermissionKey = "ProductionSchedules.Read"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Customers.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Customers.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Plants.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Plants.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "PlantCertificationRecipients.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "PlantCertificationRecipients.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "PlantCertificationRecipients.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "PlantCertificationSettings.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Parts.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Parts.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Gages.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Gages.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "GageTypes.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "GageTypes.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "InspectionCriteria.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "InspectionCriteria.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "InspectionCriteria.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "InspectionCriteria.Publish"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "MasterPrints.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "MasterPrints.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Inspections.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Inspections.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Inspections.Duplicate"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Inspections.Flip"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Inspections.TransferQuantity"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Inspections.ApproveDeviation"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "InspectionSheets.Export"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Certifications.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Certifications.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Certifications.BuildPackage"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Certifications.SendEmail"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Suppliers.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Suppliers.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Shipments.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Shipments.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Shipments.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "ContainerContents.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "BillsOfLading.Create"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "BillsOfLading.Update"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.Receive"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.CorrectReceipt"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.Unreceive"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Containers.CorrectReceivedQuantities"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Receiving.Read"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Receiving.BeginInspection"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Receiving.BumpQuantity"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Receiving.ReverseAllocation"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.Access"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.CreateConversations"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.SendMessages"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.ScheduleMessages"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.CreateThreads"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.CreatePolls"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.VotePolls"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.React"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.PinMessages"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.EditOwnMessages"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.DeleteOwnMessages"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.CreateChannels"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.UpdateChannels"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.DeleteChannels"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.ManagePrivateChannelMembers"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.CreateCategories"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.ManageCategories"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.ReorderChannels"
+                        },
+                        new
+                        {
+                            RoleId = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            PermissionKey = "Chat.ManageGroupConversations"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Customers.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Customers.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Plants.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Plants.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Parts.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Parts.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Suppliers.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Suppliers.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Shipments.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Shipments.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Shipments.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ContainerContents.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "BillsOfLading.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "BillsOfLading.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.Receive"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.CorrectReceipt"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.Unreceive"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Containers.CorrectReceivedQuantities"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionJobs.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionJobs.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionJobs.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "MachineDowntime.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "MachineDowntime.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "MachineDowntime.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.Arrange"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.Optimize"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.AppendContainerPart"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.StartWork"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.RecordProgress"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.CompleteWork"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionSchedules.CorrectProgress"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.Read"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.Create"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.Update"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.StartRun"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.StopRun"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.ResumeRun"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionLogs.CorrectLine"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "ProductionReports.Read"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.Access"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.CreateConversations"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.SendMessages"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.ScheduleMessages"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.CreateThreads"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.CreatePolls"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.VotePolls"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.React"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.PinMessages"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.EditOwnMessages"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.DeleteOwnMessages"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.CreateChannels"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.UpdateChannels"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.DeleteChannels"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.ManagePrivateChannelMembers"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.CreateCategories"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.ManageCategories"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.ReorderChannels"
+                        },
+                        new
+                        {
+                            RoleId = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            PermissionKey = "Chat.ManageGroupConversations"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Users.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Users.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Users.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Users.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Users.ManageRoles"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Users.ResetPasswords"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Plants.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Parts.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartFlipDefinitions.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartFlipDefinitions.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartFlipDefinitions.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartFlipDefinitions.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Inspections.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Inspections.UndoLineage"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Certifications.TemporarilyCompletePackage"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "CertificationEmailTemplates.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "CertificationEmailTemplates.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "CertificationEmailSettings.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "CertificationEmailSettings.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "NominalToleranceSettings.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "NominalToleranceSettings.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Development.SetBusinessDate"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Development.SendTestEmail"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Containers.CorrectDepartedMetadata"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Containers.DeleteDeparted"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "BillsOfLading.CorrectDeparted"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortingMachines.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortingMachines.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortingMachines.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartMachineEligibility.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartMachineEligibility.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartMachineEligibility.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "PartMachineEligibility.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionCalendars.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionCalendars.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionHolidays.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionHolidays.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionHolidays.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionHolidays.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionDowntimeReasons.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionDowntimeReasons.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionDowntimeReasons.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionDowntimeReasons.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionSettings.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "ProductionSettings.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortLogDowntimeCauses.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortLogDowntimeCauses.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortLogDowntimeCauses.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "SortLogDowntimeCauses.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Chat.DeleteOthersMessages"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Chat.AdministerChannels"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Roles.Read"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Roles.Create"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Roles.Update"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Roles.Delete"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Roles.ManagePermissions"
+                        },
+                        new
+                        {
+                            RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            PermissionKey = "Roles.ManageInheritance"
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatAttachment", b =>
                 {
                     b.Property<long>("Id")
@@ -825,6 +3771,10 @@ namespace Confast.Web.Data.Migrations
                     b.Property<string>("UserId")
                         .HasColumnType("text")
                         .HasColumnName("user_id");
+
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_hidden");
 
                     b.Property<bool>("IsManuallyUnread")
                         .HasColumnType("boolean")
@@ -1650,6 +4600,111 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("gage_types", (string)null);
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Identity.ApplicationRole", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text")
+                        .HasColumnName("concurrency_stamp");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_enabled");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("normalized_name");
+
+                    b.Property<string>("SystemKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("system_key");
+
+                    b.Property<int>("SystemKind")
+                        .HasColumnType("integer")
+                        .HasColumnName("system_kind");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasDatabaseName("UX_identity_roles_normalized_name");
+
+                    b.HasIndex("SystemKey")
+                        .IsUnique();
+
+                    b.ToTable("identity_roles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_role_system_kind", "(system_kind = 0 AND system_key IS NULL) OR (system_kind IN (1,2) AND system_key IS NOT NULL)");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            ConcurrencyStamp = "47cd3d4a-0d66-4acf-8556-4017336798d8",
+                            IsEnabled = true,
+                            Name = "Administrator",
+                            NormalizedName = "ADMINISTRATOR",
+                            SystemKind = 0
+                        },
+                        new
+                        {
+                            Id = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            ConcurrencyStamp = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
+                            IsEnabled = true,
+                            Name = "Quality",
+                            NormalizedName = "QUALITY",
+                            SystemKind = 0
+                        },
+                        new
+                        {
+                            Id = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            ConcurrencyStamp = "56b3fc07-e152-42ca-b074-a823900c93b3",
+                            IsEnabled = true,
+                            Name = "Production",
+                            NormalizedName = "PRODUCTION",
+                            SystemKind = 0
+                        },
+                        new
+                        {
+                            Id = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            ConcurrencyStamp = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
+                            IsEnabled = true,
+                            Name = "ReadOnly",
+                            NormalizedName = "READONLY",
+                            SystemKey = "ReadOnlyBaseline",
+                            SystemKind = 1
+                        },
+                        new
+                        {
+                            Id = "e378b8c0-7723-4b5b-a00e-7c9ab8ce3fc6",
+                            ConcurrencyStamp = "e378b8c0-7723-4b5b-a00e-7c9ab8ce3fc6",
+                            IsEnabled = true,
+                            Name = "Root Administrator Prime",
+                            NormalizedName = "ROOT ADMINISTRATOR PRIME",
+                            SystemKey = "RootAdministratorPrime",
+                            SystemKind = 2
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Identity.ApplicationUser", b =>
                 {
                     b.Property<string>("Id")
@@ -1778,6 +4833,63 @@ namespace Confast.Web.Data.Migrations
                     b.ToTable("identity_users", null, t =>
                         {
                             t.HasCheckConstraint("CK_identity_users_presence_preference", "presence_preference IN (0, 1, 2, 4)");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Identity.PasswordResetDelegation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at_utc");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<Guid>("InstallationGeneration")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_generation");
+
+                    b.Property<DateTime>("IssuedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("issued_at_utc");
+
+                    b.Property<string>("IssuerSecurityStamp")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("issuer_security_stamp");
+
+                    b.Property<string>("IssuerUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("issuer_user_id");
+
+                    b.Property<string>("TargetUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("target_user_id");
+
+                    b.Property<string>("TokenDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_digest");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenDigest")
+                        .IsUnique();
+
+                    b.HasIndex("TargetUserId", "ExpiresAtUtc");
+
+                    b.ToTable("password_reset_delegations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_reset_delegation_expiry", "expires_at_utc > issued_at_utc AND (consumed_at_utc IS NULL OR consumed_at_utc >= issued_at_utc)");
                         });
                 });
 
@@ -2424,6 +5536,10 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("inspector_notes");
 
+                    b.Property<string>("InspectorUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("inspector_user_id");
+
                     b.Property<string>("LotNumber")
                         .HasColumnType("text")
                         .HasColumnName("lot_number");
@@ -2461,6 +5577,8 @@ namespace Confast.Web.Data.Migrations
 
                     b.HasIndex("InspectionDate")
                         .HasDatabaseName("IX_inspections_inspection_date");
+
+                    b.HasIndex("InspectorUserId");
 
                     b.HasIndex("LotNumber")
                         .IsUnique()
@@ -3878,66 +6996,6 @@ namespace Confast.Web.Data.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("text")
-                        .HasColumnName("id");
-
-                    b.Property<string>("ConcurrencyStamp")
-                        .IsConcurrencyToken()
-                        .HasColumnType("text")
-                        .HasColumnName("concurrency_stamp");
-
-                    b.Property<string>("Name")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("NormalizedName")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("normalized_name");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("NormalizedName")
-                        .IsUnique()
-                        .HasDatabaseName("UX_identity_roles_normalized_name");
-
-                    b.ToTable("identity_roles", (string)null);
-
-                    b.HasData(
-                        new
-                        {
-                            Id = "47cd3d4a-0d66-4acf-8556-4017336798d8",
-                            ConcurrencyStamp = "47cd3d4a-0d66-4acf-8556-4017336798d8",
-                            Name = "Administrator",
-                            NormalizedName = "ADMINISTRATOR"
-                        },
-                        new
-                        {
-                            Id = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
-                            ConcurrencyStamp = "9eb9ef78-7737-47a5-89fc-10513d3e9c1b",
-                            Name = "Quality",
-                            NormalizedName = "QUALITY"
-                        },
-                        new
-                        {
-                            Id = "56b3fc07-e152-42ca-b074-a823900c93b3",
-                            ConcurrencyStamp = "56b3fc07-e152-42ca-b074-a823900c93b3",
-                            Name = "Production",
-                            NormalizedName = "PRODUCTION"
-                        },
-                        new
-                        {
-                            Id = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
-                            ConcurrencyStamp = "1b171cb9-9273-42fc-b790-ea934dbb12b9",
-                            Name = "ReadOnly",
-                            NormalizedName = "READONLY"
-                        });
-                });
-
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.Property<int>("Id")
@@ -4064,6 +7122,65 @@ namespace Confast.Web.Data.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("identity_user_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationChangeDetail", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Authorization.AuthorizationChangeHistory", null)
+                        .WithMany("Details")
+                        .HasForeignKey("HistoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationState", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("BaselineRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("RootRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("RootUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.RoleInheritance", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("ChildRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("ParentRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.RolePermission", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Authorization.PermissionManifest", null)
+                        .WithMany()
+                        .HasForeignKey("PermissionKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatAttachment", b =>
@@ -4729,6 +7846,11 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Confast.Web.Features.Inspections.Inspection", b =>
                 {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("InspectorUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Confast.Web.Features.Parts.Part", "Part")
                         .WithMany("Inspections")
                         .HasForeignKey("PartId")
@@ -5205,7 +8327,7 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
-                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -5232,7 +8354,7 @@ namespace Confast.Web.Data.Migrations
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserRole<string>", b =>
                 {
-                    b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationRole", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -5252,6 +8374,11 @@ namespace Confast.Web.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationChangeHistory", b =>
+                {
+                    b.Navigation("Details");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelGroup", b =>

@@ -8,7 +8,8 @@
 @inject InspectionService InspectionService
 @inject ReceivedPartsService ReceivedParts
 @inject InspectionSearchNavigationContext SearchNavigation
-@inject UserAdministrationService UserAdministrationService
+@inject InspectorEligibilityService Inspectors
+@inject EffectivePermissionService PermissionsService
 @inject ICertificationPackageService CertificationPackageService
 @inject ICertificationEmailService CertificationEmailService
 @inject ICurrentEmailSender CurrentEmailSender
@@ -569,12 +570,12 @@ else
             </div>
             <div class="form-field inspection-inspector-field">
                 <label for="inspector">Inspector</label>
-                <InputSelect id="inspector" tabindex="-1" @bind-Value="inspection.Inspector" @bind-Value:after="SaveInspectionAfterEditAsync">
+                <InputSelect id="inspector" tabindex="-1" disabled="@(!canChangeInspector)" @bind-Value="inspection.InspectorUserId" @bind-Value:after="SaveInspectionAfterEditAsync">
                     <option value="">Select an inspector</option>
-                    @foreach (var displayName in qualityUserDisplayNames)
-                    {
-                        <option value="@displayName">@displayName</option>
-                    }
+                    @if (!string.IsNullOrEmpty(inspection.Inspector) && !inspectorCandidates.Any(x => x.UserId == inspection.InspectorUserId))
+                    { <option value="@(inspection.InspectorUserId ?? "")">@inspection.Inspector (Historical)</option> }
+                    @foreach (var candidate in inspectorCandidates)
+                    { <option value="@candidate.UserId">@candidate.Label</option> }
                 </InputSelect>
             </div>
             </div>
@@ -950,7 +951,8 @@ else
     public long InspectionId { get; set; }
 
     private InspectionEditModel? inspection;
-    private IReadOnlyList<string> qualityUserDisplayNames = [];
+    private IReadOnlyList<InspectorCandidate> inspectorCandidates = [];
+    private bool canChangeInspector;
     private readonly Dictionary<long, string?> committedMinimums = [];
     private readonly Dictionary<long, string?> committedMaximums = [];
     private readonly Dictionary<long, string> recordedMinimumMessages = [];
@@ -1825,6 +1827,7 @@ else
                 _ => "The inspection could not be saved. Please try again."
             };
         }
+        catch (AuthorizationDeniedException exception) { saveMessage = exception.Message; }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to automatically save inspection {InspectionId}", InspectionId);
@@ -1871,8 +1874,15 @@ else
         try
         {
             var inspectionTask = InspectionService.GetInspectionAsync(InspectionId);
-            var qualityUserDisplayNamesTask = UserAdministrationService.GetQualityUserDisplayNamesAsync();
-            await Task.WhenAll(inspectionTask, qualityUserDisplayNamesTask);
+            inspectorCandidates = [];
+            canChangeInspector = false;
+            try
+            {
+                var snapshot = await PermissionsService.EvaluateCurrentAsync();
+                canChangeInspector = PermissionCatalog.ExpandRequirements([Permissions.Inspections.Update]).All(snapshot.Has);
+                if (canChangeInspector) inspectorCandidates = await Inspectors.GetCandidatesAsync();
+            }
+            catch (AuthorizationDeniedException) { /* The remaining measurement workflow is intentionally still legacy. */ }
             inspection = await inspectionTask;
             if (inspection is null)
             {
@@ -1885,7 +1895,6 @@ else
                 }
             }
             flipPreview = inspection is null ? null : await InspectionService.GetFlipPreviewAsync(InspectionId);
-            qualityUserDisplayNames = await qualityUserDisplayNamesTask;
             if (inspection is not null
                 && (selectedCertificationTypeId is null
                     || inspection.Certifications.All(x => x.CertificationTypeId != selectedCertificationTypeId)))

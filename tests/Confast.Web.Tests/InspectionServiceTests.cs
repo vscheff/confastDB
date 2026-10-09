@@ -15,11 +15,17 @@ namespace Confast.Web.Tests;
 public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
     private readonly InspectionCriteriaService criteriaService = new(database);
-    private readonly InspectionService inspectionService = new(database);
+    private InspectionService inspectionService = null!;
+    private readonly AuthorizationTestSession authorization = new(database);
 
-    public Task InitializeAsync() => database.ResetAsync();
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+        inspectionService = new(database, authorization.Evaluator);
+    }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task InspectionsRetainTheRevisionThatWasCurrentWhenCreated()
@@ -46,7 +52,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             DateReceived = new DateOnly(2026, 8, 24),
             QuantityReceived = 100,
             QuantityInspected = 25,
-            Inspector = "  Alice Inspector  ",
+            InspectorUserId = await CreateInspectorAsync("Alice Inspector"),
             InspectionDate = new DateOnly(2026, 8, 25)
         });
         Assert.Equal(InspectionOperationStatus.Succeeded, createFirst.Status);
@@ -622,12 +628,14 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
                 CaliperId = selectedCaliperId
             });
             await db.SaveChangesAsync();
+            db.UserRoles.Add(new() { UserId = userId, RoleId = AppRoles.QualityId });
+            await db.SaveChangesAsync();
         }
 
         var create = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
         {
             PartId = partId,
-            Inspector = "Inspection User",
+            InspectorUserId = userId,
             InspectionDate = new DateOnly(2026, 9, 3)
         });
 
@@ -989,7 +997,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             DateReceived = new DateOnly(2026, 8, 20),
             QuantityReceived = 100,
             QuantityInspected = 11,
-            Inspector = "Alice",
+            InspectorUserId = await CreateInspectorAsync("Alice"),
             InspectionDate = new DateOnly(2026, 8, 21)
         });
         var sourceId = create.InspectionId!.Value;
@@ -1636,6 +1644,16 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         using var output = new MemoryStream();
         document.Save(output, closeStream: false);
         return output.ToArray();
+    }
+
+    private async Task<string> CreateInspectorAsync(string name)
+    {
+        await using var db = database.CreateDbContext();
+        var user = new ApplicationUser { UserName = Guid.NewGuid().ToString(), DisplayName = name };
+        db.Users.Add(user); await db.SaveChangesAsync();
+        db.UserRoles.Add(new() { UserId = user.Id, RoleId = AppRoles.QualityId });
+        await db.SaveChangesAsync();
+        return user.Id;
     }
 
 }

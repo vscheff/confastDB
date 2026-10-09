@@ -47,6 +47,7 @@ public sealed partial class ChatService
             Answers = normalized.Select((x, index) => new ChatPollAnswer { Text = x.Text, Emoji = x.Emoji, Position = index }).ToList() };
         db.Add(poll);
         await db.SaveChangesAsync(cancellationToken);
+        await RestoreDirectVisibilityAsync(db, conversationId, cancellationToken);
         await db.ChatConversations.Where(x => x.Id == conversationId).ExecuteUpdateAsync(s =>
             s.SetProperty(x => x.LastActivityAtUtc, x => x.LastActivityAtUtc > now ? x.LastActivityAtUtc : now), cancellationToken);
         if (channelThreadId is long id)

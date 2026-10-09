@@ -6,9 +6,9 @@ namespace Confast.Web.Features.Identity;
 
 public sealed class ApplicationUserClaimsPrincipalFactory(
     UserManager<ApplicationUser> userManager,
-    RoleManager<IdentityRole> roleManager,
+    RoleManager<ApplicationRole> roleManager,
     IOptions<IdentityOptions> optionsAccessor)
-    : UserClaimsPrincipalFactory<ApplicationUser, IdentityRole>(
+    : UserClaimsPrincipalFactory<ApplicationUser, ApplicationRole>(
         userManager,
         roleManager,
         optionsAccessor)

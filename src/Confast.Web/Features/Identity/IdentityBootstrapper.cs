@@ -33,12 +33,12 @@ public static class IdentityBootstrapper
         }
 
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
         string[] browserTestRoles = [AppRoles.Quality, AppRoles.Production];
         foreach (var role in browserTestRoles)
         {
             if (await roleManager.RoleExistsAsync(role)) continue;
-            var roleResult = await roleManager.CreateAsync(new IdentityRole(role));
+            var roleResult = await roleManager.CreateAsync(new ApplicationRole(role));
             ThrowIfFailed(roleResult, $"create the {role} role");
         }
 
@@ -110,7 +110,7 @@ public static class IdentityBootstrapper
         }
 
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
             .CreateLogger("IdentityBootstrapper");
 
@@ -118,7 +118,11 @@ public static class IdentityBootstrapper
         {
             if (!await roleManager.RoleExistsAsync(roleName))
             {
-                var roleResult = await roleManager.CreateAsync(new IdentityRole(roleName));
+                var seed = AppRoles.Seeds.Single(x => x.Name == roleName);
+                var roleResult = await roleManager.CreateAsync(new ApplicationRole(roleName)
+                {
+                    Id = seed.Id, SystemKind = seed.SystemKind, SystemKey = seed.SystemKey
+                });
                 ThrowIfFailed(roleResult, $"create the {roleName} role");
             }
         }

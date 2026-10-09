@@ -102,6 +102,8 @@ public sealed class CreateInspectionModel : IValidatableObject
     [Display(Name = "Quantity inspected")]
     public int? QuantityInspected { get; set; }
 
+    public string? InspectorUserId { get; set; }
+
     public string? Inspector { get; set; }
 
     [Required(ErrorMessage = "Inspection date is required.")]
@@ -205,6 +207,8 @@ public sealed class InspectionEditModel : IValidatableObject
     [Range(1, int.MaxValue, ErrorMessage = "Quantity inspected must be greater than zero.")]
     [Display(Name = "Quantity inspected")]
     public int? QuantityInspected { get; set; }
+
+    public string? InspectorUserId { get; set; }
 
     public string? Inspector { get; set; }
 

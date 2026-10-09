@@ -88,8 +88,26 @@ profile or clear the local site's cookies when testing across a restart.
 
 Confast DB uses ASP.NET Core Identity in the existing PostgreSQL database. Applying
 the migrations creates the `identity_*` tables and seeds these roles:
-`Administrator`, `Quality`, `Production`, and `ReadOnly`. The rest of the application
-requires an authenticated user; only administrators can open `/admin/users`.
+`Administrator`, `Quality`, `Production`, `ReadOnly`, and the protected, initially
+unassigned `Root Administrator Prime`. Every human account retains ReadOnly. The rest of the application
+requires an authenticated user. `/admin/users` requires `Users.Read`; `/admin/roles`
+requires `Roles.Read`, with separate permissions for each administrative operation.
+
+The [Phase 3B authorization foundation](docs/authorization-foundation.md) adds the
+164-key catalog, stored grants/inheritance, versioned evaluator/cache, audit infrastructure
+and explicit PendingRoot provisioning. Existing business authorization paths remain in use;
+new permission guards fail closed until Root is deliberately provisioned by account ID.
+Startup never selects Root. Read that document before deployment or manual provisioning,
+especially the migration/runtime credential separation and offline recovery requirements.
+
+[Phase 3C delegated administration](docs/authorization-administration.md) implements
+peer/lower role assignment, safe lower-role editing, guarded account administration,
+tracked one-use password-reset delegation, and stable permission-qualified inspector
+identity. These migrated boundaries require a Ready installation; PendingRoot has no
+legacy Administrator fallback. Old untracked administrative reset links must be reissued.
+New inspection creation and selected receipt operations also use permission guards;
+unmigrated business services retain their existing authorization. Read the implementation
+record for exact boundaries, additive backfill behavior, tests and remaining phases.
 
 There is no public registration. To create the first administrator, set the bootstrap
 values outside source control before starting the application for the first time. In

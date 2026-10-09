@@ -15,8 +15,14 @@ using Microsoft.EntityFrameworkCore;
 namespace Confast.Web.Data;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
-    : IdentityDbContext<ApplicationUser, IdentityRole, string>(options)
+    : IdentityDbContext<ApplicationUser, ApplicationRole, string>(options)
 {
+    public DbSet<Confast.Web.Features.Authorization.PermissionManifest> Permissions => Set<Confast.Web.Features.Authorization.PermissionManifest>();
+    public DbSet<Confast.Web.Features.Authorization.RolePermission> RolePermissions => Set<Confast.Web.Features.Authorization.RolePermission>();
+    public DbSet<Confast.Web.Features.Authorization.RoleInheritance> RoleInheritance => Set<Confast.Web.Features.Authorization.RoleInheritance>();
+    public DbSet<Confast.Web.Features.Authorization.AuthorizationState> AuthorizationState => Set<Confast.Web.Features.Authorization.AuthorizationState>();
+    public DbSet<Confast.Web.Features.Authorization.AuthorizationChangeHistory> AuthorizationChangeHistory => Set<Confast.Web.Features.Authorization.AuthorizationChangeHistory>();
+    public DbSet<PasswordResetDelegation> PasswordResetDelegations => Set<PasswordResetDelegation>();
     public DbSet<Conversation> ChatConversations => Set<Conversation>();
     public DbSet<ChatChannelGroup> ChatChannelGroups => Set<ChatChannelGroup>();
     public DbSet<ConversationMember> ChatConversationMembers => Set<ConversationMember>();
@@ -117,6 +123,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         ProductionTrackingMapping.Configure(modelBuilder);
         modelBuilder.Entity<Part>().Property(x => x.BoxQuantity).HasColumnName("box_quantity").HasPrecision(18, 3);
         ConfigureIdentity(modelBuilder);
+        Confast.Web.Features.Authorization.AuthorizationMapping.Configure(modelBuilder);
         ContainerTrackingConfiguration.Configure(modelBuilder);
 
         var customer = modelBuilder.Entity<Customer>();
@@ -688,6 +695,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .HasDatabaseName("UX_revision_certification_requirements_revision_id_type_id");
 
         var inspection = modelBuilder.Entity<Inspection>();
+        inspection.Property(x => x.InspectorUserId).HasColumnName("inspector_user_id");
+        inspection.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.InspectorUserId).OnDelete(DeleteBehavior.Restrict);
 
         inspection.ToTable("inspections", table =>
         {
@@ -1114,7 +1123,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("FK_identity_users_caliper_id");
 
-        var role = modelBuilder.Entity<IdentityRole>();
+        var role = modelBuilder.Entity<ApplicationRole>();
         role.ToTable("identity_roles");
         role.Property(x => x.Id).HasColumnName("id");
         role.Property(x => x.Name).HasColumnName("name");

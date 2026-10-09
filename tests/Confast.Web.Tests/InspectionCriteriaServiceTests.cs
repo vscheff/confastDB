@@ -11,11 +11,17 @@ namespace Confast.Web.Tests;
 public sealed class InspectionCriteriaServiceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
     private readonly InspectionCriteriaService service = new(database);
-    private readonly InspectionService inspectionService = new(database);
+    private InspectionService inspectionService = null!;
+    private readonly AuthorizationTestSession authorization = new(database);
 
-    public Task InitializeAsync() => database.ResetAsync();
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+        inspectionService = new(database, authorization.Evaluator);
+    }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task InitialRevisionCanBePublishedAndBecomesCurrent()

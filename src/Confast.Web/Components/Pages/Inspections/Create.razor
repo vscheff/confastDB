@@ -4,7 +4,7 @@
 @using Confast.Web.Time
 @using System.Globalization
 @inject InspectionService InspectionService
-@inject UserAdministrationService UserAdministrationService
+@inject InspectorEligibilityService Inspectors
 @inject ICurrentUser CurrentUser
 @inject BusinessDateProvider BusinessDate
 @inject NavigationManager Navigation
@@ -114,11 +114,11 @@ else
 
         <div class="form-field">
             <label for="inspector">Inspector</label>
-            <InputSelect id="inspector" @bind-Value="inspection.Inspector">
+            <InputSelect id="inspector" @bind-Value="inspection.InspectorUserId">
                 <option value="">Select an inspector</option>
-                @foreach (var displayName in qualityUserDisplayNames)
+                @foreach (var candidate in inspectorCandidates)
                 {
-                    <option value="@displayName">@displayName</option>
+                    <option value="@candidate.UserId">@candidate.Label</option>
                 }
             </InputSelect>
         </div>
@@ -144,7 +144,7 @@ else
 
     private readonly CreateInspectionModel inspection = new();
     private IReadOnlyList<InspectionPartOption> partOptions = [];
-    private IReadOnlyList<string> qualityUserDisplayNames = [];
+    private IReadOnlyList<InspectorCandidate> inspectorCandidates = [];
     private bool isLoading = true;
     private bool isSaving;
     private string? loadError;
@@ -177,22 +177,18 @@ else
         try
         {
             var partOptionsTask = InspectionService.GetPartOptionsAsync();
-            // UserManager uses the scoped Identity DbContext, so these two user queries
-            // must not overlap even though the independent part query can run concurrently.
-            qualityUserDisplayNames = await UserAdministrationService.GetQualityUserDisplayNamesAsync();
+            inspectorCandidates = await Inspectors.GetCandidatesAsync();
             var currentUserId = await CurrentUser.GetUserIdAsync();
-            var inspectorDisplayName = await UserAdministrationService.GetUserDisplayNameAsync(currentUserId);
             partOptions = await partOptionsTask;
-            if (string.IsNullOrWhiteSpace(inspection.Inspector))
-            {
-                inspection.Inspector = inspectorDisplayName;
-            }
+            if (string.IsNullOrWhiteSpace(inspection.InspectorUserId) && inspectorCandidates.Any(x => x.UserId == currentUserId))
+                inspection.InspectorUserId = currentUserId;
             if (PreselectedPartId is not null
                 && partOptions.Any(x => x.Id == PreselectedPartId.Value))
             {
                 inspection.PartId = PreselectedPartId.Value;
             }
         }
+        catch (AuthorizationDeniedException exception) { loadError = exception.Message; }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to load Parts for inspection creation");
@@ -254,6 +250,7 @@ else
             };
             duplicateLotInspectionId = result.RelatedInspectionId;
         }
+        catch (AuthorizationDeniedException exception) { saveMessage = exception.Message; }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to create inspection");

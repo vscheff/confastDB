@@ -1,4 +1,5 @@
 using System.Data;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Inspections;
@@ -15,6 +16,7 @@ public sealed class ReceivedPartsService(
     InspectionService inspectionService,
     ICurrentUser currentUser,
     TimeProvider clock,
+    ApplicationAuthorization authorization,
     BusinessDateProvider? businessDate = null)
 {
     public DateOnly Today => businessDate?.Today
@@ -150,7 +152,7 @@ public sealed class ReceivedPartsService(
         bool includeFullyAssigned,
         CancellationToken cancellationToken = default)
     {
-        await RequireInspectorAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Receiving.Read", new("Receiving"), [Permissions.Receiving.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var term = NormalizeOptional(search)?.ToUpperInvariant();
         var lines = await db.ContainerGroupParts.AsNoTracking()
@@ -226,7 +228,7 @@ public sealed class ReceivedPartsService(
         long lineId,
         CancellationToken cancellationToken = default)
     {
-        await RequireInspectorAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Receiving.Read", new("Receiving"), [Permissions.Receiving.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var source = await db.ContainerGroupParts.AsNoTracking().Where(x => x.Id == lineId)
             .Select(x => new { x.PartId, Po = x.PurchaseOrderNumber.Trim().ToUpper() })
@@ -249,8 +251,9 @@ public sealed class ReceivedPartsService(
         BeginReceiptInspectionModel model,
         CancellationToken cancellationToken = default)
     {
-        await RequireInspectorAsync(cancellationToken);
-        var userId = await RequireUserIdAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Receiving.BeginInspection", new("ReceiptLine", model.ContainerGroupPartId.ToString()),
+            [Permissions.Receiving.BeginInspection, Permissions.Inspections.Create], cancellationToken);
+        var userId = operation.ActorUserId;
         var manufacturerLot = NormalizeOptional(model.ManufacturerLotNumber);
         var internalLot = NormalizeOptional(model.InternalLotNumber);
         if (manufacturerLot is null) return ReceiptOperationResult.Invalid("Manufacturer's lot is required.");
@@ -280,10 +283,11 @@ public sealed class ReceivedPartsService(
             DateReceived = source.ReceivedDate,
             QuantityReceived = model.Quantity,
             QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(model.Quantity),
+            InspectorUserId = model.InspectorUserId,
             Inspector = model.Inspector,
             InspectionDate = Today
         };
-        var result = await inspectionService.CreateInspectionWithCallbackAsync(create, async (db, inspection, ct) =>
+        var result = await inspectionService.CreateInspectionWithCallbackAsync(create, operation, model.ContainerGroupPartId, async (db, inspection, ct) =>
         {
             var line = await LockLineAsync(db, model.ContainerGroupPartId, ct);
             if (line is null) return new InspectionOperationResult(InspectionOperationStatus.NotFound, Message: "Received part line no longer exists.");
@@ -317,8 +321,8 @@ public sealed class ReceivedPartsService(
 
     public async Task<ReceiptOperationResult> BumpUpAsync(BumpUpReceiptModel model, CancellationToken cancellationToken = default)
     {
-        await RequireInspectorAsync(cancellationToken);
-        var userId = await RequireUserIdAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Receiving.BumpQuantity", new("ReceiptLine", model.ContainerGroupPartId.ToString()), [Permissions.Receiving.BumpQuantity], cancellationToken);
+        var userId = operation.ActorUserId;
         var manufacturerLot = NormalizeOptional(model.ManufacturerLotNumber);
         if (manufacturerLot is null) return ReceiptOperationResult.Invalid("Manufacturer's lot is required.");
         if (model.Quantity <= 0) return ReceiptOperationResult.Invalid("Incoming quantity must be greater than zero.");
@@ -391,8 +395,8 @@ public sealed class ReceivedPartsService(
 
     public async Task<ReceiptOperationResult> ReverseAllocationAsync(long allocationId, string reason, CancellationToken cancellationToken = default)
     {
-        await RequireInspectorAsync(cancellationToken);
-        var userId = await RequireUserIdAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Receiving.ReverseAllocation", new("Allocation", allocationId.ToString()), [Permissions.Receiving.ReverseAllocation], cancellationToken);
+        var userId = operation.ActorUserId;
         if (string.IsNullOrWhiteSpace(reason)) return ReceiptOperationResult.Invalid("A reversal reason is required.");
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
@@ -447,18 +451,6 @@ public sealed class ReceivedPartsService(
         allocation.ReversedAtUtc = clock.GetUtcNow();
         if (container is not null) db.Entry(container).Property(x => x.ContainerNumber).IsModified = true;
         return await SaveAsync(db, transaction, cancellationToken);
-    }
-
-    private async Task RequireInspectorAsync(CancellationToken cancellationToken)
-    {
-        var userId = await RequireUserIdAsync(cancellationToken);
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var allowed = await (from assignment in db.UserRoles
-            join role in db.Roles on assignment.RoleId equals role.Id
-            where assignment.UserId == userId && (role.Name == AppRoles.Quality || role.Name == AppRoles.Administrator)
-            select assignment.UserId).AnyAsync(cancellationToken);
-        if (!allowed || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
-            throw new UnauthorizedAccessException("Quality or Administrator access is required for Received Parts.");
     }
 
     private async Task<string> RequireUserIdAsync(CancellationToken cancellationToken) =>

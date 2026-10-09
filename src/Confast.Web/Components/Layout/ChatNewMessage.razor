@@ -8,12 +8,12 @@
 @inject ILogger<ChatNewMessage> Logger
 
 <section class="new-message-card" role="dialog" aria-modal="true" aria-labelledby="@TitleId" @onkeydown="HandleKeyDown" @onclick:stopPropagation>
-    <h2 id="@TitleId">@(EditingConversation is null ? "New Message" : "Edit Group Chat")</h2>
+    <h2 id="@TitleId">@(AddingToConversation is not null ? "Add Members" : EditingConversation is null ? "New Message" : "Edit Group Chat")</h2>
     @if (EditingConversation is null)
     {
     <label for="new-message-search">Find people</label>
     <input id="new-message-search" type="search" placeholder="Search users" @ref="searchInput" @bind="search" @bind:event="oninput" />
-    <p class="new-message-hint">You are included automatically.</p>
+    <p class="new-message-hint">@(AddingToConversation?.Kind == ConversationKind.Direct ? "This creates a new group chat. Direct-message history stays private." : AddingToConversation is not null ? "New members can see this conversation’s history." : "You are included automatically.")</p>
     <div class="new-message-users" role="group" aria-label="Select users">
         @foreach (var user in AvailableUsers)
         {
@@ -30,7 +30,7 @@
     </div>
     <p class="new-message-hint">@selected.Count selected</p>
     }
-    @if (selected.Count > 1 || EditingConversation is not null)
+    @if (AddingToConversation is null && (selected.Count > 1 || EditingConversation is not null))
     {
         <div class="new-message-group-details">
             <button type="button" class="new-message-icon-button" aria-label="Choose group chat icon" disabled="@busy" popovertarget="@IconCardId" @onclick="OpenIconCardAsync">
@@ -117,7 +117,7 @@
     @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
     <div class="new-message-actions">
         <button type="button" class="button button-secondary" disabled="@busy" @onclick="Closed">Cancel</button>
-        <button type="button" class="button button-primary" disabled="@(busy || showPictureEditor || (EditingConversation is null && selected.Count == 0))" @onclick="CreateAsync">@(EditingConversation is null ? "Create Message" : "Save")</button>
+        <button type="button" class="button button-primary" disabled="@(busy || showPictureEditor || (EditingConversation is null && selected.Count == 0))" @onclick="CreateAsync">@(AddingToConversation?.Kind == ConversationKind.Direct ? "Create Group Chat" : AddingToConversation is not null ? "Add Members" : EditingConversation is null ? "Create Message" : "Save")</button>
     </div>
 </section>
 
@@ -128,9 +128,11 @@
     [Parameter] public EventCallback<long> Created { get; set; }
     [Parameter] public EventCallback Closed { get; set; }
     [Parameter] public ChatConversationRow? EditingConversation { get; set; }
+    [Parameter] public ChatConversationRow? AddingToConversation { get; set; }
+    [Parameter] public IReadOnlyList<ChatUser> ExistingMembers { get; set; } = [];
     private bool iconChanged;
     private long? initializedConversationId;
-    private string TitleId => EditingConversation is null ? "new-message-title" : "edit-group-title";
+    private string TitleId => AddingToConversation is not null ? "add-members-title" : EditingConversation is null ? "new-message-title" : "edit-group-title";
     private string NameId => EditingConversation is null ? "new-message-name" : "edit-group-name";
     private string IconCardId => EditingConversation is null ? "new-message-icon-card" : "edit-group-icon-card";
     private string PictureInputId => IconCardId + "-input";
@@ -149,7 +151,8 @@
         giphyId = conversation.IconGiphyId;
     }
     private readonly HashSet<string> selected = new(StringComparer.Ordinal);
-    private IEnumerable<ChatUser> AvailableUsers => Users.Where(x => x.Id != CurrentUserId && x.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
+    private IEnumerable<ChatUser> AvailableUsers => Users.Where(x => x.Id != CurrentUserId
+        && !ExistingMembers.Any(m => m.Id == x.Id) && x.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
     private string search = string.Empty;
     private string name = string.Empty;
     private byte[]? picture;
@@ -324,6 +327,11 @@
         error = null;
         try
         {
+            if (AddingToConversation is { } adding)
+            {
+                await Created.InvokeAsync(await Chat.AddConversationMembersAsync(adding.Id, selected));
+                return;
+            }
             if (EditingConversation is { } conversation)
             {
                 await Chat.UpdateGroupAsync(conversation.Id, name, new(picture, giphyId), changeIcon: iconChanged);

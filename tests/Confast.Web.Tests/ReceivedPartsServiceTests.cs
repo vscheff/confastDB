@@ -1,4 +1,6 @@
 using Confast.Web.Features.ContainerTracking;
+using Confast.Web.Features.Authorization;
+using Microsoft.AspNetCore.Http;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.InspectionCriteria;
@@ -17,15 +19,19 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
     private readonly TestClock clock = new();
     private ReceivedPartsService receivedParts = null!;
     private InspectionService inspections = null!;
+    private readonly AuthorizationTestSession authorization = new(database);
+    private EffectivePermissionService evaluator = null!;
     private long lineId;
     private long containerId;
 
     public async Task InitializeAsync()
     {
         await database.ResetAsync();
-        inspections = new InspectionService(database);
+        await authorization.ProvisionRootAsync();
+        evaluator = authorization.Evaluator;
+        inspections = new InspectionService(database, evaluator);
         var access = new TrackingAccess(database, user);
-        receivedParts = new ReceivedPartsService(database, access, inspections, user, clock);
+        receivedParts = new ReceivedPartsService(database, access, inspections, user, clock, new ApplicationAuthorization(evaluator, new HttpContextAccessor()));
         await using var db = database.CreateDbContext();
         db.Users.Add(new ApplicationUser { Id = user.Id, UserName = "receiver", DisplayName = "Receiver" });
         db.UserRoles.Add(new IdentityUserRole<string>
@@ -48,11 +54,12 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
         db.InspectionCriteriaRevisions.Add(revision);
         db.ContainerGroupParts.Add(line);
         await db.SaveChangesAsync();
+        await authorization.SignInAsync(user.Id);
         lineId = line.Id;
         containerId = container.Id;
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task ReceiptIsIdempotentAndSplitAllocationsUseActualQuantity()
@@ -366,6 +373,40 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
     {
         var result = await receivedParts.ReceiveContainerAsync(containerId, await ContainerVersionAsync(), clock.Today);
         Assert.True(result.Succeeded, result.Message);
+    }
+
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BeginRequiresBothActorKeysRegardlessOfSelectedInspector(bool hasReceiving)
+    {
+        await ReceiveAsync();
+        var line = await CurrentLineAsync();
+        await using (var db = database.CreateDbContext())
+        {
+            var role = new ApplicationRole("Restricted Receiver") { NormalizedName = "RESTRICTED RECEIVER" };
+            db.Roles.Add(role); await db.SaveChangesAsync();
+            db.RolePermissions.Add(new() { RoleId = role.Id, PermissionKey = hasReceiving ? Permissions.Receiving.BeginInspection : Permissions.Inspections.Create });
+            db.RolePermissions.Add(new() { RoleId = role.Id, PermissionKey = Permissions.Receiving.Read });
+            await db.UserRoles.Where(x => x.UserId == user.Id && x.RoleId != AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+            db.UserRoles.Add(new() { UserId = user.Id, RoleId = role.Id }); await db.SaveChangesAsync();
+        }
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => receivedParts.BeginInspectionAsync(new() {
+            ContainerGroupPartId = line.Id, ContainerVersion = line.ContainerVersion, ManufacturerLotNumber = "MFR",
+            InternalLotNumber = "INTERNAL", Quantity = 10 }));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => receivedParts.BumpUpAsync(new() { ContainerGroupPartId = line.Id }));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => receivedParts.ReverseAllocationAsync(1, "Not authorized"));
+        await using var verify = database.CreateDbContext(); Assert.Empty(await verify.Inspections.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ReceiptCreationUsesOneActorEvaluationAcrossComposedCreationAndAllocation()
+    {
+        await ReceiveAsync(); var line = await CurrentLineAsync();
+        var before = evaluator.SnapshotCount;
+        var result = await BeginAsync(line, "MFR", "INTERNAL", 10);
+        Assert.True(result.Succeeded, result.Message); Assert.Equal(before + 1, evaluator.SnapshotCount);
     }
 
     private async Task<ReceivedPartLineItem> CurrentLineAsync() =>

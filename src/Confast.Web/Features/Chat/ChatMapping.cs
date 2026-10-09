@@ -115,6 +115,7 @@ public static class ChatMapping
         member.Property(x => x.IsMuted).HasColumnName("is_muted");
         member.Property(x => x.MutedUntilUtc).HasColumnName("muted_until_utc");
         member.Property(x => x.IsOwner).HasColumnName("is_owner");
+        member.Property(x => x.IsHidden).HasColumnName("is_hidden");
         member.HasOne(x => x.Conversation).WithMany(x => x.Members).HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         member.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         member.HasOne<ChatMessage>().WithMany()

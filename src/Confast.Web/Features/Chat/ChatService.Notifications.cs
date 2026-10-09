@@ -137,7 +137,7 @@ public sealed partial class ChatService
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         var settings = await LoadNotificationSettingsAsync(db, userId, cancellationToken);
-        var rows = await db.ChatConversationMembers.AsNoTracking().Where(m => m.UserId == userId)
+        var rows = await db.ChatConversationMembers.AsNoTracking().Where(m => m.UserId == userId && !m.IsHidden)
             .Select(m => new
             {
                 m.ConversationId, m.Conversation.Kind, m.IsManuallyUnread,
@@ -155,7 +155,7 @@ public sealed partial class ChatService
         {
             var setting = settings.Channels[row.ConversationId];
             var direct = row.Kind != ConversationKind.Channel;
-            var allowed = direct || setting.AllowsToast(false);
+            var allowed = !setting.IsMuted && (direct || setting.AllowsToast(false));
             var unread = allowed ? Math.Max(row.IsManuallyUnread ? 1 : 0, row.Count)
                 : setting.AllowsToast(true) ? row.Mentions : 0;
             counts[row.ConversationId] = new(unread, unread > 0 && (direct || row.Mentions > 0));

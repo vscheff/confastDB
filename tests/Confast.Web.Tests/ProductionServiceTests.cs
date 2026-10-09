@@ -659,7 +659,7 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveMachineAsync(await Revision(), machineId, "Sorter", true, false, [0, 8.25m, 8, 8, 8, 8, 0]));
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 0));
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 100.5m));
-        await using (var db = database.CreateDbContext()) { db.UserRoles.RemoveRange(await db.UserRoles.ToListAsync()); await db.SaveChangesAsync(); }
+        await using (var db = database.CreateDbContext()) { db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.RoleId != AppRoles.ReadOnlyId).ToListAsync()); await db.SaveChangesAsync(); }
         var data = await service.GetAsync(); Assert.False(data.CanEdit);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SaveJobAsync(data.Settings.Revision, 0, partId, machineId, 100, null, null, null));
     }

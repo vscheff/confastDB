@@ -1,4 +1,5 @@
 using System.Data;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.InspectionCriteria;
@@ -18,6 +19,10 @@ public sealed class InspectionService
     private readonly CertificationPreviewRenderer? certificationPreviewRenderer;
     private readonly ICurrentUser? currentUser;
     private readonly BusinessDateProvider? businessDate;
+    private readonly EffectivePermissionService? permissions;
+
+    public InspectionService(IDbContextFactory<AppDbContext> contextFactory, EffectivePermissionService permissions)
+        : this(contextFactory) => this.permissions = permissions;
 
     public InspectionService(IDbContextFactory<AppDbContext> contextFactory)
     {
@@ -36,11 +41,13 @@ public sealed class InspectionService
         IDbContextFactory<AppDbContext> contextFactory,
         CertificationPreviewRenderer certificationPreviewRenderer,
         ICurrentUser currentUser,
-        BusinessDateProvider businessDate)
+        BusinessDateProvider businessDate,
+        EffectivePermissionService permissions)
         : this(contextFactory, certificationPreviewRenderer)
     {
         this.currentUser = currentUser;
         this.businessDate = businessDate;
+        this.permissions = permissions;
     }
 
     public const long MaximumCertificationDocumentBytes = 25 * 1024 * 1024;
@@ -265,7 +272,11 @@ public sealed class InspectionService
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await db.Parts
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
+        var current = await (permissions ?? throw new AuthorizationDeniedException(AuthorizationDenial.Unauthenticated))
+            .EvaluateCurrentInTransactionAsync(db, cancellationToken);
+        using var op = current.Begin("Inspections.CreationReferences", new("Parts"), Permissions.Inspections.Create);
+        var result = await db.Parts
             .AsNoTracking()
             .Where(x => x.InspectionCriteriaRevisions.Any(r =>
                 r.PublishedAtUtc != null && r.SupersededAtUtc == null))
@@ -273,6 +284,8 @@ public sealed class InspectionService
             .ThenBy(x => x.PartNumber)
             .Select(x => new InspectionPartOption(x.Id, x.PartNumber, x.Customer.Name))
             .ToListAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return result;
     }
 
     public async Task<IReadOnlyList<CertificationPackageLotOption>> GetCertificationPackageLotOptionsAsync(
@@ -373,31 +386,43 @@ public sealed class InspectionService
     public async Task<InspectionOperationResult> CreateInspectionAsync(
         CreateInspectionModel model,
         CancellationToken cancellationToken = default)
-        => await CreateInspectionCoreAsync(model, null, cancellationToken);
+        => await CreateInspectionCoreAsync(model, null, null, null, cancellationToken);
 
     internal async Task<InspectionOperationResult> CreateInspectionWithCallbackAsync(
         CreateInspectionModel model,
+        AuthorizedOperation operation, long receiptLineId,
         Func<AppDbContext, Inspection, CancellationToken, Task<InspectionOperationResult?>> beforeSave,
         CancellationToken cancellationToken = default)
-        => await CreateInspectionCoreAsync(model, beforeSave, cancellationToken);
+        => await CreateInspectionCoreAsync(model, operation, receiptLineId, beforeSave, cancellationToken);
 
     private async Task<InspectionOperationResult> CreateInspectionCoreAsync(
         CreateInspectionModel model,
+        AuthorizedOperation? receivingOperation, long? receiptLineId,
         Func<AppDbContext, Inspection, CancellationToken, Task<InspectionOperationResult?>>? beforeSave,
         CancellationToken cancellationToken)
     {
-        var validationError = Validate(model);
-        if (validationError is not null)
-        {
-            return new InspectionOperationResult(
-                InspectionOperationStatus.ValidationFailed,
-                Message: validationError);
-        }
-
+        var evaluator = permissions ?? throw new AuthorizationDeniedException(AuthorizationDenial.Unauthenticated);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await db.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        AuthorizedOperation? ownedOperation = null;
+        RoleGraph graph;
+        if (receivingOperation is null)
+        {
+            var current = await evaluator.EvaluateCurrentInTransactionAsync(db, cancellationToken);
+            ownedOperation = current.Begin("Inspections.Create", new("Part", model.PartId.ToString()), Permissions.Inspections.Create);
+            graph = current.Graph;
+        }
+        else
+        {
+            receivingOperation.Require("Receiving.BeginInspection", new("ReceiptLine", receiptLineId!.Value.ToString()),
+                Permissions.Receiving.BeginInspection, Permissions.Inspections.Create);
+            graph = await evaluator.GraphForOperationAsync(db, receivingOperation, cancellationToken);
+        }
+        using var operationLifetime = ownedOperation;
+        var validationError = Validate(model);
+        if (validationError is not null) return new(InspectionOperationStatus.ValidationFailed, Message: validationError);
+        var inspectorUserId = NormalizeOptionalText(model.InspectorUserId);
+        var inspectorName = await InspectorEligibilityService.ResolveSelectionAsync(db, graph, inspectorUserId, model.Inspector, cancellationToken);
 
         var lotNumber = NormalizeOptionalText(model.LotNumber);
         var existingLotInspectionId = lotNumber is null
@@ -457,10 +482,9 @@ public sealed class InspectionService
                 && EF.Functions.ILike(x.Name, "Digital Caliper%"))
             .Select(x => x.Id)
             .ToHashSetAsync(cancellationToken);
-        var inspectorName = NormalizeOptionalText(model.Inspector);
         var inspectorCaliper = await GetInspectorCaliperAsync(
             db,
-            inspectorName,
+            inspectorUserId,
             cancellationToken);
 
         var inspection = new Inspection
@@ -474,6 +498,7 @@ public sealed class InspectionService
             QuantityReceived = model.QuantityReceived,
             QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(model.QuantityReceived)
                 ?? model.QuantityInspected,
+            InspectorUserId = inspectorUserId,
             Inspector = inspectorName,
             InspectionDate = model.InspectionDate!.Value
         };
@@ -614,6 +639,7 @@ public sealed class InspectionService
             DateReceived = source.DateReceived,
             QuantityReceived = quantityToMove,
             QuantityInspected = source.QuantityInspected,
+            InspectorUserId = source.InspectorUserId,
             Inspector = source.Inspector,
             InspectorNotes = source.InspectorNotes,
             InHouseNotes = source.InHouseNotes,
@@ -781,7 +807,7 @@ public sealed class InspectionService
         if (targetRevision is null) return new(InspectionOperationStatus.NoCurrentRevision);
         var mappings = definition.CriterionMappings.Select(x => new PartFlipMappingInput(x.SourceCriterionId, x.TargetCriterionId)).ToList();
         if (!PartFlipService.ValidateMappings(source.Results.Select(x => x.InspectionCriterion).ToList(), targetRevision.Criteria.ToList(), mappings)) return new(InspectionOperationStatus.ValidationFailed, Message: "The flip mapping is no longer compatible with this lot and the target's current criteria.");
-        var target = new Inspection { PartId = definition.TargetPartId, InspectionCriteriaRevisionId = targetRevision.Id, LotNumber = lotNumber, ConformancePoNumber = source.ConformancePoNumber, ManufacturerLotNumber = source.ManufacturerLotNumber, DateReceived = source.DateReceived, QuantityReceived = quantityToMove, QuantityInspected = source.QuantityInspected, Inspector = source.Inspector, InspectorNotes = source.InspectorNotes, InHouseNotes = source.InHouseNotes, InspectionDate = source.InspectionDate };
+        var target = new Inspection { PartId = definition.TargetPartId, InspectionCriteriaRevisionId = targetRevision.Id, LotNumber = lotNumber, ConformancePoNumber = source.ConformancePoNumber, ManufacturerLotNumber = source.ManufacturerLotNumber, DateReceived = source.DateReceived, QuantityReceived = quantityToMove, QuantityInspected = source.QuantityInspected, InspectorUserId = source.InspectorUserId, Inspector = source.Inspector, InspectorNotes = source.InspectorNotes, InHouseNotes = source.InHouseNotes, InspectionDate = source.InspectionDate };
         var recordedByCriterion = source.Results.ToDictionary(x => x.InspectionCriterionId);
         var sourceByTarget = mappings.ToDictionary(x => x.TargetCriterionId, x => x.SourceCriterionId);
         foreach (var criterion in targetRevision.Criteria)
@@ -846,17 +872,17 @@ public sealed class InspectionService
 
     private static async Task<InspectorCaliper?> GetInspectorCaliperAsync(
         AppDbContext db,
-        string? inspectorName,
+        string? inspectorUserId,
         CancellationToken cancellationToken)
     {
-        if (inspectorName is null)
+        if (inspectorUserId is null)
         {
             return null;
         }
 
         return await db.Users
             .AsNoTracking()
-            .Where(x => x.DisplayName == inspectorName
+            .Where(x => x.Id == inspectorUserId
                 && x.Caliper != null
                 && x.Caliper.IsActive
                 && EF.Functions.ILike(x.Caliper.GageType.Name, "Digital Caliper%"))
@@ -1097,6 +1123,7 @@ public sealed class InspectionService
                 DateReceived = x.DateReceived,
                 QuantityReceived = x.QuantityReceived,
                 QuantityInspected = x.QuantityInspected,
+                InspectorUserId = x.InspectorUserId,
                 Inspector = x.Inspector,
                 InspectorNotes = x.InspectorNotes,
                 InHouseNotes = x.InHouseNotes,
@@ -1564,7 +1591,7 @@ public sealed class InspectionService
         }
 
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
         var inspection = await db.Inspections
             .Include(x => x.Results)
                 .ThenInclude(x => x.InspectionCriterion)
@@ -1660,7 +1687,18 @@ public sealed class InspectionService
         inspection.QuantityInspected = InspectionSamplingPlan.GetQuantityInspected(
                 model.QuantityReceived)
             ?? model.QuantityInspected;
-        inspection.Inspector = NormalizeOptionalText(model.Inspector);
+        var selectedInspectorId = NormalizeOptionalText(model.InspectorUserId);
+        if (selectedInspectorId != inspection.InspectorUserId)
+        {
+            var evaluator = permissions ?? throw new AuthorizationDeniedException(AuthorizationDenial.Unauthenticated);
+            var current = await evaluator.EvaluateCurrentInTransactionAsync(db, cancellationToken);
+            using var op = current.Begin("Inspections.ChangeInspector", new("Inspection", model.Id.ToString()), Permissions.Inspections.Update);
+            inspection.Inspector = await InspectorEligibilityService.ResolveSelectionAsync(db, current.Graph,
+                selectedInspectorId, null, cancellationToken);
+            inspection.InspectorUserId = selectedInspectorId;
+        }
+        else if (model.Inspector != inspection.Inspector)
+            throw new AuthorizationDeniedException(AuthorizationDenial.DelegationDenied, "Change inspector attribution by selecting an eligible account. Historical names cannot be overwritten.");
         inspection.InspectorNotes = NormalizeOptionalText(model.InspectorNotes);
         inspection.InHouseNotes = NormalizeOptionalText(model.InHouseNotes);
         inspection.InspectionDate = model.InspectionDate!.Value;
@@ -1755,6 +1793,8 @@ public sealed class InspectionService
             // to be disposed and the UI must not reload the whole form just to
             // obtain the new concurrency tokens.
             model.Version = inspection.Version;
+            model.InspectorUserId = inspection.InspectorUserId;
+            model.Inspector = inspection.Inspector;
             foreach (var result in inspection.Results)
             {
                 submittedResults[result.Id].Version = result.Version;

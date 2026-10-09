@@ -4,7 +4,7 @@ namespace Confast.Web.Features.Chat;
 
 public enum ConversationKind { Direct, Channel, Group }
 public enum ChannelVisibility { Public, Private }
-public enum ChatMessageType { Text, PinNotice, ThreadNotice, Poll }
+public enum ChatMessageType { Text, PinNotice, ThreadNotice, Poll, MemberAddedNotice, MemberLeftNotice }
 
 public sealed class ChatChannelThread
 {
@@ -73,6 +73,7 @@ public sealed class ConversationMember
     public DateTime? MutedUntilUtc { get; set; }
     public DateTime? PinnedToTopAtUtc { get; set; }
     public bool IsOwner { get; set; }
+    public bool IsHidden { get; set; }
 }
 
 public sealed class ChatMessage

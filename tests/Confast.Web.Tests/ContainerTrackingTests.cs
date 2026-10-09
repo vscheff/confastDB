@@ -452,9 +452,10 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
     private async Task SetRoleAsync(string role)
     {
         await using var db = database.CreateDbContext();
-        db.UserRoles.RemoveRange(await db.UserRoles.ToListAsync());
+        db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.RoleId != AppRoles.ReadOnlyId).ToListAsync());
         await db.SaveChangesAsync();
-        db.UserRoles.Add(new() { UserId = "tracking-user", RoleId = await db.Roles.Where(x => x.Name == role).Select(x => x.Id).SingleAsync() });
+        if (role != AppRoles.ReadOnly)
+            db.UserRoles.Add(new() { UserId = "tracking-user", RoleId = await db.Roles.Where(x => x.Name == role).Select(x => x.Id).SingleAsync() });
         await db.SaveChangesAsync();
     }
     private sealed class TestUser : ICurrentUser

@@ -27,6 +27,8 @@ public sealed class Inspection
 
     public int? QuantityInspected { get; set; }
 
+    public string? InspectorUserId { get; set; }
+
     public string? Inspector { get; set; }
 
     public string? InspectorNotes { get; set; }

@@ -1,12 +1,13 @@
 <fieldset class="role-options form-field-wide">
     <legend>Roles</legend>
-    @foreach (var role in AppRoles.All)
+    @foreach (var role in Choices)
     {
         <label class="checkbox-field">
             <input type="checkbox"
-                   checked="@SelectedRoles.Contains(role)"
-                   @onchange="eventArgs => SetRole(role, eventArgs.Value as bool? == true)" />
-            @role
+                   checked="@(role.Id == AppRoles.ReadOnlyId || SelectedRoles.Contains(role.Name))"
+                   disabled="@(!role.CanChange)"
+                   @onchange="eventArgs => SetRole(role.Name, eventArgs.Value as bool? == true)" />
+            @role.Name @if (role.Reason is not null) { <small class="muted">(@role.Reason)</small> }
         </label>
     }
 </fieldset>
@@ -14,6 +15,9 @@
 @code {
     [Parameter, EditorRequired]
     public HashSet<string> SelectedRoles { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<UserRoleChoice> Choices { get; set; } = [];
 
     private void SetRole(string role, bool selected)
     {

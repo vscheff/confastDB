@@ -69,12 +69,13 @@ window.confastChatTime = {
         document.getElementById(id)?.iconDismissCleanup?.();
     },
 
-    toggleGroupEditor() {
-        const card = document.getElementById("chat-group-rename");
+    toggleGroupEditor(id = "chat-group-rename") {
+        const card = document.getElementById(id);
         const panel = card?.closest(".chat-panel");
         if (!card || !panel) return;
         if (card.matches(":popover-open")) { this.hidePopoverStack(card.id); return; }
         this.groupEditorCleanup?.();
+        for (const other of document.querySelectorAll('.chat-group-edit:popover-open')) this.hidePopoverStack(other.id);
         const cleanup = () => {
             observer.disconnect();
             window.removeEventListener("resize", position);
@@ -94,7 +95,7 @@ window.confastChatTime = {
         const onToggle = event => { if (event.newState === "closed") cleanup(); };
         const onDown = event => {
             if (card.contains(event.target)) return;
-            if (event.target instanceof Element && event.target.closest('[aria-controls="chat-group-rename"]')) return;
+            if (event.target instanceof Element && event.target.closest(`[aria-controls="${id}"]`)) return;
             this.hidePopoverStack(card.id);
         };
         const onKey = event => {

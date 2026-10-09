@@ -10,6 +10,7 @@ using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Identity;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Parts;
 using Confast.Web.Time;
 using Microsoft.AspNetCore.Authentication;
@@ -34,7 +35,7 @@ var connectionString = builder.Configuration.GetConnectionString("Confast")
 
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     {
         options.User.RequireUniqueEmail = true;
         options.Password.RequiredLength = 12;
@@ -101,6 +102,7 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser()
         .Build();
 });
+builder.Services.AddConfastAuthorization();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<ICurrentEmailSender, CurrentEmailSender>();

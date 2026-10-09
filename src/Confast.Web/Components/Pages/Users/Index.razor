@@ -1,7 +1,6 @@
 @page "/admin/users"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Users.Read")]
 @inject UserAdministrationService UserService
-@inject ICurrentUser CurrentUser
 @inject NavigationManager Navigation
 
 <PageTitle>Users</PageTitle>
@@ -13,22 +12,16 @@
     </div>
 </div>
 
+@if (errors.Count > 0)
+{
+    <div class="alert alert-error">@foreach (var error in errors) { <div>@error</div> }</div>
+}
 @if (users is null)
 {
     <p>Loading users…</p>
 }
 else
 {
-    @if (errors.Count > 0)
-    {
-        <div class="alert alert-error">
-            @foreach (var error in errors)
-            {
-                <div>@error</div>
-            }
-        </div>
-    }
-
     @if (!string.IsNullOrWhiteSpace(resetLink))
     {
         <div class="status-message password-reset-link">
@@ -61,7 +54,7 @@ else
                                 }
                                 <span class="muted">@user.Username · @user.Email</span>
                             </td>
-                            <td data-label="Roles">@(user.Roles.Count == 0 ? "None" : string.Join(", ", user.Roles))</td>
+                            <td data-label="Roles">@if (user.IsProtected) { <strong>Protected Root · </strong> }@(user.Roles.Count == 0 ? "None" : string.Join(", ", user.Roles))</td>
                             <td data-label="Status">
                                 <span class="status-pill @(user.IsActive ? "status-active" : "status-inactive")">
                                     @(user.IsActive ? "Active" : "Inactive")
@@ -109,12 +102,12 @@ else
                         <label for="create-email">Email</label>
                         <InputText id="create-email" type="email" @bind-Value="createModel.Email" />
                     </div>
-                    <RoleCheckboxes SelectedRoles="createModel.Roles" />
+                    <RoleCheckboxes SelectedRoles="createModel.Roles" Choices="@(administrationState?.RoleChoices ?? [])" />
                     <div class="form-actions form-field-wide">
-                        <button class="button button-primary" type="submit" disabled="@saving">Create user</button>
+                        <button class="button button-primary" type="submit" disabled="@(saving || !Has(Permissions.Users.Create))">Create user</button>
                     </div>
                 </EditForm>
-                <p class="field-help">No password is assigned at creation. The generated reset link lets the user choose one privately.</p>
+                <p class="field-help">New accounts receive ReadOnly. Password setup requires a separately authorized reset link.</p>
             }
             else
             {
@@ -135,24 +128,25 @@ else
                 }
                 else
                 {
+                    @if (editModel.IsProtected) { <p class="status-message">Protected Root account. Ordinary administrative changes are unavailable.</p> }
                     <EditForm Model="editModel" OnValidSubmit="UpdateUserAsync" class="record-form user-form">
                         <DataAnnotationsValidator />
                         <ValidationSummary />
                         <div class="form-field">
                             <label for="edit-username">Username</label>
-                            <InputText id="edit-username" autocomplete="username" @bind-Value="editModel.Username" />
+                            <InputText id="edit-username" disabled="@(!CanUpdateAccount)" autocomplete="username" @bind-Value="editModel.Username" />
                         </div>
                         <div class="form-field">
                             <label for="edit-display-name">Display name</label>
-                            <InputText id="edit-display-name" @bind-Value="editModel.DisplayName" />
+                            <InputText id="edit-display-name" disabled="@(!CanUpdateAccount)" @bind-Value="editModel.DisplayName" />
                         </div>
                         <div class="form-field">
                             <label for="edit-job-title">Job title</label>
-                            <InputText id="edit-job-title" @bind-Value="editModel.JobTitle" />
+                            <InputText id="edit-job-title" disabled="@(!CanUpdateAccount)" @bind-Value="editModel.JobTitle" />
                         </div>
                         <div class="form-field">
                             <label for="edit-caliper">Caliper ID</label>
-                            <InputSelect id="edit-caliper" @bind-Value="editModel.CaliperId">
+                            <InputSelect id="edit-caliper" disabled="@(!CanUpdateAccount)" @bind-Value="editModel.CaliperId">
                                 <option value="">Select a digital caliper</option>
                                 @foreach (var caliper in digitalCalipers)
                                 {
@@ -162,20 +156,20 @@ else
                         </div>
                         <div class="form-field">
                             <label for="edit-email">Email</label>
-                            <InputText id="edit-email" type="email" @bind-Value="editModel.Email" />
+                            <InputText id="edit-email" disabled="@(!CanUpdateAccount)" type="email" @bind-Value="editModel.Email" />
                         </div>
                         <label class="checkbox-field form-field-wide">
-                            <InputCheckbox @bind-Value="editModel.IsActive" />
+                            <InputCheckbox disabled="@(!CanUpdateAccount)" @bind-Value="editModel.IsActive" />
                             Active
                         </label>
-                        <RoleCheckboxes SelectedRoles="editModel.Roles" />
+                        <RoleCheckboxes SelectedRoles="editModel.Roles" Choices="editModel.RoleChoices" />
                         <div class="form-actions form-field-wide">
-                            <button class="button button-primary" type="submit" disabled="@saving">Save changes</button>
-                            <button class="button button-secondary" type="button" disabled="@saving" @onclick="GenerateResetLinkAsync">Generate password reset link</button>
+                            <button class="button button-primary" type="submit" disabled="@(saving || editModel.IsProtected || (!CanUpdateAccount && !Has(Permissions.Users.ManageRoles)))">Save changes</button>
+                            <button class="button button-secondary" type="button" disabled="@(saving || !editModel.CanManageAccount || !Has(Permissions.Users.ResetPasswords))" @onclick="GenerateResetLinkAsync">Generate password reset link</button>
                             <button class="button button-danger-outline"
                                     type="button"
-                                    disabled="@(saving || editModel.Id == currentUserId)"
-                                    title="@(editModel.Id == currentUserId ? "You cannot delete your own account." : null)"
+                                    disabled="@(saving || !editModel.CanManageAccount || !Has(Permissions.Users.Delete))"
+                                    title="@(!editModel.CanManageAccount ? "Outside account management authority." : null)"
                                     @onclick="BeginDelete">Delete user</button>
                         </div>
                     </EditForm>
@@ -192,18 +186,18 @@ else
     private EditUserInput? editModel;
     private readonly List<string> errors = [];
     private string? resetLink;
-    private string? currentUserId;
+    private UserAdministrationState? administrationState;
+    private bool Has(string key) => administrationState?.Permissions.Contains(key) == true;
+    private bool CanUpdateAccount => editModel?.CanManageAccount == true && Has(Permissions.Users.Update);
     private bool saving;
     private bool confirmingDelete;
 
     protected override async Task OnInitializedAsync()
     {
-        currentUserId = await CurrentUser.GetUserIdAsync();
-        digitalCalipers = await UserService.GetDigitalCaliperChoicesAsync();
-        await ReloadUsersAsync();
+        await RunAsync(async () => { digitalCalipers = await UserService.GetDigitalCaliperChoicesAsync(); await ReloadUsersAsync(); });
     }
 
-    private async Task SelectUserAsync(string userId)
+    private Task SelectUserAsync(string userId) => RunAsync(async () =>
     {
         ClearMessages();
         confirmingDelete = false;
@@ -217,7 +211,7 @@ else
             errors.Add("The user no longer exists.");
             await ReloadUsersAsync();
         }
-    }
+    });
 
     private async Task CreateUserAsync()
     {
@@ -234,8 +228,11 @@ else
 
             createModel = new CreateUserInput();
             await ReloadUsersAsync();
-            await GenerateResetLinkAsync(result.UserId!);
+            if (Has(Permissions.Users.ResetPasswords)) await GenerateResetLinkAsync(result.UserId!);
         }
+        catch (AuthorizationDeniedException ex) { errors.Add(ex.Message); }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex) { errors.Add(ex.Message); }
+        catch (ArgumentException ex) { errors.Add(ex.Message); }
         finally
         {
             saving = false;
@@ -258,13 +255,16 @@ else
             await ReloadUsersAsync();
             editModel = await UserService.GetUserForEditAsync(editModel!.Id);
         }
+        catch (AuthorizationDeniedException ex) { errors.Add(ex.Message); }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex) { errors.Add(ex.Message); }
+        catch (ArgumentException ex) { errors.Add(ex.Message); }
         finally
         {
             saving = false;
         }
     }
 
-    private Task GenerateResetLinkAsync() => GenerateResetLinkAsync(editModel!.Id);
+    private Task GenerateResetLinkAsync() => RunAsync(() => GenerateResetLinkAsync(editModel!.Id));
 
     private void BeginDelete()
     {
@@ -281,8 +281,7 @@ else
         try
         {
             var result = await UserService.DeleteUserAsync(
-                editModel!.Id,
-                currentUserId);
+                editModel!.Id, editModel.Version, editModel.ConcurrencyStamp);
             if (!result.Succeeded)
             {
                 errors.AddRange(result.Errors);
@@ -294,6 +293,9 @@ else
             confirmingDelete = false;
             await ReloadUsersAsync();
         }
+        catch (AuthorizationDeniedException ex) { errors.Add(ex.Message); }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex) { errors.Add(ex.Message); }
+        catch (ArgumentException ex) { errors.Add(ex.Message); }
         finally
         {
             saving = false;
@@ -303,7 +305,9 @@ else
     private async Task GenerateResetLinkAsync(string userId)
     {
         ClearMessages();
-        var result = await UserService.GeneratePasswordResetTokenAsync(userId);
+        var target = await UserService.GetUserForEditAsync(userId);
+        if (target is null) { errors.Add("The user no longer exists."); return; }
+        var result = await UserService.GeneratePasswordResetTokenAsync(userId, target.Version, target.ConcurrencyStamp);
         if (result.Token is null)
         {
             errors.AddRange(result.Errors);
@@ -312,9 +316,26 @@ else
 
         var relativeUrl = $"reset-password?userId={Uri.EscapeDataString(userId)}&token={Uri.EscapeDataString(result.Token)}";
         resetLink = new Uri(new Uri(Navigation.BaseUri), relativeUrl).AbsoluteUri;
+        await ReloadUsersAsync();
+        if (editModel?.Id == userId) editModel = await UserService.GetUserForEditAsync(userId);
     }
 
-    private async Task ReloadUsersAsync() => users = await UserService.GetUsersAsync();
+    private async Task ReloadUsersAsync()
+    {
+        users = await UserService.GetUsersAsync();
+        administrationState = await UserService.GetAdministrationStateAsync();
+        createModel.Version = administrationState.Version;
+        createModel.Roles.Add(AppRoles.ReadOnly);
+    }
+
+    private async Task RunAsync(Func<Task> work)
+    {
+        try { await work(); }
+        catch (AuthorizationDeniedException ex) { errors.Add(ex.Message); }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex) { errors.Add(ex.Message); }
+        catch (ArgumentException ex) { errors.Add(ex.Message); }
+        catch (InvalidOperationException ex) { errors.Add(ex.Message); }
+    }
 
     private void CancelEdit()
     {

@@ -179,6 +179,7 @@ public sealed class BeginReceiptInspectionModel
     [Required, StringLength(200)] public string ManufacturerLotNumber { get; set; } = string.Empty;
     [Required, StringLength(200)] public string InternalLotNumber { get; set; } = string.Empty;
     [Range(1, int.MaxValue)] public int Quantity { get; set; }
+    public string? InspectorUserId { get; set; }
     public string? Inspector { get; set; }
 }
 

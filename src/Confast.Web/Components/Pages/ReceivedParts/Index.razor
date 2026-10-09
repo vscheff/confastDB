@@ -1,9 +1,9 @@
 @page "/received-parts"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Quality + "," + AppRoles.Administrator)]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Receiving.Read")]
 @using Confast.Web.Features.ContainerTracking
 @using Confast.Web.Features.Identity
 @inject ReceivedPartsService ReceivedParts
-@inject UserAdministrationService Users
+@inject InspectorEligibilityService Inspectors
 @inject ICurrentUser CurrentUser
 @inject NavigationManager Navigation
 @inject ILogger<Index> Logger
@@ -89,6 +89,7 @@ else
         {
             <div class="form-field"><label for="begin-manufacturer-lot">Manufacturer's lot</label><InputText id="begin-manufacturer-lot" @bind-Value="beginModel.ManufacturerLotNumber" /></div>
             <div class="form-field"><label for="begin-internal-lot">Internal lot</label><InputText id="begin-internal-lot" @bind-Value="beginModel.InternalLotNumber" /></div>
+            <div class="form-field"><label for="begin-inspector">Inspector</label><InputSelect id="begin-inspector" @bind-Value="beginModel.InspectorUserId"><option value="">Select an inspector</option>@foreach (var candidate in inspectorCandidates) { <option value="@candidate.UserId">@candidate.Label</option> }</InputSelect></div>
             <div class="form-field"><label for="begin-quantity">Quantity</label><ThousandsSeparatedIntegerInput id="begin-quantity" @bind-Value="beginQuantity" /></div>
         }
         else if (dialog == "bump")
@@ -129,6 +130,7 @@ else
 @code {
     private List<ReceivedContainerItem> containers = [];
     private IReadOnlyList<ReceiptInspectionCandidate> candidates = [];
+    private IReadOnlyList<InspectorCandidate> inspectorCandidates = [];
     private string? search, message, dialog, dialogMessage, correctionReason, reversalReason;
     private long? bumpedUpInspectionId;
     private bool includeFullyAssigned, busy, isError;
@@ -145,6 +147,7 @@ else
     {
         busy = true;
         try { containers = (await ReceivedParts.GetReceivedPartsAsync(search, includeFullyAssigned)).ToList(); }
+        catch (AuthorizationDeniedException ex) { message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load received parts"); message = "Received parts could not be loaded."; isError = true; }
         finally { busy = false; }
     }
@@ -152,7 +155,16 @@ else
     {
         activeLine = line; dialog = "begin"; dialogMessage = null; beginQuantity = line.RemainingQuantity;
         beginModel = new() { ContainerGroupPartId = line.Id, ContainerVersion = line.ContainerVersion, Quantity = line.RemainingQuantity };
-        beginModel.Inspector = await Users.GetUserDisplayNameAsync(await CurrentUser.GetUserIdAsync());
+        busy = true;
+        try
+        {
+            inspectorCandidates = await Inspectors.GetCandidatesAsync();
+            var actorId = await CurrentUser.GetUserIdAsync();
+            beginModel.InspectorUserId = inspectorCandidates.FirstOrDefault(x => x.UserId == actorId)?.UserId;
+        }
+        catch (AuthorizationDeniedException ex) { inspectorCandidates = []; dialogMessage = ex.Message; }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load eligible inspectors"); dialogMessage = "Inspectors could not be loaded."; }
+        finally { busy = false; }
     }
     private async Task OpenBumpAsync(ReceivedPartLineItem line)
     {
@@ -168,6 +180,8 @@ else
                 CandidateChanged();
             }
         }
+        catch (AuthorizationDeniedException ex) { candidates = []; dialogMessage = ex.Message; }
+        catch (Exception ex) { Logger.LogError(ex, "Failed to load receipt inspection candidates"); dialogMessage = "Inspections could not be loaded."; }
         finally { busy = false; }
     }
     private void CandidateChanged()
@@ -191,6 +205,7 @@ else
             var inspectionId = result.InspectionId; var wasBegin = dialog == "begin"; var wasBump = dialog == "bump"; CloseDialog(); message = "Received-parts operation saved."; bumpedUpInspectionId = wasBump ? inspectionId : null; isError = false; await LoadAsync();
             if (inspectionId is long id && wasBegin) Navigation.NavigateTo($"/inspections/{id}");
         }
+        catch (AuthorizationDeniedException ex) { dialogMessage = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Received-parts operation failed"); dialogMessage = "The operation could not be saved."; }
         finally { busy = false; }
     }

@@ -1,0 +1,119 @@
+@page "/admin/roles"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Roles.Read")]
+@inject RoleAdministrationService RoleService
+
+<PageTitle>Roles</PageTitle>
+<div class="page-heading"><h1>Roles</h1></div>
+@if (error is not null) { <div class="alert alert-error" role="alert">@error</div> }
+@if (view is null) { <p>Role administration is unavailable.</p> }
+else
+{
+    <section class="user-admin-grid">
+        <div class="table-shell"><table class="data-table">
+            <thead><tr><th>Role</th><th>Status</th><th></th></tr></thead>
+            <tbody>@foreach (var role in view.Roles)
+            {
+                <tr><td>@role.Name</td><td>@(role.Kind != SystemRoleKind.Ordinary ? "Protected" : role.IsEnabled ? "Enabled" : "Disabled")</td>
+                    <td><button class="button button-secondary" @onclick="() => Select(role)">View</button></td></tr>
+            }</tbody>
+        </table></div>
+        <div class="user-editor">
+            <button class="button button-secondary" @onclick="NewRole">New Role</button>
+            @if (selected is null)
+            {
+                <h2>Create Role</h2>
+                <div class="form-field"><label for="role-name">Name</label><InputText id="role-name" @bind-Value="name" /></div>
+                <div class="form-field"><label for="role-description">Description</label><InputTextArea id="role-description" @bind-Value="description" /></div>
+                <div class="form-field"><label for="role-anchor">Administrative Anchor</label><InputSelect id="role-anchor" @bind-Value="anchor">
+                    <option value="">@(Has(Permissions.Authorization.ManageSecurity) ? "Independent Role" : "Select a Direct Anchor")</option>
+                    @foreach (var role in view.Roles.Where(x => x.CanAnchor)) { <option value="@role.Id">@role.Name</option> }
+                </InputSelect></div>
+                <p class="field-help">Creates an empty role beneath the selected anchor. No account is assigned automatically.</p>
+                <button class="button button-primary" disabled="@(busy || !Has(Permissions.Roles.Create))" @onclick="CreateAsync">Create Role</button>
+            }
+            else
+            {
+                <h2>@selected.Name</h2>
+                @if (!selected.CanEdit) { <p class="field-help">Protected, directly assigned, or outside your lower-role editing authority.</p> }
+                <div class="form-field"><label for="role-name">Name</label><InputText id="role-name" disabled="@(!selected.CanEdit)" @bind-Value="name" /></div>
+                <div class="form-field"><label for="role-description">Description</label><InputTextArea id="role-description" disabled="@(!selected.CanEdit)" @bind-Value="description" /></div>
+                <label class="checkbox-field"><InputCheckbox disabled="@(!Can(Permissions.Roles.Update) || !Has(Permissions.Roles.ManagePermissions))" @bind-Value="enabled" />Enabled</label>
+                <div class="form-actions">
+                    <button class="button button-primary" disabled="@(!Can(Permissions.Roles.Update))" @onclick="UpdateAsync">Save Metadata</button>
+                    <button class="button button-danger-outline" disabled="@(!Can(Permissions.Roles.Delete))" @onclick="() => confirmingDelete = true">Delete Role</button>
+                </div>
+                @if (confirmingDelete)
+                {
+                    <p>Delete this role and its incident relationships? Any user assignment prevents deletion. Descendants will not be reparented.</p>
+                    <button class="button button-danger" disabled="@(!Can(Permissions.Roles.Delete))" @onclick="DeleteAsync">Confirm Deletion</button>
+                    <button class="button button-secondary" @onclick="() => confirmingDelete = false">Cancel</button>
+                }
+                <div class="form-field"><label for="role-grants">Direct Permissions</label>
+                    <InputTextArea id="role-grants" disabled="@(!Can(Permissions.Roles.ManagePermissions))" @bind-Value="grantText" />
+                    <p class="field-help">One recognized permission key per line. Inherited grants remain supplied by parents.</p>
+                </div>
+                <button class="button button-secondary" disabled="@(!Can(Permissions.Roles.ManagePermissions))" @onclick="SaveGrantsAsync">Save Direct Permissions</button>
+                <fieldset><legend>Inherited Parents</legend>
+                    @foreach (var role in view.Roles.Where(x => x.Kind == SystemRoleKind.Ordinary && x.Id != selected.Id))
+                    {
+                        <label class="checkbox-field"><input type="checkbox" checked="@parentIds.Contains(role.Id)"
+                            disabled="@(!Can(Permissions.Roles.ManageInheritance) || (!role.CanEdit && !parentIds.Contains(role.Id)))"
+                            @onchange="e => SetParent(role.Id, e.Value is true)" />@role.Name @(!role.IsEnabled ? "(Disabled)" : "")</label>
+                    }
+                </fieldset>
+                <button class="button button-secondary" disabled="@(!Can(Permissions.Roles.ManageInheritance))" @onclick="SaveParentsAsync">Save Inheritance</button>
+                <p class="field-help">All changes are checked against the complete resulting graph when saved.</p>
+            }
+        </div>
+    </section>
+    <button class="button button-secondary" @onclick="() => RunAsync(RefreshAsync)" disabled="@busy">Refresh Roles</button>
+}
+
+@code {
+    private RoleAdministrationView? view;
+    private RoleAdministrationItem? selected;
+    private string name = "", grantText = "";
+    private string? description, anchor, error;
+    private bool enabled = true, busy, confirmingDelete;
+    private HashSet<string> parentIds = [];
+    private bool Has(string key) => view?.ActorPermissions.Contains(key) == true;
+    private bool Can(string key) => !busy && selected?.CanEdit == true && Has(key);
+    protected override Task OnInitializedAsync() => RunAsync(RefreshAsync);
+    private void Select(RoleAdministrationItem role)
+    {
+        selected = role; name = role.Name; description = role.Description; enabled = role.IsEnabled;
+        grantText = string.Join("\n", role.Grants); parentIds = role.Parents.ToHashSet(); confirmingDelete = false;
+    }
+    private void NewRole()
+    {
+        selected = null; name = ""; description = null; anchor = null; grantText = "";
+        parentIds = []; enabled = true; confirmingDelete = false; error = null;
+    }
+    private void SetParent(string id, bool add) { if (add) parentIds.Add(id); else parentIds.Remove(id); }
+    private async Task RefreshAsync()
+    {
+        var id = selected?.Id;
+        view = await RoleService.GetRolesAsync();
+        selected = null;
+        if (view.Roles.FirstOrDefault(x => x.Id == id) is { } role) Select(role);
+    }
+    private Task CreateAsync() => RunAsync(async () => {
+        var id = await RoleService.CreateAsync(new(name, description, string.IsNullOrEmpty(anchor) ? null : anchor, view!.Version));
+        await RefreshAsync(); Select(view!.Roles.Single(x => x.Id == id)); });
+    private Task UpdateAsync() => RunAsync(async () => { await RoleService.UpdateAsync(new(selected!.Id, name, description, enabled, selected.ConcurrencyStamp, view!.Version)); await RefreshAsync(); });
+    private Task SaveGrantsAsync() => RunAsync(async () => {
+        await RoleService.SetGrantsAsync(selected!.Id, grantText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), selected.ConcurrencyStamp, view!.Version);
+        await RefreshAsync(); });
+    private Task SaveParentsAsync() => RunAsync(async () => { await RoleService.SetParentsAsync(selected!.Id, parentIds, selected.ConcurrencyStamp, view!.Version); await RefreshAsync(); });
+    private Task DeleteAsync() => RunAsync(async () => { await RoleService.DeleteAsync(selected!.Id, selected.ConcurrencyStamp, view!.Version); selected = null; await RefreshAsync(); });
+    private async Task RunAsync(Func<Task> work)
+    {
+        busy = true; error = null;
+        try { await work(); }
+        catch (AuthorizationDeniedException ex) { error = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex) { error = ex.Message; }
+        catch (ArgumentException ex) { error = ex.Message; }
+        catch (InvalidOperationException ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

@@ -10,6 +10,269 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
 {
     private readonly ChatNotifications notifications = new(NullLogger<ChatNotifications>.Instance);
 
+    [Fact]
+    public async Task HiddenDirectConversation_PreservesHistoryAndMembershipAndReopensSamePair()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var id = await sender.OpenDirectAsync(member);
+        var message = await sender.SendAsync(id, "Keep this history");
+        await recipient.HideDirectConversationAsync(id);
+        Assert.Empty(await recipient.GetConversationsAsync());
+        Assert.Single(await sender.GetConversationsAsync());
+        Assert.Equal(0, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+        Assert.Equal(0, await recipient.GetTotalUnreadCountAsync());
+        Assert.Empty(await recipient.GetInboxMessagesAsync());
+        Assert.Null(await recipient.GetIncomingMessagePreviewAsync(message));
+        Assert.Equal("Keep this history", Assert.Single((await recipient.GetThreadAsync(id)).Messages).Body);
+        await using var db = database.CreateDbContext();
+        Assert.Equal(2, await db.ChatConversationMembers.CountAsync());
+        Assert.Single(await db.ChatMessages.ToArrayAsync());
+        Assert.Equal(id, await recipient.OpenDirectAsync(owner));
+        Assert.Single(await recipient.GetConversationsAsync());
+        Assert.Single(await db.ChatConversations.ToArrayAsync());
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(third).HideDirectConversationAsync(id));
+        var group = await sender.CreateGroupAsync([member, third]);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => recipient.HideDirectConversationAsync(group));
+    }
+
+    [Theory]
+    [InlineData("Text")]
+    [InlineData("GIF")]
+    [InlineData("Poll")]
+    [InlineData("Scheduled")]
+    public async Task HiddenDirectConversation_NewDeliveryRestoresBothUsersWithoutLeaveNotice(string delivery)
+    {
+        var (owner, member, _) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var sender = Service(owner, time);
+        var recipient = Service(member, time);
+        var id = await sender.OpenDirectAsync(member);
+        await sender.HideDirectConversationAsync(id);
+        await recipient.HideDirectConversationAsync(id);
+        Assert.Empty(await sender.GetConversationsAsync());
+        Assert.Empty(await recipient.GetConversationsAsync());
+        switch (delivery)
+        {
+            case "Text": await sender.SendAsync(id, "New message"); break;
+            case "GIF": await sender.SendGifAsync(id, "abc123"); break;
+            case "Poll": await sender.CreatePollAsync(id, "Choose", [new("One"), new("Two")], durationHours: 24, allowMultipleAnswers: false); break;
+            case "Scheduled":
+                await sender.SendWithAttachmentsAsync(id, "Scheduled message", [], scheduledAtUtc: time.Now.UtcDateTime.AddMinutes(1));
+                Assert.Empty(await recipient.GetConversationsAsync());
+                time.Now += TimeSpan.FromMinutes(1);
+                Assert.Equal(1, await sender.DeliverDueMessagesAsync());
+                break;
+        }
+        Assert.Equal(id, Assert.Single(await sender.GetConversationsAsync()).Id);
+        Assert.Equal(id, Assert.Single(await recipient.GetConversationsAsync()).Id);
+        var message = Assert.Single((await recipient.GetThreadAsync(id)).Messages);
+        Assert.NotEqual(ChatMessageType.MemberLeftNotice, message.Type);
+        Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(message.Id));
+        Assert.Equal(1, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+    }
+
+    [Fact]
+    public async Task ConversationActions_PinsArePersonalAndStayAboveNewerUnpinnedChats()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var chat = Service(owner, time);
+        var group = await chat.CreateGroupAsync([member, third]);
+        await chat.SetConversationPinnedToTopAsync(group, true);
+        var pinnedAt = (await chat.GetConversationsAsync()).Single().PinnedToTopAtUtc;
+        time.Now += TimeSpan.FromMinutes(1);
+        await chat.SetConversationPinnedToTopAsync(group, true);
+        var direct = await chat.OpenDirectAsync(member);
+        await chat.SendAsync(direct, "Newer conversation");
+        var rows = await chat.GetConversationsAsync();
+        Assert.Equal(group, rows[0].Id);
+        Assert.Equal(pinnedAt, rows[0].PinnedToTopAtUtc);
+        Assert.Null((await Service(member).GetConversationsAsync()).Single(x => x.Id == group).PinnedToTopAtUtc);
+        await chat.SetConversationPinnedToTopAsync(group, false);
+        Assert.Equal(direct, (await chat.GetConversationsAsync())[0].Id);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(third).SetConversationPinnedToTopAsync(direct, true));
+    }
+
+    [Theory]
+    [InlineData(false, 15)]
+    [InlineData(true, 15)]
+    [InlineData(true, null)]
+    public async Task ConversationActions_MuteSuppressesNotificationsAndExpiresWithoutErasingUnread(bool group, int? minutes)
+    {
+        var (owner, member, third) = await UsersAsync();
+        var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        var sender = Service(owner, time);
+        var recipient = Service(member, time);
+        var id = group ? await sender.CreateGroupAsync([member, third]) : await sender.OpenDirectAsync(member);
+        await recipient.SetConversationMutedAsync(id, true, minutes);
+        var message = await sender.SendAsync(id, "Muted message");
+        var setting = (await recipient.GetNotificationSettingsAsync()).Channels[id];
+        Assert.True(setting.IsMuted);
+        Assert.Equal(minutes is int duration ? time.Now.UtcDateTime.AddMinutes(duration) : (DateTime?)null, setting.MutedUntilUtc);
+        Assert.Equal(1, (await recipient.GetConversationsAsync()).Single().UnreadCount);
+        Assert.Equal(0, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+        Assert.Null(await recipient.GetIncomingMessagePreviewAsync(message));
+        Assert.False((await sender.GetNotificationSettingsAsync()).Channels[id].IsMuted);
+        time.Now += TimeSpan.FromMinutes(minutes ?? 1440);
+        Assert.Equal(minutes is null, (await recipient.GetNotificationSettingsAsync()).Channels[id].IsMuted);
+        if (minutes is not null)
+        {
+            Assert.Equal(1, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+            Assert.NotNull(await recipient.GetIncomingMessagePreviewAsync(message));
+        }
+        await recipient.SetConversationMutedAsync(id, false);
+        Assert.Null((await recipient.GetNotificationSettingsAsync()).Channels[id].MutedUntilUtc);
+        Assert.Equal(1, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => recipient.SetConversationMutedAsync(id, true, 2));
+        var privateDirect = await sender.OpenDirectAsync(third);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => recipient.SetConversationMutedAsync(privateDirect, true));
+    }
+
+    [Fact]
+    public async Task ConversationActions_MarkReadClearsOnlyThatGroupAndPreservesLaterArrivals()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var sender = Service(owner);
+        var recipient = Service(member);
+        var group = await sender.CreateGroupAsync([member, third]);
+        await sender.SendAsync(group, "First");
+        var latest = await sender.SendAsync(group, "Latest");
+        var direct = await sender.OpenDirectAsync(member);
+        await sender.SendAsync(direct, "Other chat");
+        Assert.Equal(latest, await recipient.MarkConversationReadAsync(group));
+        Assert.Equal(0, (await recipient.GetConversationsAsync()).Single(x => x.Id == group).UnreadCount);
+        Assert.Equal(1, (await recipient.GetNotificationUnreadSummaryAsync()).Count);
+        await sender.SendAsync(group, "After marking read");
+        Assert.Equal(1, (await recipient.GetConversationsAsync()).Single(x => x.Id == group).UnreadCount);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(third).MarkConversationReadAsync(direct));
+    }
+
+    [Fact]
+    public async Task ConversationActions_LeavePreservesHistoryAndRevokesAccessWithOneEvent()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var chat = Service(owner);
+        var group = await chat.CreateGroupAsync([member, third]);
+        await chat.SendAsync(group, "History survives");
+        var notified = new HashSet<string>();
+        using var ownerSubscription = notifications.Subscribe(owner, () => notified.Add(owner));
+        using var memberSubscription = notifications.Subscribe(member, () => notified.Add(member));
+        await chat.LeaveGroupAsync(group);
+        Assert.Contains(owner, notified);
+        Assert.Contains(member, notified);
+        Assert.DoesNotContain(await chat.GetConversationsAsync(), x => x.Id == group);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.GetThreadAsync(group));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.SendAsync(group, "Cannot send"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.AddConversationMembersAsync(group, [owner]));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.LeaveGroupAsync(group));
+        var remaining = await Service(member).GetThreadAsync(group);
+        Assert.Equal(2, remaining.Members.Count);
+        Assert.Contains(remaining.Messages, x => x.Body == "History survives");
+        var notice = Assert.Single(remaining.Messages, x => x.Type == ChatMessageType.MemberLeftNotice);
+        Assert.Equal(owner, notice.SenderUserId);
+        Assert.Equal("left the group.", notice.Body);
+        var direct = await chat.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => chat.LeaveGroupAsync(direct));
+        await Service(member).AddConversationMembersAsync(group, [owner]);
+        Assert.Contains((await chat.GetThreadAsync(group)).Messages, x => x.Body == "History survives");
+    }
+
+    [Fact]
+    public async Task AddMembers_DirectCreatesFreshGroupAndPreservesPrivateHistory()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var chat = Service(owner);
+        var direct = await chat.OpenDirectAsync(member);
+        await chat.SendAsync(direct, "Private history");
+        var group = await chat.AddConversationMembersAsync(direct, [third, third, member]);
+        Assert.NotEqual(direct, group);
+        Assert.Equal(direct, await chat.OpenDirectAsync(member));
+        var original = await chat.GetThreadAsync(direct);
+        Assert.Equal(2, original.Members.Count);
+        Assert.Equal("Private history", Assert.Single(original.Messages).Body);
+        var created = await Service(third).GetThreadAsync(group);
+        Assert.Equal(ConversationKind.Group, created.Conversation.Kind);
+        Assert.Equal(3, created.Members.Count);
+        var notice = Assert.Single(created.Messages);
+        Assert.Equal(ChatMessageType.MemberAddedNotice, notice.Type);
+        Assert.Equal(owner, notice.SenderUserId);
+        Assert.Contains("Outsider", notice.Body);
+        var addedName = Assert.Single(notice.Parts, x => x.IsTag);
+        Assert.Equal(third, addedName.UserId);
+        Assert.Equal("Outsider", addedName.Text);
+        await using (var db = database.CreateDbContext())
+            await db.Users.Where(x => x.Id == third).ExecuteUpdateAsync(s => s.SetProperty(x => x.DisplayName, "Renamed member"));
+        var renamedNotice = Assert.Single((await chat.GetThreadAsync(group)).Messages);
+        Assert.Equal(third, Assert.Single(renamedNotice.Parts, x => x.IsTag).UserId);
+        Assert.Equal("Outsider", Assert.Single(renamedNotice.Parts, x => x.IsTag).Text);
+        Assert.Equal(1, created.Conversation.UnreadCount);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(third).GetThreadAsync(direct));
+    }
+
+    [Fact]
+    public async Task AddMembers_LegacyNoticeLinksOnlyAnUnambiguousMemberName()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var chat = Service(owner);
+        var direct = await chat.OpenDirectAsync(member);
+        var group = await chat.AddConversationMembersAsync(direct, [third]);
+        await using var db = database.CreateDbContext();
+        await db.ChatMessageTags.ExecuteDeleteAsync();
+        var legacy = Assert.Single((await chat.GetThreadAsync(group)).Messages);
+        Assert.Equal(third, Assert.Single(legacy.Parts, x => x.IsTag).UserId);
+        await db.Users.Where(x => x.Id == member).ExecuteUpdateAsync(s => s.SetProperty(x => x.DisplayName, "Outsider"));
+        var ambiguous = Assert.Single((await chat.GetThreadAsync(group)).Messages);
+        Assert.DoesNotContain(ambiguous.Parts, x => x.IsTag);
+        Assert.Equal(legacy.Body, Assert.Single(ambiguous.Parts).Text);
+    }
+
+    [Fact]
+    public async Task AddMembers_GroupSerializesOverlappingSelectionsAndPublishesOnceAdded()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var fourth = Guid.NewGuid().ToString();
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(new ApplicationUser { Id = fourth, UserName = "fourth", DisplayName = "Fourth", IsActive = true });
+            await db.SaveChangesAsync();
+        }
+        var group = await Service(owner).CreateGroupAsync([member, third]);
+        await Service(owner).SendAsync(group, "Existing group history");
+        var notified = false;
+        using var subscription = notifications.Subscribe(fourth, () => notified = true);
+        var results = await Task.WhenAll(Service(member).AddConversationMembersAsync(group, [fourth, owner]),
+            Service(third).AddConversationMembersAsync(group, [fourth]));
+        Assert.All(results, id => Assert.Equal(group, id));
+        Assert.True(notified);
+        var thread = await Service(fourth).GetThreadAsync(group);
+        Assert.Equal(4, thread.Members.Count);
+        Assert.Single(thread.Messages, x => x.Type == ChatMessageType.MemberAddedNotice);
+        Assert.Contains(thread.Messages, x => x.Body == "Existing group history");
+        Assert.Equal(2, thread.Conversation.UnreadCount);
+        await Service(fourth).AddConversationMembersAsync(group, [owner, fourth]);
+        Assert.Single((await Service(owner).GetThreadAsync(group)).Messages, x => x.Type == ChatMessageType.MemberAddedNotice);
+    }
+
+    [Fact]
+    public async Task AddMembers_RejectsUnauthorizedInvalidAndInactiveSelectionsAtomically()
+    {
+        var (owner, member, third) = await UsersAsync();
+        var chat = Service(owner);
+        var direct = await chat.OpenDirectAsync(member);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(third).AddConversationMembersAsync(direct, [third]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.AddConversationMembersAsync(direct, [third, "missing"]));
+        await using var db = database.CreateDbContext();
+        await db.Users.Where(x => x.Id == third).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.AddConversationMembersAsync(direct, [third]));
+        Assert.Single(await db.ChatConversations.ToArrayAsync());
+        Assert.Empty(await db.ChatMessages.ToArrayAsync());
+        Assert.Equal(2, await db.ChatConversationMembers.CountAsync());
+        var channel = await chat.CreateChannelAsync("Channel", ChannelVisibility.Private, [member]);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.AddConversationMembersAsync(channel, [third]));
+    }
+
     private static ChatGif CachedGif(string id) => new(id, "Test GIF", $"https://media.giphy.com/{id}/preview.gif",
         $"https://media.giphy.com/{id}/image.gif", $"https://giphy.com/gifs/{id}", "GIPHY");
 
@@ -1591,7 +1854,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
 
         await using (var db = database.CreateDbContext())
         {
-            db.UserRoles.Remove(db.UserRoles.Single(x => x.UserId == member));
+            db.UserRoles.Remove(db.UserRoles.Single(x => x.UserId == member && x.RoleId == AppRoles.AdministratorId));
             await db.SaveChangesAsync();
         }
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>

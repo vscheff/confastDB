@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Confast.Web.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Identity;
 
@@ -58,33 +60,12 @@ public static class IdentityEndpoints
                 "/account/reset-password",
                 async Task<IResult> (
                     [FromForm] ResetPasswordRequest request,
-                    UserManager<ApplicationUser> userManager) =>
+                    UserAdministrationService administration) =>
                 {
-                    if (string.IsNullOrEmpty(request.Password)
-                        || request.Password != request.ConfirmPassword)
-                    {
+                    if (string.IsNullOrEmpty(request.Password) || request.Password != request.ConfirmPassword)
                         return ResetRedirect(request, "Passwords do not match.");
-                    }
-
-                    var user = string.IsNullOrWhiteSpace(request.UserId)
-                        ? null
-                        : await userManager.FindByIdAsync(request.UserId);
-                    if (user is null)
-                    {
-                        return ResetRedirect(request, "The password reset link is invalid or expired.");
-                    }
-
-                    var result = await userManager.ResetPasswordAsync(
-                        user,
-                        request.Token ?? string.Empty,
-                        request.Password);
-                    if (!result.Succeeded)
-                    {
-                        return ResetRedirect(
-                            request,
-                            string.Join(" ", result.Errors.Select(x => x.Description)));
-                    }
-
+                    var result = await administration.RedeemPasswordResetAsync(request.UserId, request.Token, request.Password);
+                    if (!result.Succeeded) return ResetRedirect(request, string.Join(" ", result.Errors));
                     return Results.LocalRedirect("/login?passwordReset=true");
                 })
             .AllowAnonymous();

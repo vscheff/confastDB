@@ -204,7 +204,13 @@ public sealed partial class ChatService(
         var existing = await db.ChatConversations.AsNoTracking()
             .Where(x => x.DirectPairKey == pairKey).Select(x => x.Id)
             .SingleOrDefaultAsync(cancellationToken);
-        if (existing != 0) return existing;
+        if (existing != 0)
+        {
+            var restored = await db.ChatConversationMembers.Where(x => x.ConversationId == existing && x.UserId == userId && x.IsHidden)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsHidden, false), cancellationToken);
+            if (restored > 0) notifications.Publish([userId]);
+            return existing;
+        }
 
         var now = clock.GetUtcNow().UtcDateTime;
         var conversation = new Conversation
@@ -222,9 +228,13 @@ public sealed partial class ChatService(
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
             await using var retryDb = await dbFactory.CreateDbContextAsync(cancellationToken);
-            return await retryDb.ChatConversations.AsNoTracking()
+            var retryId = await retryDb.ChatConversations.AsNoTracking()
                 .Where(x => x.DirectPairKey == pairKey).Select(x => x.Id)
                 .SingleAsync(cancellationToken);
+            await retryDb.ChatConversationMembers.Where(x => x.ConversationId == retryId && x.UserId == userId && x.IsHidden)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsHidden, false), cancellationToken);
+            notifications.Publish([userId]);
+            return retryId;
         }
         notifications.Publish([userId, otherUserId]);
         return conversation.Id;
@@ -282,13 +292,15 @@ public sealed partial class ChatService(
         return conversation.Id;
     }
 
-    public async Task<IReadOnlyList<ChatConversationRow>> GetConversationsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ChatConversationRow>> GetConversationsAsync(CancellationToken cancellationToken = default,
+        bool includeHidden = false)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         var rows = await db.ChatConversationMembers.AsNoTracking()
-            .Where(m => m.UserId == userId)
-            .OrderByDescending(m => m.Conversation.LastActivityAtUtc)
+            .Where(m => m.UserId == userId && (includeHidden || !m.IsHidden))
+            .OrderByDescending(m => m.PinnedToTopAtUtc != null)
+            .ThenByDescending(m => m.Conversation.LastActivityAtUtc)
             .ThenByDescending(m => m.ConversationId)
             .Select(m => new ChatConversationRow(
                 m.ConversationId, m.Conversation.Kind, m.Conversation.Visibility,
@@ -621,7 +633,7 @@ public sealed partial class ChatService(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
         var total = await db.ChatConversationMembers.AsNoTracking()
-            .Where(m => m.UserId == userId)
+            .Where(m => m.UserId == userId && !m.IsHidden)
             .Join(db.ChatMessages.AsNoTracking().Where(x => x.SenderUserId != userId
                     && !x.Reads.Any(read => read.UserId == userId)
                     && x.DeletedAtUtc == null
@@ -631,7 +643,7 @@ public sealed partial class ChatService(
                 (member, message) => new { message.Id, member.LastReadMessageId })
             .LongCountAsync(x => x.Id > (x.LastReadMessageId ?? 0), cancellationToken);
         var manualOnly = await db.ChatConversationMembers.AsNoTracking()
-            .Where(m => m.UserId == userId && m.IsManuallyUnread)
+            .Where(m => m.UserId == userId && !m.IsHidden && m.IsManuallyUnread)
             .CountAsync(m => !db.ChatMessages.Any(message => message.ConversationId == m.ConversationId
                 && message.Id > (m.LastReadMessageId ?? 0) && message.SenderUserId != userId
                 && !message.Reads.Any(read => read.UserId == userId)
@@ -645,7 +657,7 @@ public sealed partial class ChatService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
-        return await db.ChatConversationMembers.AsNoTracking().Where(x => x.UserId == userId)
+        return await db.ChatConversationMembers.AsNoTracking().Where(x => x.UserId == userId && !x.IsHidden)
             .AnyAsync(member => db.ChatMessageMentions.Any(mention => mention.UserId == userId
                 && mention.Message.ConversationId == member.ConversationId
                 && mention.Message.Id > (member.LastReadMessageId ?? 0)
@@ -659,7 +671,7 @@ public sealed partial class ChatService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var userId = await RequireUserAsync(db, cancellationToken);
-        return await db.ChatConversationMembers.AsNoTracking().Where(member => member.UserId == userId)
+        return await db.ChatConversationMembers.AsNoTracking().Where(member => member.UserId == userId && !member.IsHidden)
             .AnyAsync(member =>
                 (member.Conversation.Kind != ConversationKind.Channel &&
                     (member.IsManuallyUnread || db.ChatMessages.Any(message =>
@@ -914,7 +926,7 @@ public sealed partial class ChatService(
         var userId = await RequireUserAsync(db, cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
             throw new UnauthorizedAccessException("You do not belong to this conversation.");
-        var conversation = (await GetConversationsAsync(cancellationToken)).Single(x => x.Id == conversationId);
+        var conversation = (await GetConversationsAsync(cancellationToken, includeHidden: true)).Single(x => x.Id == conversationId);
         ChatChannelThreadRow? channelThread = null;
         if (channelThreadId is long requestedThreadId)
         {
@@ -994,7 +1006,7 @@ public sealed partial class ChatService(
             .OrderBy(x => x.User.DisplayName)
             .Select(x => new ChatUser(x.UserId, x.User.DisplayName, x.User.UserName))
             .ToListAsync(cancellationToken);
-        var tagRows = conversation.Kind == ConversationKind.Channel
+        var tagRows = conversation.Kind == ConversationKind.Channel || messages.Any(x => x.Type == ChatMessageType.MemberAddedNotice)
             ? await db.ChatMessageTags.AsNoTracking()
                 .Where(x => messageIds.Contains(x.MessageId))
                 .Select(x => new { x.MessageId, x.Start, x.Length, x.Kind, x.UserId,
@@ -1016,6 +1028,13 @@ public sealed partial class ChatService(
         messages = messages.Select(x =>
         {
             var tags = tagsByMessage.GetValueOrDefault(x.Id);
+            if (tags is null && x.Type == ChatMessageType.MemberAddedNotice && x.Body is not null)
+            {
+                // Older addition events saved only the name. Link it only when identity is unambiguous.
+                var matches = members.Where(member => x.Body == $"added {member.Name} to the conversation.").ToArray();
+                if (matches.Length == 1)
+                    tags = [new ChatMentionToken(6, matches[0].Name.Length, ChatMentionKind.User, matches[0].Id, matches[0].Name)];
+            }
             if (tags is null && x.Body is not null && mentionsByMessage.TryGetValue(x.Id, out var legacyMentions))
             {
                 // Messages sent before tag positions were saved still have their recipient rows.
@@ -1033,7 +1052,7 @@ public sealed partial class ChatService(
                 Reactions = reactionsByMessage.GetValueOrDefault(x.Id) ?? [],
                 Poll = polls.GetValueOrDefault(x.Id),
                 Attachments = attachmentsByMessage.GetValueOrDefault(x.Id) ?? [],
-                Parts = x.Body is null ? [] : conversation.Kind == ConversationKind.Channel
+                Parts = x.Body is null ? [] : conversation.Kind == ConversationKind.Channel || x.Type == ChatMessageType.MemberAddedNotice
                     ? ChatMentionParser.GetParts(x.Body, tags ?? [])
                     : [new ChatMessagePart(x.Body, false)]
             };
@@ -1161,6 +1180,7 @@ public sealed partial class ChatService(
         {
             throw new InvalidOperationException(UnsupportedDatabaseEncodingMessage, exception);
         }
+        await RestoreDirectVisibilityAsync(db, conversationId, cancellationToken);
         // Sending in a manually unread conversation is an explicit read action. Keep it
         // in the send transaction so every caller has the same behavior.
         if (markSenderRead) await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId
