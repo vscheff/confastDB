@@ -1,5 +1,6 @@
+@inherits PermissionComponentBase
 @page "/production-tracking"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Production + "," + AppRoles.Administrator)]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:ProductionLogs.Read")]
 @using Confast.Web.Features.ProductionTracking
 @using Confast.Web.Features.ProductionScheduling
 @using Confast.Web.Time
@@ -22,7 +23,7 @@
                 <button type="button" class="button button-secondary" @onclick="NextDayAsync" disabled="@(data.NextLogDate is null)" aria-label="Next day with Sort Logs">›</button>
             </div>
         }
-        <AuthorizeView Roles="@AppRoles.Administrator"><a class="button button-secondary" href="/production-tracking/settings">Settings</a></AuthorizeView>
+        @if (Can(Permissions.SortLogDowntimeCauses.Read)) {<a class="button button-secondary" href="/production-tracking/settings">Settings</a>}
     </div>
 </div>
 
@@ -47,7 +48,7 @@ else
         {
             <div class="tracking-columns">
                 <aside class="tracking-sidebar">
-                    @if (!ViewingHistoricalLogs)
+                    @if (!ViewingHistoricalLogs && Can(Permissions.ProductionLogs.Create))
                     {
                     <section class="tracking-card job-picker">
                         <div class="card-heading"><div><p class="eyebrow">Scheduled work</p><h2>Select Job</h2></div></div>
@@ -60,13 +61,13 @@ else
                             <div class="touch-list">
                                 @foreach (var job in data.ScheduledJobs)
                                 {
-                                    <button type="button" class="touch-list-item" @onclick="() => OpenScheduledAsync(job)">
+                                    @if (Can(Permissions.ProductionLogs.Create)) { <button type="button" class="touch-list-item" @onclick="() => OpenScheduledAsync(job)">
                                         <strong>@job.PartNumber</strong><span>Lot @job.LotNumber</span><small>@job.CustomerName · @job.State</small>
-                                    </button>
+                                    </button> }
                                 }
                             </div>
                         }
-                        <button type="button" class="button button-secondary unscheduled-toggle" @onclick="() => showUnscheduled = !showUnscheduled">@(showUnscheduled ? "Hide Unscheduled Job" : "Choose Unscheduled Job")</button>
+                        @if (Can(Permissions.ProductionLogs.Create)) { <button type="button" class="button button-secondary unscheduled-toggle" @onclick="() => showUnscheduled = !showUnscheduled">@(showUnscheduled ? "Hide Unscheduled Job" : "Choose Unscheduled Job")</button> }
                         @if (showUnscheduled)
                         {
                             <div class="unscheduled-fields">
@@ -82,7 +83,7 @@ else
                                         @foreach (var lot in AvailableLots) { <option value="@lot.InspectionId">@lot.LotNumber</option> }
                                     </select>
                                 </label>
-                                <button type="button" class="button button-primary" disabled="@(selectedInspectionId is null)" @onclick="OpenUnscheduledAsync">Open Sort Log</button>
+                                @if (Can(Permissions.ProductionLogs.Create)) { <button type="button" class="button button-primary" disabled="@(selectedInspectionId is null)" @onclick="OpenUnscheduledAsync">Open Sort Log</button> }
                             </div>
                         }
                     </section>
@@ -129,11 +130,11 @@ else
                             </div>
                             @if (activeLine is not null)
                             {
-                                <button type="button" class="stop-run" @onclick="StopRunAsync">STOP RUN</button>
+                                @if (Can(Permissions.ProductionLogs.StopRun)) { <button type="button" class="stop-run" @onclick="StopRunAsync">STOP RUN</button> }
                             }
                             else if (unfinishedLine is not null)
                             {
-                                <div class="stop-details-needed"><p>Run @unfinishedLine.Sequence stopped at @Local(unfinishedLine.StopTimeUtc!.Value).ToString("h:mm tt"). Finish its stop details before starting another run.</p><div class="stop-details-actions"><button type="button" class="button button-primary" @onclick="() => EditLine(unfinishedLine, showStartFields: false)">Finish Stop Details</button><button type="button" class="button button-secondary" @onclick="ResumeRunAsync">Resume Run</button></div></div>
+                                <div class="stop-details-needed"><p>Run @unfinishedLine.Sequence stopped at @Local(unfinishedLine.StopTimeUtc!.Value).ToString("h:mm tt"). Finish its stop details before starting another run.</p><div class="stop-details-actions">@if (Can(Permissions.ProductionLogs.StopRun)) { <button type="button" class="button button-primary" @onclick="() => EditLine(unfinishedLine, showStartFields: false)">Finish Stop Details</button> }@if (Can(Permissions.ProductionLogs.ResumeRun)) { <button type="button" class="button button-secondary" @onclick="ResumeRunAsync">Resume Run</button> }</div></div>
                             }
                             else if (ViewingHistoricalLogs)
                             {
@@ -145,19 +146,19 @@ else
                                     <div class="start-fields">
                                         <div class="start-field-group">
                                             <span class="start-field-group-heading">Boundary Samples</span>
-                                            <label>Ran <InputNumber @bind-Value="startBoundaryRan" min="0" /></label>
-                                            <label>Passed <InputNumber @bind-Value="startBoundaryPassed" min="0" /></label>
+                                            <label>Ran <InputNumber disabled="@(!Can(Permissions.ProductionLogs.StartRun))" @bind-Value="startBoundaryRan" min="0" /></label>
+                                            <label>Passed <InputNumber disabled="@(!Can(Permissions.ProductionLogs.StartRun))" @bind-Value="startBoundaryPassed" min="0" /></label>
                                         </div>
-                                        <label class="start-box-count">Start Box Count <InputNumber @bind-Value="startBoxCount" min="0" /></label>
+                                        <label class="start-box-count">Start Box Count <InputNumber disabled="@(!Can(Permissions.ProductionLogs.StartRun))" @bind-Value="startBoxCount" min="0" /></label>
                                         <div class="start-field-group">
                                             <span class="start-field-group-heading">Initials</span>
-                                            <label>Production <input class="initials-input" value="@startProductionInitials" @oninput="args => startProductionInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
-                                            <label>Quality <input class="initials-input" value="@startQualityInitials" @oninput="args => startQualityInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
+                                            <label>Production <input disabled="@(!Can(Permissions.ProductionLogs.StartRun))" class="initials-input" value="@startProductionInitials" @oninput="args => startProductionInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
+                                            <label>Quality <input disabled="@(!Can(Permissions.ProductionLogs.StartRun))" class="initials-input" value="@startQualityInitials" @oninput="args => startQualityInitials = InputInitials(args.Value)" maxlength="2" pattern="[A-Za-z]{2}" autocapitalize="characters" autocomplete="off" /></label>
                                         </div>
-                                        <label class="wide">Notes <textarea @bind="startNotes" rows="2"></textarea></label>
+                                        <label class="wide">Notes <textarea disabled="@(!Can(Permissions.ProductionLogs.StartRun))" @bind="startNotes" rows="2"></textarea></label>
                                         </div>
                                         @if (startMessage is not null) { <div class="alert alert-error start-run-error" role="alert">@startMessage</div> }
-                                        <button type="button" class="start-run" @onclick="StartRunAsync">START RUN</button>
+                                        @if (Can(Permissions.ProductionLogs.StartRun)) { <button type="button" class="start-run" @onclick="StartRunAsync">START RUN</button> }
                                 </div>
                             }
                         </section>
@@ -175,8 +176,8 @@ else
                         </section>
 
                         <section class="tracking-card log-comments">
-                            <div class="card-heading"><div><h2>Comments</h2></div><button type="button" class="button button-primary" @onclick="SaveCommentsAsync">Save Comments</button></div>
-                            <textarea @bind="comments" rows="3" maxlength="4000"></textarea>
+                            <div class="card-heading"><div><h2>Comments</h2></div>@if (Can(Permissions.ProductionLogs.Update)) { <button type="button" class="button button-primary" @onclick="SaveCommentsAsync">Save Comments</button> }</div>
+                            <textarea @bind="comments" rows="3" maxlength="4000" disabled="@(!Can(Permissions.ProductionLogs.Update))"></textarea>
                         </section>
 
                     }
@@ -234,7 +235,7 @@ else
                                             <td>@(line.EndBoxCount?.ToString("N0") ?? "—")</td>
                                             <td>@(line.ProductionInitials ?? "—")</td>
                                             <td>@(line.QualityInitials ?? "—")</td>
-                                            <td><button type="button" class="button button-secondary run-table-edit" @onclick="() => EditLine(line)">Edit</button></td>
+                                            <td>@if ((line.DowntimeCauseId is null && Can(Permissions.ProductionLogs.StopRun)) || Can(Permissions.ProductionLogs.CorrectLine)) { <button type="button" class="button button-secondary run-table-edit" @onclick="() => EditLine(line)">Edit</button> }</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -252,7 +253,7 @@ else
                                 <div class="run-card-numbers"><span><small>Passed</small><strong>@line.PassQuantity.ToString("N0")</strong></span><span><small>Failed</small><strong>@line.FailQuantity.ToString("N0")</strong></span><span><small>Efficiency</small><strong>@metrics.Efficiency.ToString("P1")</strong></span><span><small>Reject Rate</small><strong>@metrics.FailureRate.ToString("P2")</strong></span></div>
                                 <div class="run-card-detail"><span>Stopped: <strong>@(line.DowntimeCause ?? "Details required")</strong></span></div>
                                 @if (!string.IsNullOrWhiteSpace(line.Notes)) { <p>@line.Notes</p> }
-                                <button type="button" class="button button-secondary" @onclick="() => EditLine(line)">Edit</button>
+                                @if ((line.DowntimeCauseId is null && Can(Permissions.ProductionLogs.StopRun)) || Can(Permissions.ProductionLogs.CorrectLine)) { <button type="button" class="button button-secondary" @onclick="() => EditLine(line)">Edit</button> }
                             </article>
                         }
                     </div>
@@ -312,7 +313,7 @@ else
                 <label class="wide">Notes <textarea @bind="lineEditor.Notes" rows="3"></textarea></label>
             </div>
             @if (lineEditorMessage is not null) { <div class="alert alert-error line-editor-error" role="alert">@lineEditorMessage</div> }
-            <div class="modal-actions"><button type="button" class="button button-primary" disabled="@busy" @onclick="SaveLineAsync">Save Run</button><button type="button" class="button button-secondary" disabled="@busy" @onclick="CloseLineEditor">Cancel</button></div>
+            <div class="modal-actions">@if (Can(lineEditor.InitialStopDetails ? Permissions.ProductionLogs.StopRun : Permissions.ProductionLogs.CorrectLine)) { <button type="button" class="button button-primary" disabled="@busy" @onclick="SaveLineAsync">Save Run</button> }<button type="button" class="button button-secondary" disabled="@busy" @onclick="CloseLineEditor">Cancel</button></div>
         </section>
     </div>
 }
@@ -432,7 +433,10 @@ else
     private void EditLine(SortLogLineItem line, bool showStartFields = true)
     {
         lineEditorMessage = null;
-        lineEditor = LineEditor.From(line, Clock.LocalTimeZone, showStartFields);
+        var initialStop = line.DowntimeCauseId is null && Can(Permissions.ProductionLogs.StopRun)
+            && (!showStartFields || !Can(Permissions.ProductionLogs.CorrectLine));
+        lineEditor = LineEditor.From(line, Clock.LocalTimeZone, showStartFields && !initialStop);
+        lineEditor.InitialStopDetails = initialStop;
     }
 
     private void CloseLineEditor()
@@ -446,8 +450,9 @@ else
         if (lineEditor is null) return;
         var editor = lineEditor;
         lineEditorMessage = null;
-        await RunAsync(() => Service.UpdateLineAsync(editor.Id,
-            editor.ToInput(data!.CurrentLog!.ProductionDate, Clock.LocalTimeZone)));
+        await RunAsync(() => editor.InitialStopDetails
+            ? Service.SaveStopDetailsAsync(editor.Id, editor.ToInput(data!.CurrentLog!.ProductionDate, Clock.LocalTimeZone))
+            : Service.UpdateLineAsync(editor.Id, editor.ToInput(data!.CurrentLog!.ProductionDate, Clock.LocalTimeZone)));
         if (message is null)
             CloseLineEditor();
         else
@@ -471,6 +476,7 @@ else
             onSuccess?.Invoke();
             await ReloadAsync();
         }
+        catch (AuthorizationDeniedException exception) { await RefreshPermissionsAsync(); message = exception.Message; }
         catch (Exception exception) when (exception is ProductionTrackingException or UnauthorizedAccessException)
         {
             message = exception.Message;
@@ -485,7 +491,8 @@ else
 
     private async Task ReloadAsync()
     {
-        data = await Service.GetDashboardAsync(selectedMachineId, selectedLogId, selectedProductionDate);
+        try { data = await Service.GetDashboardAsync(selectedMachineId, selectedLogId, selectedProductionDate); }
+        catch (AuthorizationDeniedException exception) { await RefreshPermissionsAsync(); message = exception.Message; return; }
         comments = data.CurrentLog?.Comments;
         if (startBoxCount is null)
             startBoxCount = data.CurrentLog?.Lines.Where(x => x.StopTimeUtc is not null)
@@ -517,6 +524,7 @@ else
         public int Sequence { get; init; }
         public TimeOnly StartTime { get; set; }
         public TimeOnly StopTime { get; set; }
+        public bool InitialStopDetails { get; set; }
         public long DowntimeCauseId { get; set; }
         public long PassQuantity { get; set; }
         public long FailQuantity { get; set; }
@@ -531,6 +539,7 @@ else
 
         public static LineEditor From(SortLogLineItem line, TimeZoneInfo timeZone, bool showStartFields) => new()
         {
+            InitialStopDetails = line.DowntimeCauseId is null,
             Id = line.Id, Sequence = line.Sequence, ShowStartFields = showStartFields,
             StartTime = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(line.StartTimeUtc, timeZone).DateTime),
             StopTime = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(line.StopTimeUtc!.Value, timeZone).DateTime),

@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.InspectionCriteria;
@@ -16,9 +17,11 @@ public sealed class ProductionTrackingServiceTests(PostgresTestDatabase database
     private ProductionTrackingService service = null!;
     private long machineId, partId, inspectionId, segmentId;
 
+    private readonly AuthorizationTestSession session = new(database);
     public async Task InitializeAsync()
     {
         await database.ResetAsync();
+        await session.ProvisionRootAsync();
         await using var db = database.CreateDbContext();
         await db.Database.ExecuteSqlRawAsync("TRUNCATE sort_log_lines, sort_logs, production_progress, production_requirements, production_segments, production_jobs, part_machines, machine_working_days, machine_downtime, sorting_machines, production_holidays, downtime_reasons, production_audit RESTART IDENTITY CASCADE");
         await db.Database.ExecuteSqlRawAsync("DELETE FROM sort_log_downtime_causes WHERE id <> -1");
@@ -76,10 +79,11 @@ public sealed class ProductionTrackingServiceTests(PostgresTestDatabase database
         db.Add(job);
         await db.SaveChangesAsync();
         segmentId = segment.Id;
-        service = new(database, new TestUser(), clock);
+        await session.SignInAsync("operator");
+        service = new(database, session.Guard, clock);
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { session.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task ScheduledSelectionCreatesOneDailyLogAndSnapshotsConfiguredTargetPph()

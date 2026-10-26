@@ -1,0 +1,16 @@
+<div class="permission-impact">
+    @foreach (var section in Sections)
+    {
+        <details><summary>@section.Label (@section.Keys.Count)</summary>
+            @if (section.Keys.Count == 0) { <p>None</p> }
+            else { <ul>@foreach (var key in section.Keys) { <li><code>@key</code></li> }</ul> }
+        </details>
+    }
+</div>
+@code {
+    [Parameter, EditorRequired] public PermissionImpact Impact { get; set; } = null!;
+    private IEnumerable<(string Label, IReadOnlyList<string> Keys)> Sections => [
+        ("Effective Permissions Added", Impact.Added), ("Effective Permissions Removed", Impact.Removed),
+        ("Provenance Changed", Impact.ProvenanceChanged), ("Newly Unavailable Actions", Impact.NewlyUnavailable),
+        ("Stored Envelope Added", Impact.StoredAdded), ("Stored Envelope Removed", Impact.StoredRemoved)];
+}

@@ -1,5 +1,15 @@
 # Confast
 
+**Phase 3G verification (October 26, 2026):** runtime privilege separation, isolated restore/Root recovery, shared keys, proxy controls and two-process authorization are covered by the [final verification record](docs/authorization-final-verification.md). Use the [first-deployment preparation guide](docs/deployment-readiness.md) for operator procedures and unresolved hosting decisions. ConfastDB has never been deployed; this work performs no deployment.
+
+**Phase 3F status (October 16, 2026):** the catalog-backed role matrix, provenance and impact previews, safe role/user editing, process-local advisory refresh, and channel moderation-history UI are implemented. See [the administration UI record](docs/authorization-administration-ui.md) for behavior, validation, and remaining Phase 3G limits. This supersedes historical matrix/refresh/history-UI deferrals below.
+
+**Phase 3E-2 status (October 16, 2026):** scheduled delegation/lifecycle, scoped renderer execution, create-only bootstrap and guarded Development diagnostics are implemented. See [the background and delegation record](docs/authorization-background-delegation.md) for the complete execution inventory, migration, validation and remaining Phase 3F/3G boundaries. This supersedes historical background/bootstrap deferrals below.
+
+**Phase 3E-1 status (October 15, 2026):** chat permissions, media/subscription privacy and scoped moderation are implemented in [the chat authorization record](docs/authorization-chat.md). Its boundary inventory and verification supersede older chat deferrals below; the full hosted-worker redesign remains Phase 3E-2.
+
+**Phase 3D-2 status (October 15, 2026):** logistics, remaining receiving, production configuration/scheduling/tracking/reporting and fixed schedule-read maintenance now use trusted permission boundaries. See [the logistics and production implementation record](docs/authorization-production-logistics.md) for the complete method inventory, verification and remaining Phase 3E boundaries. Historical deferrals below are superseded for this scope.
+
 A ground-up replacement for the Conformance Fasteners FileMaker applications.
 
 The application currently contains Customers, Parts, and versioned Part inspection
@@ -52,7 +62,7 @@ This keeps local sandboxed runs independent of Windows DPAPI and Event Log permi
 production uses the normal persistent Data Protection and logging configuration.
 
 To enable authenticated browser testing, configure a dedicated Development-only account
-with User Secrets. The account is created on Development startup with the `Quality` and
+with User Secrets. The account is created on Development startup with the initial `Quality` and
 `Production` roles, which exercise normal floor workflows without granting administration privileges:
 
 ```powershell
@@ -64,7 +74,7 @@ The password placeholder above is not a credential; replace it locally with a pa
 that meets the application's normal Identity policy. Environment variables can override
 the same settings as `BrowserTestUser__Username` and `BrowserTestUser__Password`.
 When either setting is missing, browser-test-user provisioning is skipped and Production
-never provisions this account.
+never provisions this account. Existing accounts are left untouched: startup does not reactivate them, reset credentials or restore removed roles.
 
 ### Browser-testing startup
 
@@ -89,7 +99,7 @@ profile or clear the local site's cookies when testing across a restart.
 Confast DB uses ASP.NET Core Identity in the existing PostgreSQL database. Applying
 the migrations creates the `identity_*` tables and seeds these roles:
 `Administrator`, `Quality`, `Production`, `ReadOnly`, and the protected, initially
-unassigned `Root Administrator Prime`. Every human account retains ReadOnly. The rest of the application
+unassigned `Root Administrator Prime`. New accounts default to ReadOnly; authorized role selection can replace or remove it. Accounts with no roles have no implicit permission grants. The rest of the application
 requires an authenticated user. `/admin/users` requires `Users.Read`; `/admin/roles`
 requires `Roles.Read`, with separate permissions for each administrative operation.
 
@@ -109,6 +119,8 @@ New inspection creation and selected receipt operations also use permission guar
 unmigrated business services retain their existing authorization. Read the implementation
 record for exact boundaries, additive backfill behavior, tests and remaining phases.
 
+[Phase 3D-1 core business authorization](docs/authorization-core-business.md) now guards Customers, Plants, Parts, Suppliers, Gages/Types, Inspection Criteria and Master Prints, all inspection actions, certification documents/packages/email, and their settings services. Services resolve the current authenticated actor and effective grants for each operation. Document/export HTTP policies share a scoped operation with their service adapters; page access never authorizes a later save. ReadOnly remains optional, and Root receives permission authority only through its protected designation. Logistics, production, remaining receiving and chat migration remain later work.
+
 There is no public registration. To create the first administrator, set the bootstrap
 values outside source control before starting the application for the first time. In
 PowerShell, environment variables are the least surprising option:
@@ -124,8 +136,7 @@ dotnet run --project src/Confast.Web
 The username is used to log in; email remains separate contact/profile information.
 The password must be at least 12 characters and include uppercase, lowercase, a
 number, and a symbol. Bootstrap creation only creates a new account when no users
-exist. If the configured username already exists, it ensures that account has the
-Administrator role. Remove all four variables after the account has been created;
+exist. If any account already exists, bootstrap does nothing; it never restores roles, activation or credentials. Remove all four variables after the account has been created;
 leaving a privileged bootstrap password in a service definition forever is not a
 bootstrap mechanism, it is a back door with paperwork.
 
@@ -137,8 +148,7 @@ password resets. Deactivation revokes the user's security stamp so existing sess
 are rejected. Administrators may also permanently delete another user after an
 explicit confirmation; they cannot delete their own account. Once business records
 reference users, those relationships should use restrictive foreign keys so referenced
-accounts must be deactivated instead of deleted. The last active administrator cannot
-be deactivated or stripped of that role through the UI.
+accounts must be deactivated instead of deleted. The designated Root account is protected from ordinary account editing and role assignment; ordinary Administrator membership is configurable.
 
 Identity cookies and password-reset tokens use ASP.NET Core Data Protection. The
 development process deliberately uses ephemeral keys, so restarting it invalidates
@@ -177,61 +187,37 @@ an email address in the Users page. This is deliberately a proof-of-concept sett
 Rackspace must be tested with a real same-domain user address and the received headers
 must be checked for rewritten `From`, `Return-Path`, SPF/DKIM, and DMARC results.
 
-### Run the Rackspace SMTP proof of concept
+### Development email preparation diagnostic
 
-This test sends one small email through the configured Rackspace mailbox using the
-currently logged-in Confast user as the preferred sender identity. It is available only
-in Development and only to an Administrator. It does not modify certification packages
-or database records.
+`POST /development/smtp-test` is registered only in Development. It requires current
+`Certifications.SendEmail`, a loopback client and a valid antiforgery token. It validates
+the current account's sender and prepares a MIME attachment using an in-memory transport
+and the fixed `fixture@browser-test.invalid` recipient. It never reads `Email:*` settings
+or connects to SMTP. This replaces the former live Rackspace proof-of-concept endpoint.
 
-1. Set `Email:TestRecipient` to an inbox you can inspect. The logged-in Administrator
-   also needs a valid email address on their Users-page account.
-2. Start the app in Development from PowerShell:
+From the signed-in local browser's developer console, fetch the normal login form to obtain
+an antiforgery token, then submit the diagnostic using the same browser cookies:
 
-   ```powershell
-   $env:ASPNETCORE_ENVIRONMENT = "Development"
-   dotnet run --project src/Confast.Web
-   ```
-
-3. Open the local app, log in as an Administrator, and open the browser developer
-   console (`F12`, then **Console**).
-4. Run this command in that console. It uses the logged-in browser session; do not put
-   SMTP credentials in the browser or in this command.
-
-   ```js
-   fetch("/development/smtp-test", {
-     method: "POST",
-     credentials: "same-origin"
-   })
-   .then(async response => ({ status: response.status, body: await response.text() }))
-   .then(console.log)
-   ```
-
-5. A `200` response means the SMTP server accepted the message. Inspect the test
-   recipient's message source and confirm:
-
-   - `From` displays the logged-in user.
-   - `Reply-To` is the logged-in user's address, then send a reply to verify delivery.
-   - `Return-Path` is what Rackspace accepted as the envelope sender.
-   - SPF, DKIM, and DMARC do not report obvious failures.
-
-An SMTP rejection returns a `400` with a safe error message; inspect the server console
-log for the detailed exception. A `403` means the logged-in account is not an
-Administrator. The route is not mapped outside Development and deliberately disables
-antiforgery because it has no form/UI; role authorization and the Development-only
-mapping remain in force.
-
-If Rackspace rejects or rewrites the preferred `From` identity, configure the fallback
-and restart the app:
-
-```powershell
-dotnet user-secrets set --project src/Confast.Web "Email:SenderMode" "ApplicationMailbox"
+```js
+const html = await (await fetch('/login', { credentials: 'same-origin' })).text();
+const form = new DOMParser().parseFromString(html, 'text/html');
+const token = form.querySelector('[name="__RequestVerificationToken"]').value;
+const result = await fetch('/development/smtp-test', {
+  method: 'POST', credentials: 'same-origin',
+  body: new URLSearchParams({ __RequestVerificationToken: token })
+});
+console.log(result.status, await result.json());
 ```
 
-The fallback keeps the logged-in user as `Reply-To` but uses the authenticated
-certifications mailbox as visible `From`. Do not configure actual SMTP credentials in
-`appsettings.json`.
+A successful response means MIME preparation succeeded, not mailbox delivery or Rackspace
+sender/header acceptance. Live deliverability verification belongs to a separately controlled
+operator procedure. The Development business-date control requires the current protected
+`Authorization.ManageSecurity` permission and never changes audit/expiry clocks.
 
+The PDF renderer uses the actual server listener for its internal callback. Reverse-proxy
+installations can set `InspectionRendering:ApplicationOrigin` to an explicitly trusted internal
+HTTP/HTTPS origin. HTTPS certificates must validate; request Host headers never select the
+render callback destination. Keep render-token query strings out of proxy/request tracing.
 ## Certification PDF previews
 
 Certification originals remain byte-for-byte unchanged in the database. The embedded
@@ -252,9 +238,11 @@ unique `direct_pair_key`, so concurrent attempts to open the same pair resolve
 to one conversation. A future multi-user private conversation can use the same
 conversation/member tables without a pair key.
 
-Public channels are discoverable without membership, but users must join before
-reading or sending. Private channels and direct messages require membership for
-all reads and writes. Private channel owners manage membership. Unread counts
+Public channels include all Active accounts. Authorized chat operations reconcile
+missing public memberships, starting new members read through the latest existing message.
+Chat.Access is required before this maintenance or any protected chat read. Private
+channels, direct messages and group conversations require current membership for all
+content reads and writes; permission authority never substitutes for private membership. Private channel owners manage membership. Unread counts
 use one `last_read_message_id` per member; a composite foreign key keeps the
 marker inside its conversation. Messages are soft-deleted and retain their
 stored body and deletion audit fields while the UI hides deleted text.

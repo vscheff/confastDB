@@ -1,5 +1,6 @@
 @page "/admin/users"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Users.Read")]
+@inherits Confast.Web.Components.PermissionComponentBase
 @inject UserAdministrationService UserService
 @inject NavigationManager Navigation
 
@@ -25,9 +26,9 @@ else
     @if (!string.IsNullOrWhiteSpace(resetLink))
     {
         <div class="status-message password-reset-link">
-            <strong>Password reset link</strong>
+            <strong>Password Reset Link</strong>
             <p>Give this link to the user through a trusted channel. It becomes invalid after the password is reset.</p>
-            <input type="text" readonly value="@resetLink" aria-label="Password reset link" />
+            <input type="text" readonly value="@resetLink" aria-label="Password Reset Link" />
         </div>
     }
 
@@ -72,7 +73,7 @@ else
         <div class="user-editor">
             @if (editModel is null)
             {
-                <h2>Create user</h2>
+                <h2>Create User</h2>
                 <EditForm Model="createModel" OnValidSubmit="CreateUserAsync" class="record-form user-form">
                     <DataAnnotationsValidator />
                     <ValidationSummary />
@@ -81,11 +82,11 @@ else
                         <InputText id="create-username" autocomplete="username" @bind-Value="createModel.Username" />
                     </div>
                     <div class="form-field">
-                        <label for="create-display-name">Display name</label>
+                        <label for="create-display-name">Display Name</label>
                         <InputText id="create-display-name" @bind-Value="createModel.DisplayName" />
                     </div>
                     <div class="form-field">
-                        <label for="create-job-title">Job title</label>
+                        <label for="create-job-title">Job Title</label>
                         <InputText id="create-job-title" @bind-Value="createModel.JobTitle" />
                     </div>
                     <div class="form-field">
@@ -102,18 +103,18 @@ else
                         <label for="create-email">Email</label>
                         <InputText id="create-email" type="email" @bind-Value="createModel.Email" />
                     </div>
-                    <RoleCheckboxes SelectedRoles="createModel.Roles" Choices="@(administrationState?.RoleChoices ?? [])" />
+                    <RoleCheckboxes SelectedRoles="createModel.Roles" Choices="@(administrationState?.RoleChoices ?? [])" Disabled="@(!Has(Permissions.Users.Create))" />
                     <div class="form-actions form-field-wide">
-                        <button class="button button-primary" type="submit" disabled="@(saving || !Has(Permissions.Users.Create))">Create user</button>
+                        <button class="button button-primary" type="submit" disabled="@(saving || !Has(Permissions.Users.Create))">Create User</button>
                     </div>
                 </EditForm>
-                <p class="field-help">New accounts receive ReadOnly. Password setup requires a separately authorized reset link.</p>
+                <p class="field-help">New accounts start with ReadOnly selected. Authorized role choices can replace it. Password setup requires a separately authorized reset link.</p>
             }
             else
             {
                 <div class="section-heading">
-                    <h2>Edit user</h2>
-                    <button class="button button-secondary button-compact" type="button" @onclick="CancelEdit">New user</button>
+                    <h2>Edit User</h2>
+                    <button class="button button-secondary button-compact" type="button" @onclick="CancelEdit">New User</button>
                 </div>
                 @if (confirmingDelete)
                 {
@@ -121,7 +122,7 @@ else
                         <h3>Delete @editModel.Username?</h3>
                         <p>This permanently removes the account and its Identity role, claim, login, and token records. This cannot be undone.</p>
                         <div class="form-actions">
-                            <button class="button button-danger" type="button" disabled="@saving" @onclick="ConfirmDeleteUserAsync">Delete permanently</button>
+                            <button class="button button-danger" type="button" disabled="@saving" @onclick="ConfirmDeleteUserAsync">Delete Permanently</button>
                             <button class="button button-secondary" type="button" disabled="@saving" @onclick="CancelDelete">Cancel</button>
                         </div>
                     </div>
@@ -137,11 +138,11 @@ else
                             <InputText id="edit-username" disabled="@(!CanUpdateAccount)" autocomplete="username" @bind-Value="editModel.Username" />
                         </div>
                         <div class="form-field">
-                            <label for="edit-display-name">Display name</label>
+                            <label for="edit-display-name">Display Name</label>
                             <InputText id="edit-display-name" disabled="@(!CanUpdateAccount)" @bind-Value="editModel.DisplayName" />
                         </div>
                         <div class="form-field">
-                            <label for="edit-job-title">Job title</label>
+                            <label for="edit-job-title">Job Title</label>
                             <InputText id="edit-job-title" disabled="@(!CanUpdateAccount)" @bind-Value="editModel.JobTitle" />
                         </div>
                         <div class="form-field">
@@ -162,17 +163,19 @@ else
                             <InputCheckbox disabled="@(!CanUpdateAccount)" @bind-Value="editModel.IsActive" />
                             Active
                         </label>
-                        <RoleCheckboxes SelectedRoles="editModel.Roles" Choices="editModel.RoleChoices" />
+                        <RoleCheckboxes SelectedRoles="editModel.Roles" Choices="editModel.RoleChoices" Disabled="@(!Has(Permissions.Users.ManageRoles))" />
                         <div class="form-actions form-field-wide">
-                            <button class="button button-primary" type="submit" disabled="@(saving || editModel.IsProtected || (!CanUpdateAccount && !Has(Permissions.Users.ManageRoles)))">Save changes</button>
-                            <button class="button button-secondary" type="button" disabled="@(saving || !editModel.CanManageAccount || !Has(Permissions.Users.ResetPasswords))" @onclick="GenerateResetLinkAsync">Generate password reset link</button>
+                            <button class="button button-primary" type="submit" disabled="@(saving || editModel.IsProtected || (!CanUpdateAccount && !Has(Permissions.Users.ManageRoles)))">Save Changes</button>
+                            <button class="button button-secondary" type="button" disabled="@(saving || !editModel.CanManageAccount || !Has(Permissions.Users.ResetPasswords))" @onclick="GenerateResetLinkAsync">Generate Password Reset Link</button>
                             <button class="button button-danger-outline"
                                     type="button"
                                     disabled="@(saving || !editModel.CanManageAccount || !Has(Permissions.Users.Delete))"
                                     title="@(!editModel.CanManageAccount ? "Outside account management authority." : null)"
-                                    @onclick="BeginDelete">Delete user</button>
+                                    @onclick="BeginDelete">Delete User</button>
                         </div>
                     </EditForm>
+                    <div class="form-actions"><button class="button button-secondary" type="button" disabled="@saving" @onclick="ReloadAndReapplyAsync">Reload And Reapply</button><button class="button button-secondary" type="button" disabled="@saving" @onclick="DiscardUserChangesAsync">Discard Changes</button></div>
+                    @if (Has(Permissions.Users.Read)) { <UserEffectiveAccess User="editModel" CanPreview="Has(Permissions.Users.ManageRoles)" Revision="AuthorizationRevision" /> }
                 }
             }
         </div>
@@ -183,11 +186,12 @@ else
     private IReadOnlyList<UserListItem>? users;
     private IReadOnlyList<DigitalCaliperChoice> digitalCalipers = [];
     private CreateUserInput createModel = new();
-    private EditUserInput? editModel;
+    private EditUserInput? editModel, originalEdit;
+    private long observedRevision = -1;
     private readonly List<string> errors = [];
     private string? resetLink;
     private UserAdministrationState? administrationState;
-    private bool Has(string key) => administrationState?.Permissions.Contains(key) == true;
+    private bool Has(string key) => Can(key);
     private bool CanUpdateAccount => editModel?.CanManageAccount == true && Has(Permissions.Users.Update);
     private bool saving;
     private bool confirmingDelete;
@@ -197,11 +201,39 @@ else
         await RunAsync(async () => { digitalCalipers = await UserService.GetDigitalCaliperChoicesAsync(); await ReloadUsersAsync(); });
     }
 
+    protected override Task OnPermissionsChangedAsync() => OnParametersSetAsync();
+    protected override async Task OnParametersSetAsync()
+    {
+        if (administrationState is null || observedRevision == AuthorizationRevision) return;
+        observedRevision = AuthorizationRevision;
+        await RunAsync(async () =>
+        {
+            if (!Has(Permissions.Users.Read)) { users = null; administrationState = null; return; }
+            administrationState = await UserService.GetAdministrationStateAsync();
+            if (editModel is not null && await UserService.GetUserForEditAsync(editModel.Id) is { } latest)
+            {
+                editModel.CanManageAccount = latest.CanManageAccount;
+                editModel.RoleChoices = latest.RoleChoices;
+            }
+        });
+    }
+    private Task DiscardUserChangesAsync() => editModel is null ? Task.CompletedTask : SelectUserAsync(editModel.Id);
+    private Task ReloadAndReapplyAsync() => RunAsync(async () =>
+    {
+        if (editModel is null || originalEdit is null) return;
+        var latest = await UserService.GetUserForEditAsync(editModel.Id)
+            ?? throw new InvalidOperationException("The account no longer exists. Your draft has been retained.");
+        editModel = UserEditRecovery.Reapply(originalEdit, editModel, latest);
+        originalEdit = UserEditRecovery.Copy(latest);
+        await ReloadUsersAsync();
+    });
+
     private Task SelectUserAsync(string userId) => RunAsync(async () =>
     {
         ClearMessages();
         confirmingDelete = false;
         editModel = await UserService.GetUserForEditAsync(userId);
+        originalEdit = editModel is null ? null : UserEditRecovery.Copy(editModel);
         if (editModel is not null)
         {
             digitalCalipers = await UserService.GetDigitalCaliperChoicesAsync(editModel.CaliperId);
@@ -254,6 +286,7 @@ else
 
             await ReloadUsersAsync();
             editModel = await UserService.GetUserForEditAsync(editModel!.Id);
+            originalEdit = editModel is null ? null : UserEditRecovery.Copy(editModel);
         }
         catch (AuthorizationDeniedException ex) { errors.Add(ex.Message); }
         catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex) { errors.Add(ex.Message); }
@@ -325,7 +358,7 @@ else
         users = await UserService.GetUsersAsync();
         administrationState = await UserService.GetAdministrationStateAsync();
         createModel.Version = administrationState.Version;
-        createModel.Roles.Add(AppRoles.ReadOnly);
+
     }
 
     private async Task RunAsync(Func<Task> work)

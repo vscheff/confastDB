@@ -74,12 +74,12 @@ public sealed record EmailMessage(
 public sealed class EmailDeliveryException(string message, Exception? innerException = null)
     : InvalidOperationException(message, innerException);
 
-public interface IEmailService
+internal interface IEmailService
 {
     Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default);
 }
 
-public sealed class SmtpEmailService(
+internal sealed class SmtpEmailService(
     IOptions<EmailOptions> configuredOptions,
     ILogger<SmtpEmailService> logger) : IEmailService
 {

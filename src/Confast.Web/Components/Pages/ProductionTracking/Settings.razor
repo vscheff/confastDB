@@ -1,5 +1,6 @@
+@inherits PermissionComponentBase
 @page "/production-tracking/settings"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:SortLogDowntimeCauses.Read")]
 @using Confast.Web.Features.ProductionTracking
 @inject ProductionTrackingService Service
 @inject ILogger<Settings> Logger
@@ -10,13 +11,13 @@
 @if (message is not null) { <div class="alert alert-error" role="alert">@message</div> }
 
 <section class="tracking-settings-panel">
-    <div class="settings-heading"><div><h2>Sort Log Downtime Causes</h2></div><button type="button" class="button button-primary" @onclick="AddCause">Add Cause</button></div>
+    <div class="settings-heading"><div><h2>Sort Log Downtime Causes</h2></div>@if (Can(Permissions.SortLogDowntimeCauses.Create)) { <button type="button" class="button button-primary" @onclick="AddCause">Add Cause</button> }</div>
     @if (editor is not null)
     {
         <form class="cause-editor" @onsubmit="SaveCauseAsync" @onsubmit:preventDefault="true">
             <label>Name <input @bind="editor.Name" maxlength="150" /></label>
             <label class="active-field"><input type="checkbox" @bind="editor.IsActive" /> Active</label>
-            <div class="editor-actions"><button type="submit" class="button button-primary" disabled="@busy">Save Cause</button><button type="button" class="button button-secondary" disabled="@busy" @onclick="CancelEdit">Cancel</button></div>
+            <div class="editor-actions">@if (Can(editor.Id == 0 ? Permissions.SortLogDowntimeCauses.Create : Permissions.SortLogDowntimeCauses.Update)) { <button type="submit" class="button button-primary" disabled="@busy">Save Cause</button> }<button type="button" class="button button-secondary" disabled="@busy" @onclick="CancelEdit">Cancel</button></div>
         </form>
     }
     @if (causes is null) { <p>Loading downtime causes…</p> }
@@ -30,11 +31,11 @@
                     <div class="row-actions">
                         @if (deleteId == cause.Id)
                         {
-                            <button type="button" class="button button-danger-outline" @onclick="DeleteCauseAsync">Confirm Delete</button><button type="button" class="button button-secondary" @onclick="() => deleteId = null">Cancel</button>
+                            @if (Can(Permissions.SortLogDowntimeCauses.Delete)) { <button type="button" class="button button-danger-outline" @onclick="DeleteCauseAsync">Confirm Delete</button> }<button type="button" class="button button-secondary" @onclick="() => deleteId = null">Cancel</button>
                         }
                         else
                         {
-                            <button type="button" class="button button-secondary" @onclick="() => EditCause(cause)">Edit</button><button type="button" class="button button-danger-outline" @onclick="() => deleteId = cause.Id">Delete</button>
+                            @if (Can(Permissions.SortLogDowntimeCauses.Update)) { <button type="button" class="button button-secondary" @onclick="() => EditCause(cause)">Edit</button> }@if (Can(Permissions.SortLogDowntimeCauses.Delete)) { <button type="button" class="button button-danger-outline" @onclick="() => deleteId = cause.Id">Delete</button> }
                         }
                     </div>
                 </article>
@@ -50,7 +51,7 @@
     private string? message;
     private bool busy;
 
-    protected override Task OnInitializedAsync() => ReloadAsync();
+    protected override Task OnInitializedAsync() => RunAsync(() => Task.CompletedTask);
     private void AddCause() => editor = new();
     private void EditCause(SortLogDowntimeCause cause) => editor = new() { Id = cause.Id, Name = cause.Name, IsActive = cause.IsActive };
     private void CancelEdit() => editor = null;
@@ -74,6 +75,7 @@
         if (busy) return;
         busy = true; message = null;
         try { await action(); await ReloadAsync(); }
+        catch (AuthorizationDeniedException exception) { await RefreshPermissionsAsync(); message = exception.Message; }
         catch (Exception exception) when (exception is ProductionTrackingException or UnauthorizedAccessException) { message = exception.Message; }
         catch (Exception exception) { Logger.LogError(exception, "Production Tracking settings operation failed"); message = "Could not save Production Tracking settings. Reload and try again."; }
         finally { busy = false; }

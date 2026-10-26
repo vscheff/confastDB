@@ -10,12 +10,19 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class PlantTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    private readonly CustomerService customerService = new(database);
-    private readonly PartService partService = new(database);
+    private CustomerService customerService = null!;
+    private PartService partService = null!;
 
-    public Task InitializeAsync() => database.ResetAsync();
+    private readonly AuthorizationTestSession authorization = new(database);
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+        customerService = new(database, authorization.Guard);
+        partService = new(database, authorization.Guard);
+    }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task CreatingCustomerCreatesMainPlantAndNewPartUsesIt()

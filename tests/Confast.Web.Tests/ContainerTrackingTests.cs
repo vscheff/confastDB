@@ -3,6 +3,7 @@ using Confast.Web.Features.Customers;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Parts;
 using Confast.Web.Features.Suppliers;
+using Confast.Web.Features.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -31,20 +32,22 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
     private readonly TestUser user = new();
     private ContainerTrackingService tracking = null!;
     private SupplierService suppliers = null!;
+    private readonly AuthorizationTestSession authorization = new(database);
 
     public async Task InitializeAsync()
     {
         await database.ResetAsync();
-        var access = new TrackingAccess(database, user);
-        tracking = new(database, access, clock);
-        suppliers = new(database, access);
+        tracking = new(database, authorization.Guard, clock);
+        await authorization.ProvisionRootAsync();
+        suppliers = new(database, authorization.Guard);
         await using var db = database.CreateDbContext();
         db.Users.Add(new ApplicationUser { Id = "tracking-user", UserName = "tracking", DisplayName = "Tracking tester" });
         db.UserRoles.Add(new IdentityUserRole<string>
         { UserId = "tracking-user", RoleId = await db.Roles.Where(x => x.Name == AppRoles.Production).Select(x => x.Id).SingleAsync() });
         await db.SaveChangesAsync();
+        await authorization.SignInAsync("tracking-user");
     }
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task SuppliersValidateNormalizeDeactivateAndRejectStaleEdits()
@@ -166,14 +169,14 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
         container.Contents.Groups[0].Parts[0].Quantity = 999;
         Assert.False((await tracking.SaveContentsAsync(container.Contents)).Succeeded);
         container.Metadata.EstimatedDepartureDate = null;
-        Assert.False((await tracking.SaveContainerAsync(container.Metadata)).Succeeded);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SaveContainerAsync(container.Metadata));
         container.Metadata.EstimatedDepartureDate = new DateOnly(2026, 9, 3);
         container.Metadata.ReceivedDate = tracking.Today;
         container.Metadata.AddedToProductionSchedule = true;
         Assert.True((await tracking.SaveContainerAsync(container.Metadata)).Succeeded);
         var bill = (await tracking.GetBillAsync(billId))!;
         bill.Duty = 50;
-        Assert.False((await tracking.SaveBillAsync(bill)).Succeeded);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SaveBillAsync(bill));
         await SetRoleAsync(AppRoles.Administrator);
         var fresh = (await tracking.GetContainerAsync(container.Metadata.Id))!;
         Assert.False((await tracking.SaveContentsAsync(fresh.Contents)).Succeeded);
@@ -220,7 +223,7 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
 
         var (departed, _, _) = await CreateMaterialAsync("-SECOND");
         clock.AdvanceDay();
-        Assert.False((await tracking.DeleteContainerAsync(departed.Metadata.Id, departed.Metadata.Version)).Succeeded);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.DeleteContainerAsync(departed.Metadata.Id, departed.Metadata.Version));
         await SetRoleAsync(AppRoles.Administrator);
         var fresh = (await tracking.GetContainerAsync(departed.Metadata.Id))!;
         Assert.True((await tracking.DeleteContainerAsync(fresh.Metadata.Id, fresh.Metadata.Version)).Succeeded);
@@ -276,19 +279,21 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
     {
         await SetRoleAsync(AppRoles.ReadOnly);
         Assert.Empty(await tracking.SearchAsync());
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => suppliers.SaveAsync(new() { Name = "Forbidden" }));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => tracking.SaveShipmentAsync(new()));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => tracking.SaveContainerAsync(new()));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => tracking.SaveContentsAsync(new()));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => tracking.SaveBillAsync(new()));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => suppliers.SaveAsync(new() { Name = "Forbidden" }));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SaveShipmentAsync(new()));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SaveContainerAsync(new()));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SaveContentsAsync(new()));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SaveBillAsync(new()));
         user.Id = null;
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => tracking.SearchAsync());
+        authorization.Principal = new(new System.Security.Claims.ClaimsIdentity());
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => tracking.SearchAsync());
         user.Id = "tracking-user";
+        await authorization.SignInAsync(user.Id);
         await SetRoleAsync(AppRoles.Administrator);
         await using var db = database.CreateDbContext();
-        (await db.Users.SingleAsync()).IsActive = false;
+        (await db.Users.SingleAsync(x => x.Id == "tracking-user")).IsActive = false;
         await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => suppliers.SaveAsync(new() { Name = "Forbidden" }));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => suppliers.SaveAsync(new() { Name = "Forbidden" }));
     }
 
     [Fact]
@@ -452,7 +457,7 @@ public sealed class ContainerTrackingTests(PostgresTestDatabase database) : IAsy
     private async Task SetRoleAsync(string role)
     {
         await using var db = database.CreateDbContext();
-        db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.RoleId != AppRoles.ReadOnlyId).ToListAsync());
+        db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.UserId == "tracking-user" && x.RoleId != AppRoles.ReadOnlyId).ToListAsync());
         await db.SaveChangesAsync();
         if (role != AppRoles.ReadOnly)
             db.UserRoles.Add(new() { UserId = "tracking-user", RoleId = await db.Roles.Where(x => x.Name == role).Select(x => x.Id).SingleAsync() });

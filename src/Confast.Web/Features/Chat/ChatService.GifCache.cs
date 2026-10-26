@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,7 +17,8 @@ public sealed partial class ChatService
     public async Task RecordGifRequestAsync()
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        await RequireUserAsync(db, default);
+        using var operation = await authorization.BeginAsync(nameof(RecordGifRequestAsync), new("Chat"), [Permissions.Chat.Access], default);
+        var userId = await PrepareChatAsync(db, operation, default);
         await ReserveGifRequestAsync(db, refresh: false);
     }
 
@@ -46,7 +48,8 @@ public sealed partial class ChatService
         if (query.Length is < 1 or > 50 || offset is < 0 or > 4999 || limit is < 1 or > 50)
             throw new InvalidOperationException("Choose a valid GIF search page.");
         await using var db = await dbFactory.CreateDbContextAsync();
-        await RequireUserAsync(db, default);
+        using var operation = await authorization.BeginAsync(nameof(ResolveGifSearchAsync), new("Chat"), [Permissions.Chat.Access], default);
+        var userId = await PrepareChatAsync(db, operation, default);
         var gate = GifSearchLocks[(uint)HashCode.Combine(query, offset, limit) % GifSearchLocks.Length];
         await gate.WaitAsync();
         try
@@ -98,13 +101,15 @@ public sealed partial class ChatService
         if (ids.Count > 50) throw new InvalidOperationException("Too many GIFs requested.");
         foreach (var id in ids) ValidateGiphyId(id);
         await using var db = await dbFactory.CreateDbContextAsync();
-        await RequireUserAsync(db, default);
+        using var operation = await authorization.BeginAsync(nameof(ResolveGifsAsync), new("Chat"), [Permissions.Chat.Access], default);
+        var userId = await PrepareChatAsync(db, operation, default);
         var saved = await db.Set<ChatGifMetadata>().AsNoTracking().Where(x => ids.Contains(x.GiphyId)).ToArrayAsync();
         var byId = saved.ToDictionary(x => x.GiphyId, x => JsonSerializer.Deserialize<ChatGif>(x.Payload)!);
         var missing = ids.Distinct().Where(id => !byId.ContainsKey(id)).ToArray();
         string? error = null;
         if (missing.Length > 0)
         {
+            await ReserveGifRequestAsync(db, refresh: false);
             var result = await fetch(missing);
             error = result.Error;
             if (error is null)

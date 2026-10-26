@@ -1,3 +1,5 @@
+@using Confast.Web.Features.Authorization
+@inherits Confast.Web.Components.PermissionComponentBase
 @using Confast.Web.Features.Chat
 @using Confast.Web.Features.Identity
 @implements IAsyncDisposable
@@ -36,8 +38,8 @@
             <button type="button" class="new-message-icon-button" aria-label="Choose group chat icon" disabled="@busy" popovertarget="@IconCardId" @onclick="OpenIconCardAsync">
                 <span class="new-message-icon-circle">
                     @if (picturePreview is not null) { <img src="@picturePreview" alt="Selected group icon" /> }
-                    else if (giphyId is not null) { <ChatGifImage GiphyId="@giphyId" IsIcon="true" /> }
-                    else if (EditingConversation is not null) { <ChatGroupIcon Conversation="PreviewConversation" PictureUrl="PictureUrl" /> }
+                    else if (giphyId is not null) { <ChatGifImage AuthorizationChanged="AuthorizationChanged" GiphyId="@giphyId" IsIcon="true" /> }
+                    else if (EditingConversation is not null) { <ChatGroupIcon AuthorizationChanged="AuthorizationChanged" Conversation="PreviewConversation" PictureUrl="PictureUrl" /> }
                 </span>
                 <span class="new-message-icon-pencil" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5" /></svg></span>
             </button>
@@ -86,7 +88,7 @@
             <span class="new-message-example-attribution">Powered By GIPHY</span>
             @if (picture is not null || giphyId is not null || (!iconChanged && EditingConversation?.HasIconPicture == true)) { <button type="button" class="button button-secondary new-message-remove-icon" disabled="@busy" @onclick="RemoveIconAsync">Remove Icon</button> }
             <p class="new-message-hint">PNG, JPEG, GIF, or WebP. Pictures are resized and compressed automatically.</p>
-            @if (showGifPicker) { <div class="new-message-gif-picker"><ChatGifPicker SelectionVerb="Use" Selected="SelectGifAsync" /></div> }
+            @if (showGifPicker) { <div class="new-message-gif-picker"><ChatGifPicker AuthorizationChanged="AuthorizationChanged" SelectionVerb="Use" Selected="SelectGifAsync" /></div> }
             }
             @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
         </section>
@@ -101,7 +103,7 @@
             {
                 <button type="button" class="new-message-existing-chat" aria-label="Open conversation: @match.Name" disabled="@busy" @onclick="() => Created.InvokeAsync(match.Id)">
                     <span class="new-message-existing-icon" aria-hidden="true">
-                        <ChatGroupIcon Conversation="match" PictureUrl="PictureUrl" />
+                        <ChatGroupIcon AuthorizationChanged="AuthorizationChanged" Conversation="match" PictureUrl="PictureUrl" />
                     </span>
                     <span class="new-message-existing-name" title="@match.Name">@match.Name</span>
                 </button>
@@ -110,18 +112,22 @@
             @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
             <div class="new-message-actions">
                 <button type="button" class="button button-secondary" autofocus disabled="@busy" popovertarget="new-message-existing-card" popovertargetaction="hide">Cancel</button>
-                <button type="button" class="button button-primary" disabled="@busy" @onclick="() => StartMessageAsync(createAnother: true)">New Conversation</button>
+                <button type="button" class="button button-primary" disabled="@(busy || !CanSave)" @onclick="() => StartMessageAsync(createAnother: true)">New Conversation</button>
             </div>
         </section>
     }
     @if (error is not null) { <p class="new-message-error" role="alert">@error</p> }
     <div class="new-message-actions">
         <button type="button" class="button button-secondary" disabled="@busy" @onclick="Closed">Cancel</button>
-        <button type="button" class="button button-primary" disabled="@(busy || showPictureEditor || (EditingConversation is null && selected.Count == 0))" @onclick="CreateAsync">@(AddingToConversation?.Kind == ConversationKind.Direct ? "Create Group Chat" : AddingToConversation is not null ? "Add Members" : EditingConversation is null ? "Create Message" : "Save")</button>
+        <button type="button" class="button button-primary" disabled="@(busy || !CanSave || showPictureEditor || (EditingConversation is null && selected.Count == 0))" @onclick="CreateAsync">@(AddingToConversation?.Kind == ConversationKind.Direct ? "Create Group Chat" : AddingToConversation is not null ? "Add Members" : EditingConversation is null ? "Create Message" : "Save")</button>
     </div>
 </section>
 
 @code {
+    [Parameter] public EventCallback AuthorizationChanged { get; set; }
+    private bool CanSave => AddingToConversation is { } adding
+        ? Can(Permissions.Chat.ManageGroupConversations) && (adding.Kind != ConversationKind.Direct || Can(Permissions.Chat.CreateConversations))
+        : EditingConversation is not null ? Can(Permissions.Chat.ManageGroupConversations) : Can(Permissions.Chat.CreateConversations);
     [Parameter, EditorRequired] public IReadOnlyList<ChatUser> Users { get; set; } = [];
     [Parameter, EditorRequired] public string CurrentUserId { get; set; } = string.Empty;
     [Parameter, EditorRequired] public Func<string, string?> PictureUrl { get; set; } = _ => null;
@@ -194,6 +200,7 @@
                 if (cover is not null) exampleCovers[category] = cover;
             }
         }
+        catch (AuthorizationDeniedException) { await RefreshPermissionsAsync(); await AuthorizationChanged.InvokeAsync(); }
         catch (JSDisconnectedException) { }
         catch (Exception ex) when (ex is InvalidOperationException or JSException or IOException)
         {
@@ -352,6 +359,7 @@
                 openExistingCard = matches.Count > 0;
             }
         }
+        catch (AuthorizationDeniedException) { await RefreshPermissionsAsync(); await AuthorizationChanged.InvokeAsync(); }
         catch (Exception ex) when (ex is InvalidOperationException or UnauthorizedAccessException) { error = ex.Message; }
         finally { busy = false; }
     }

@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Inspections.Delete")]
 @page "/inspections/{InspectionId:long}/delete"
 @using Confast.Web.Features.Inspections
 @inject InspectionService InspectionService
@@ -72,8 +74,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load inspection {InspectionId} for deletion", InspectionId);
-            loadError = "The inspection could not be loaded. Please try again.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The inspection could not be loaded. Please try again.";
         }
         finally
         {
@@ -114,8 +117,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to delete inspection {InspectionId}", inspection.Id);
-            deleteMessage = "The inspection could not be deleted. Please try again.";
+            deleteMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspection could not be deleted. Please try again.";
         }
         finally
         {

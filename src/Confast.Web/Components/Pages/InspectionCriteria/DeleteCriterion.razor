@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:InspectionCriteria.Update")]
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/{CriterionId:long}/delete"
 @using Confast.Web.Features.InspectionCriteria
 @inject InspectionCriteriaService CriteriaService
@@ -51,8 +53,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load criterion {CriterionId} for removal", CriterionId);
-            message = "The criterion could not be loaded.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be loaded.";
         }
         finally
         {
@@ -92,8 +95,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to remove criterion {CriterionId}", CriterionId);
-            message = "The criterion could not be removed. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be removed. Please try again.";
         }
         finally
         {

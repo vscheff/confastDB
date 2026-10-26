@@ -29,9 +29,8 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
         await database.ResetAsync();
         await authorization.ProvisionRootAsync();
         evaluator = authorization.Evaluator;
-        inspections = new InspectionService(database, evaluator);
-        var access = new TrackingAccess(database, user);
-        receivedParts = new ReceivedPartsService(database, access, inspections, user, clock, new ApplicationAuthorization(evaluator, new HttpContextAccessor()));
+        inspections = authorization.Inspections(evaluator);
+        receivedParts = new ReceivedPartsService(database, inspections, clock, new ApplicationAuthorization(evaluator, new HttpContextAccessor()));
         await using var db = database.CreateDbContext();
         db.Users.Add(new ApplicationUser { Id = user.Id, UserName = "receiver", DisplayName = "Receiver" });
         db.UserRoles.Add(new IdentityUserRole<string>
@@ -341,6 +340,7 @@ public sealed class ReceivedPartsServiceTests(PostgresTestDatabase database) : I
         var lineage = Assert.Single(inspection.LineageHistory);
         Assert.False(Assert.Single(inspection.History, x => x.LineageEntry == lineage).IsMostRecent);
 
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
         var undo = await inspections.UndoLineageOperationAsync(
             created.InspectionId.Value,
             lineage.Operation,

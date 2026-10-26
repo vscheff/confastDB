@@ -1,3 +1,5 @@
+@inherits Confast.Web.Components.PermissionComponentBase
+@using Confast.Web.Features.Authorization
 @using Confast.Web.Features.Chat
 @inject ChatService Chat
 @inject IJSRuntime JS
@@ -48,10 +50,10 @@
             </div>
         }
         <div class="poll-actions">
-            <button type="button" class="poll-schedule-button @(startLocal is not null ? "scheduled" : null)" aria-label="Schedule poll" title="Schedule poll" aria-haspopup="dialog" disabled="@busy" @ref="scheduleButton" @onclick="OpenSchedule">
+            <button type="button" class="poll-schedule-button @(startLocal is not null ? "scheduled" : null)" aria-label="Schedule poll" title="Schedule poll" aria-haspopup="dialog" disabled="@(busy || !Can(Permissions.Chat.ScheduleMessages))" @ref="scheduleButton" @onclick="OpenSchedule">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg>
             </button>
-            <button type="submit" disabled="@busy">Post</button>
+            <button type="submit" disabled="@(busy || !Can(Permissions.Chat.CreatePolls))">Post</button>
         </div>
     </form>
 </section>
@@ -73,6 +75,7 @@
 }
 </div>
 @code {
+    [Parameter] public EventCallback AuthorizationChanged { get; set; }
     [Parameter] public long ConversationId { get; set; }
     [Parameter] public long? ChannelThreadId { get; set; }
     [Parameter] public EventCallback Cancel { get; set; }

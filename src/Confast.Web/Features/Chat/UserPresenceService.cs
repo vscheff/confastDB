@@ -1,5 +1,6 @@
 using Confast.Web.Data;
 using Confast.Web.Features.Identity;
+using Confast.Web.Features.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Chat;
@@ -7,25 +8,25 @@ namespace Confast.Web.Features.Chat;
 public sealed class UserPresenceService(
     IDbContextFactory<AppDbContext> dbFactory,
     ICurrentUser currentUser,
+    ApplicationAuthorization authorization,
     ChatNotifications notifications,
     TimeProvider clock)
 {
     public static readonly TimeSpan HeartbeatLifetime = TimeSpan.FromSeconds(45);
     public static readonly TimeSpan IdleAfter = TimeSpan.FromMinutes(5);
 
-    private async Task<string> RequireUserAsync(AppDbContext db, CancellationToken cancellationToken)
-    {
-        var userId = await currentUser.GetUserIdAsync();
-        if (userId is null || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
-            throw new UnauthorizedAccessException("An active account is required for presence.");
-        return userId;
-    }
-
     public async Task<IReadOnlyDictionary<string, UserPresence>> GetVisibleAsync(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var viewerId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetVisibleAsync), new("ChatPresence"), [Permissions.Chat.Access], cancellationToken);
+        var viewerId = operation.ActorUserId;
+        return await ReadVisibleAsync(db, viewerId, cancellationToken);
+    }
+
+    private async Task<IReadOnlyDictionary<string, UserPresence>> ReadVisibleAsync(AppDbContext db,
+        string viewerId, CancellationToken cancellationToken)
+    {
         var users = await db.Users.AsNoTracking().Where(x => x.IsActive)
             .Select(x => new { x.Id, x.PresencePreference, x.PresencePreferenceExpiresAtUtc, x.StatusEmoji, x.StatusMessage })
             .ToListAsync(cancellationToken);
@@ -52,10 +53,10 @@ public sealed class UserPresenceService(
 
     public async Task<UserPresence> GetCurrentAsync(CancellationToken cancellationToken = default)
     {
-        var userId = await currentUser.GetUserIdAsync()
-            ?? throw new UnauthorizedAccessException("Sign in to view your presence.");
-        var visible = await GetVisibleAsync(cancellationToken);
-        return visible[userId];
+        using var operation = await authorization.BeginAsync(nameof(GetCurrentAsync), new("ChatPresence"), [Permissions.Chat.Access], cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var visible = await ReadVisibleAsync(db, operation.ActorUserId, cancellationToken);
+        return visible[operation.ActorUserId];
     }
 
     public static UserPresenceState ResolveState(UserPresencePreference preference,
@@ -90,7 +91,8 @@ public sealed class UserPresenceService(
             throw new InvalidOperationException("Choose a valid presence duration.");
         DateTime? expiresAtUtc = duration is { } timeout ? clock.GetUtcNow().UtcDateTime + timeout : null;
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetPreferenceAsync), new("ChatPresence"), [Permissions.Chat.Access], cancellationToken);
+        var userId = operation.ActorUserId;
         await db.Users.Where(x => x.Id == userId)
             .ExecuteUpdateAsync(x => x.SetProperty(user => user.PresencePreference, preference)
                 .SetProperty(user => user.PresencePreferenceExpiresAtUtc, expiresAtUtc), cancellationToken);
@@ -107,7 +109,8 @@ public sealed class UserPresenceService(
             throw new InvalidOperationException("Choose an emoji from the picker.");
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetCustomStatusAsync), new("ChatPresence"), [Permissions.Chat.Access], cancellationToken);
+        var userId = operation.ActorUserId;
         await db.Users.Where(x => x.Id == userId)
             .ExecuteUpdateAsync(x => x
                 .SetProperty(user => user.StatusEmoji, emoji)
@@ -120,7 +123,8 @@ public sealed class UserPresenceService(
     {
         if (sessionId == Guid.Empty) throw new InvalidOperationException("A presence session is required.");
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(HeartbeatAsync), new("ChatPresence"), [Permissions.Chat.Access], cancellationToken);
+        var userId = operation.ActorUserId;
         var now = clock.GetUtcNow().UtcDateTime;
         var boundedIdle = double.IsFinite(idleSeconds) ? Math.Clamp(idleSeconds, 0, 86400) : 86400;
         var lastActivity = now - TimeSpan.FromSeconds(boundedIdle);

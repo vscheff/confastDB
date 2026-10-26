@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Chat;
@@ -7,7 +8,8 @@ public sealed partial class ChatService
     public async Task SetChannelPinnedToTopAsync(long channelId, bool pinned, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetChannelPinnedToTopAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await RequireChannelMemberAsync(db, channelId, userId, cancellationToken);
         var now = clock.GetUtcNow().UtcDateTime;
         await db.ChatConversationMembers.Where(x => x.ConversationId == channelId && x.UserId == userId)
@@ -21,7 +23,8 @@ public sealed partial class ChatService
         name = name.Trim();
         if (name.Length is < 1 or > 120) throw new InvalidOperationException("Channel name must be 1 to 120 characters.");
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(DuplicateChannelAsync), new("Chat"), [Permissions.Chat.CreateChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         var source = await RequireChannelMemberAsync(db, sourceId, userId, cancellationToken);
@@ -52,7 +55,8 @@ public sealed partial class ChatService
     public async Task MoveChannelToCategoryEdgeAsync(long channelId, bool first, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MoveChannelToCategoryEdgeAsync), new("Chat"), [Permissions.Chat.ReorderChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         var channel = await RequireChannelMemberAsync(db, channelId, userId, cancellationToken);
@@ -73,10 +77,11 @@ public sealed partial class ChatService
     public async Task DeleteChannelAsync(long channelId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(DeleteChannelAsync), new("Chat"), [Permissions.Chat.DeleteChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
-        var admin = await IsAdministratorAsync(db, userId, cancellationToken);
+        var admin = operation.Snapshot.Has(Permissions.Chat.AdministerChannels);
         var channel = await db.ChatConversations.SingleOrDefaultAsync(x => x.Id == channelId
             && x.Kind == ConversationKind.Channel && (admin || x.Members.Any(m => m.UserId == userId && m.IsOwner)),
             cancellationToken) ?? throw new UnauthorizedAccessException("Only channel owners or administrators can delete this channel.");

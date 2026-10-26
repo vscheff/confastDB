@@ -7,11 +7,17 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class PlantCertificationDeliveryTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    private readonly CustomerService customerService = new(database);
+    private CustomerService customerService = null!;
     private readonly CertificationPackageFilenameFormatter formatter = new();
 
-    public Task InitializeAsync() => database.ResetAsync();
-    public Task DisposeAsync() => Task.CompletedTask;
+    private readonly AuthorizationTestSession authorization = new(database);
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+        customerService = new(database, authorization.Guard);
+    }
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task RecipientRequirementsAndFilenameAreIndependentPerPlant()

@@ -1,3 +1,4 @@
+@using Confast.Web.Features.Authorization
 @using Confast.Web.Features.Chat
 @implements IDisposable
 @inject ChatService Chat
@@ -19,6 +20,7 @@
 }
 else { <span>@(loaded ? "GIF unavailable" : "Loading GIF…")</span> }
 @code {
+    [Parameter] public EventCallback AuthorizationChanged { get; set; }
     [Parameter, EditorRequired] public string GiphyId { get; set; } = string.Empty;
     [Parameter] public EventCallback<ChatGif> Expanded { get; set; }
     [Parameter] public bool IsIcon { get; set; }
@@ -36,9 +38,10 @@ else { <span>@(loaded ? "GIF unavailable" : "Loading GIF…")</span> }
         resolvedId = id;
         try
         {
-            var result = await Chat.ResolveGifsAsync(new[] { id }, ids => JS.InvokeAsync<ChatGifResult>("confastChatGifs.byIds", Configuration["Giphy:ApiKey"], ids, requestBudget).AsTask());
+            var result = await Chat.ResolveGifsAsync(new[] { id }, ids => JS.InvokeAsync<ChatGifResult>("confastChatGifs.byIds", Configuration["Giphy:ApiKey"], ids, null).AsTask());
             if (id == GiphyId) gif = result.Gifs.FirstOrDefault();
         }
+        catch (AuthorizationDeniedException) { gif = null; await AuthorizationChanged.InvokeAsync(); }
         catch (UnauthorizedAccessException) { }
         catch (InvalidOperationException ex) { Logger.LogWarning(ex, "Invalid chat GIF metadata."); }
         catch (JSDisconnectedException) { }

@@ -44,6 +44,7 @@ public static class ChatPollMapping
     public static void Configure(ModelBuilder model)
     {
         var poll = model.Entity<ChatPoll>();
+        poll.HasQueryFilter(x => x.Message.Conversation.DeletedAtUtc == null);
         poll.ToTable("chat_polls", t => t.HasCheckConstraint("CK_chat_polls_duration",
             "ends_at_utc - starts_at_utc IN (interval '1 hour', interval '4 hours', interval '8 hours', interval '24 hours', interval '3 days', interval '7 days', interval '14 days')"));
         poll.HasKey(x => x.MessageId);
@@ -53,6 +54,7 @@ public static class ChatPollMapping
         poll.Property(x => x.AllowMultipleAnswers).HasColumnName("allow_multiple_answers");
         poll.HasOne(x => x.Message).WithOne().HasForeignKey<ChatPoll>(x => x.MessageId).OnDelete(DeleteBehavior.Cascade);
         var answer = model.Entity<ChatPollAnswer>();
+        answer.HasQueryFilter(x => x.Poll.Message.Conversation.DeletedAtUtc == null);
         answer.ToTable("chat_poll_answers", t => {
             t.HasCheckConstraint("CK_chat_poll_answers_text", "btrim(text) <> ''");
             t.HasCheckConstraint("CK_chat_poll_answers_position", "position >= 0");
@@ -67,6 +69,7 @@ public static class ChatPollMapping
         answer.HasIndex(x => new { x.PollMessageId, x.Position }).IsUnique();
         answer.HasOne(x => x.Poll).WithMany(x => x.Answers).HasForeignKey(x => x.PollMessageId).OnDelete(DeleteBehavior.Cascade);
         var vote = model.Entity<ChatPollVote>();
+        vote.HasQueryFilter(x => x.Answer.Poll.Message.Conversation.DeletedAtUtc == null);
         vote.ToTable("chat_poll_votes");
         vote.HasKey(x => new { x.PollMessageId, x.UserId, x.AnswerId });
         vote.Property(x => x.PollMessageId).HasColumnName("poll_message_id");

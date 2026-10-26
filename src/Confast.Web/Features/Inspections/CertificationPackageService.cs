@@ -2,6 +2,7 @@ using Confast.Web.Data;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.InspectionCriteria;
 using Microsoft.EntityFrameworkCore;
+using Confast.Web.Features.Authorization;
 
 namespace Confast.Web.Features.Inspections;
 
@@ -64,13 +65,18 @@ public sealed class CertificationPackageService(
     InspectionPdfRenderer inspectionPdfRenderer,
     PdfDocumentMerger pdfMerger,
     CertificationPackageFilenameFormatter filenameFormatter,
-    InspectionPrintRenderTokenService renderTokenService) : ICertificationPackageService
+    InspectionPrintRenderTokenService renderTokenService,
+    ApplicationAuthorization authorization) : ICertificationPackageService
 {
     public async Task<CertificationPackage> BuildAsync(
         CertificationPackageRequest request,
         string applicationBaseUrl,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.BuildPackage", new("Inspection", request.ActiveInspectionId.ToString()),
+            [Permissions.Certifications.BuildPackage], cancellationToken);
+        if (request.TemporarilyCompleteIncompleteLots)
+            operation.Require(operation.Purpose, operation.Scope, Permissions.Certifications.TemporarilyCompletePackage);
         if (request.InspectionIds.Count == 0)
         {
             throw new CertificationPackageException("Select at least one lot.");
@@ -149,7 +155,7 @@ public sealed class CertificationPackageService(
             throw new CertificationPackageException("All selected lots must ship to the selected destination plant.");
         }
 
-        var selectedLotStatuses = await inspectionService.GetInspectionsAsync(ids, cancellationToken);
+        var selectedLotStatuses = await inspectionService.GetPackageStatusesAsync(ids, request.ActiveInspectionId, operation, cancellationToken);
         if (selectedLotStatuses.Any(x => !x.Accepted))
         {
             throw new CertificationPackageException("All selected lots must be accepted.");
@@ -202,7 +208,7 @@ public sealed class CertificationPackageService(
 
             if (requiredTypes.Any(type => type.Name == "Inspection Sheet"))
             {
-                var renderToken = Uri.EscapeDataString(renderTokenService.Create(
+                var renderToken = Uri.EscapeDataString(renderTokenService.CreateForPackage(operation, request.ActiveInspectionId,
                     lot.Id,
                     request.TemporarilyCompleteIncompleteLots));
                 var previewUrl = $"{applicationBaseUrl.TrimEnd('/')}/inspections/{lot.Id}/print?renderToken={renderToken}";

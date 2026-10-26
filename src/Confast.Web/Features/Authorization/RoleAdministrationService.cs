@@ -8,15 +8,15 @@ namespace Confast.Web.Features.Authorization;
 
 public sealed record RoleAdministrationItem(string Id, string Name, string? Description, bool IsEnabled,
     SystemRoleKind Kind, string? ConcurrencyStamp, IReadOnlyList<string> Grants, IReadOnlyList<string> Parents,
-    bool CanEdit, bool CanAnchor);
+    bool CanEdit, bool CanAnchor, int EffectiveCount = 0, int AssignedCount = 0);
 public sealed record RoleAdministrationView(AuthorizationVersion Version, IReadOnlyList<RoleAdministrationItem> Roles,
     IReadOnlySet<string> ActorPermissions);
 public sealed record CreateRoleInput(string Name, string? Description, string? AnchorRoleId, AuthorizationVersion Version);
 public sealed record EditRoleInput(string Id, string Name, string? Description, bool IsEnabled,
     string? ConcurrencyStamp, AuthorizationVersion Version);
 
-public sealed class RoleAdministrationService(AppDbContext db, RoleManager<ApplicationRole> roles,
-    EffectivePermissionService permissions, TimeProvider clock)
+public sealed partial class RoleAdministrationService(AppDbContext db, RoleManager<ApplicationRole> roles,
+    EffectivePermissionService permissions, TimeProvider clock, AuthorizationChangeNotifications? notifications = null)
 {
     public async Task<RoleAdministrationView> GetRolesAsync(CancellationToken ct = default)
     {
@@ -27,10 +27,14 @@ public sealed class RoleAdministrationService(AppDbContext db, RoleManager<Appli
         using var operation = current.Begin("Roles.Read", new("Roles"), Permissions.Roles.Read);
         var authority = new AdministrativeAuthority(current);
         var values = await db.Roles.AsNoTracking().OrderBy(x => x.Name).ToListAsync(ct);
+        var assignments = await db.UserRoles.GroupBy(x => x.RoleId)
+            .Select(x => new { Id = x.Key, Count = x.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, ct);
         var result = values.Select(x => new RoleAdministrationItem(x.Id, x.Name ?? "", x.Description,
             x.IsEnabled, x.SystemKind, x.ConcurrencyStamp, current.Graph.DirectGrants(x.Id).Order().ToArray(),
             current.Graph.DirectParents(x.Id), authority.CanEdit(x.Id), x.SystemKind == SystemRoleKind.Ordinary
-                && x.IsEnabled && (current.Snapshot.IsRoot || authority.Anchors.Contains(x.Id)))).ToArray();
+                && x.IsEnabled && (current.Snapshot.IsRoot || authority.Anchors.Contains(x.Id)),
+            x.SystemKind == SystemRoleKind.Root ? PermissionCatalog.All.Length : current.Graph.EvaluateOrdinary([x.Id]).Count,
+            assignments.GetValueOrDefault(x.Id))).ToArray();
         await tx.CommitAsync(ct);
         return new(current.Snapshot.Version, result, current.Snapshot.Permissions);
     }
@@ -68,6 +72,7 @@ public sealed class RoleAdministrationService(AppDbContext db, RoleManager<Appli
         }
         await AuthorizationAudit.RecordAsync(db, op, input.Version.Epoch, "Create empty ordinary role", details, clock, ct, input.AnchorRoleId);
         await tx.CommitAsync(ct);
+        notifications?.Publish();
         return role.Id;
     }
 
@@ -92,6 +97,7 @@ public sealed class RoleAdministrationService(AppDbContext db, RoleManager<Appli
         Check(await roles.UpdateAsync(role));
         await AuthorizationAudit.RecordAsync(db, op, input.Version.Epoch, "Update ordinary role", [detail], clock, ct);
         await tx.CommitAsync(ct);
+        notifications?.Publish();
     }
 
     public async Task SetGrantsAsync(string id, IEnumerable<string> keys, string? stamp, AuthorizationVersion version, CancellationToken ct = default)
@@ -112,29 +118,7 @@ public sealed class RoleAdministrationService(AppDbContext db, RoleManager<Appli
         AdministrativeAuthority.Require(authority.CanEdit(id), "Only strictly lower ordinary roles may be edited.");
         var role = await GetRole(id, stamp, ct);
         var newGrants = grants?.ToArray(); var newParents = parents?.ToArray();
-        if (newGrants is not null)
-        {
-            if (newGrants.Distinct().Count() != newGrants.Length) throw new ArgumentException("Duplicate permission.");
-            foreach (var added in newGrants.Except(current.Graph.DirectGrants(id)))
-                AdministrativeAuthority.Require(PermissionCatalog.ByKey.TryGetValue(added, out var definition)
-                    && definition.Authority == PermissionAuthority.Ordinary && current.Snapshot.Has(added),
-                    "Added permissions must be recognized ordinary permissions you currently possess.");
-        }
-        if (newParents is not null)
-        {
-            if (newParents.Distinct().Count() != newParents.Length) throw new ArgumentException("Duplicate parent role.");
-            foreach (var parent in newParents.Except(current.Graph.DirectParents(id)))
-                AdministrativeAuthority.Require(parent != id && authority.CanEdit(parent)
-                    && (current.Snapshot.IsRoot || current.Graph.StoredEnvelope(parent).IsSubsetOf(current.Snapshot.Permissions)),
-                    "An added parent must be an eligible strictly lower ordinary role within your authority.");
-            AdministrativeAuthority.Require(newParents.All(p => current.Graph.Roles.TryGetValue(p, out var r)
-                && r.Kind == SystemRoleKind.Ordinary), "Protected baseline and Root relationships cannot be edited.");
-        }
-        RoleGraph after;
-        try { after = new(current.Graph.Roles.Values,
-            newGrants is null ? Grants(current.Graph) : Grants(current.Graph).Where(x => x.RoleId != id).Concat(newGrants.Select(k => new GraphGrant(id, k))),
-            newParents is null ? Edges(current.Graph) : Edges(current.Graph).Where(x => x.ChildRoleId != id).Concat(newParents.Select(p => new GraphEdge(id, p)))); }
-        catch (InvalidOperationException exception) { throw new ArgumentException(exception.Message); }
+        var after = BuildSecurityGraph(current, id, newGrants, newParents);
         authority.ValidateResult(after, id);
         var details = new List<AuthorizationChangeDetail>();
         if (newGrants is not null)
@@ -160,6 +144,7 @@ public sealed class RoleAdministrationService(AppDbContext db, RoleManager<Appli
         await db.SaveChangesAsync(ct);
         await AuthorizationAudit.RecordAsync(db, op, version.Epoch, "Change ordinary role security", details, clock, ct);
         await tx.CommitAsync(ct);
+        notifications?.Publish();
     }
 
     public async Task DeleteAsync(string id, string? stamp, AuthorizationVersion version, CancellationToken ct = default)
@@ -185,6 +170,7 @@ public sealed class RoleAdministrationService(AppDbContext db, RoleManager<Appli
         Check(await roles.DeleteAsync(role));
         await AuthorizationAudit.RecordAsync(db, op, version.Epoch, "Delete ordinary role without reparenting", details, clock, ct);
         await tx.CommitAsync(ct);
+        notifications?.Publish();
     }
 
     private async Task<AuthorizationEvaluation> LockAndEvaluate(AuthorizationVersion version, CancellationToken ct)

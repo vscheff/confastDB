@@ -1,0 +1,83 @@
+<section class="permission-matrix" aria-label="Permission Matrix">
+    <div class="matrix-filters">
+        <label>Search Permissions<input type="search" @bind="search" @bind:event="oninput" placeholder="Name Or Permission Key" /></label>
+        <label>Functional Category<select @bind="category"><option value="">All Categories</option>
+            @foreach (var value in Rows.Select(x => x.Definition.Category).Distinct().Order()) { <option>@value</option> }
+        </select></label>
+        <label>Grant Filter<select @bind="filter">
+            <option value="all">All Permissions</option><option value="direct">Direct Grants</option>
+            <option value="inherited">Inherited Grants</option><option value="effective">Effective Grants</option>
+            <option value="editable">Editable Grants</option><option value="dormant">Dormant Grants</option>
+        </select></label>
+    </div>
+    <p class="field-help">@Filtered.Count() Of @Rows.Count Permissions · Usable means catalog prerequisites are met. Membership, ownership, and business-context rules still apply.</p>
+    @foreach (var group in Filtered.GroupBy(x => x.Definition.Category))
+    {
+        <details class="matrix-group" open @key="group.Key">
+            <summary>@group.Key <span class="muted">(@group.Count())</span></summary>
+            <div class="matrix-scroll" tabindex="0" aria-label="@(group.Key + " Permissions")">
+                <table class="data-table"><thead><tr><th>Permission</th><th>Direct Grant</th><th>Inherited</th><th>Effective</th><th>Usable</th><th>Sources And Authority</th></tr></thead>
+                    <tbody>@foreach (var row in group)
+                    {
+                        <tr @key="row.Definition.Key">
+                            <td><strong>@row.Definition.DisplayName</strong><br /><code>@row.Definition.Key</code></td>
+                            <td>@if (SelectedGrants is not null)
+                                {
+                                    <input type="checkbox" aria-label="@("Direct Grant " + row.Definition.Key)" checked="@Direct(row)"
+                                        disabled="@(Disabled || !(row.CanAdd || row.CanRemove))" @onchange="e => SetGrant(row.Definition.Key, e.Value is true)" />
+                                }
+                                else { <span>@YesNo(row.Direct)</span> }</td>
+                            <td>@YesNo(row.Inherited) @if (row.Sources.Any(x => x.IsInherited && !x.IsActive)) { <small>Dormant Sources</small> }</td>
+                            <td>@YesNo(row.Effective)</td><td>@YesNo(row.Usable)</td>
+                            <td>
+                                @if (IsRoot) { <span>Protected Root Designation</span> }
+                                else if (row.Sources.Count == 0) { <span>None</span> }
+                                else { <span>@string.Join(", ", row.Sources.Select(x => RoleName(x.RoleId)).Distinct())</span> }
+                                <details><summary>Permission Details</summary>
+                                    <p>@row.EditReason</p>
+                                    <p>Type: @row.Definition.Kind · @(row.Definition.Authority == PermissionAuthority.RootOnly ? "Root Only" : "Ordinary Permission")</p>
+                                    <p>Required Prerequisites: @(row.Definition.Prerequisites.Length == 0 ? "None" : string.Join(", ", row.Definition.Prerequisites))</p>
+                                    @if (row.MissingPrerequisites.Count > 0) { <p class="matrix-warning">Missing: @string.Join(", ", row.MissingPrerequisites)</p> }
+                                    @foreach (var source in row.Sources)
+                                    {
+                                        <p><strong>@RoleName(source.RoleId)</strong> · @(source.IsInherited ? "Inherited" : "Direct") · @(source.IsActive ? "Active" : "Stored But Inactive")</p>
+                                        <p>Granting Role: @(source.GrantRoleEnabled ? "Enabled" : "Disabled")</p>
+                                        @foreach (var path in source.Paths)
+                                        { <div>@string.Join(" → ", path.Roles.Select(RoleName)) @(!path.IsEnabled ? "(Disabled Branch)" : "")</div> }
+                                        @if (source.MorePaths) { <p>Additional Paths Omitted; All Grant Sources Are Listed.</p> }
+                                    }
+                                    @if (!row.Effective && row.Sources.Count > 0) { <p>This permission is stored but currently inactive because the assigned account or an inheritance branch is disabled.</p> }
+                                </details>
+                            </td>
+                        </tr>
+                    }</tbody>
+                </table>
+            </div>
+        </details>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PermissionMatrixRow> Rows { get; set; } = [];
+    [Parameter] public HashSet<string>? SelectedGrants { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, string> RoleNames { get; set; } = new Dictionary<string, string>();
+    [Parameter] public bool IsRoot { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+    private string search = "", category = "", filter = "all";
+    private bool Direct(PermissionMatrixRow row) => SelectedGrants?.Contains(row.Definition.Key) ?? row.Direct;
+    private string RoleName(string id) => RoleNames.GetValueOrDefault(id, id);
+    private static string YesNo(bool value) => value ? "Yes" : "No";
+    private IEnumerable<PermissionMatrixRow> Filtered => Rows.Where(row =>
+        (category.Length == 0 || row.Definition.Category == category)
+        && (search.Length == 0 || row.Definition.Key.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || row.Definition.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase))
+        && (filter switch { "direct" => Direct(row), "inherited" => row.Inherited, "effective" => row.Effective,
+            "editable" => row.CanAdd || row.CanRemove, "dormant" => row.Sources.Any(x => !x.IsActive), _ => true }));
+    private async Task SetGrant(string key, bool value)
+    {
+        if (SelectedGrants is null) return;
+        if (value) SelectedGrants.Add(key); else SelectedGrants.Remove(key);
+        await Changed.InvokeAsync();
+    }
+}

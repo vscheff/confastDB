@@ -2,6 +2,9 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Confast.Web.Features.ContainerTracking;
 
+public sealed record ContainerReferenceChoices(List<BillOfLadingChoice> Bills, List<TrackingChoice> Parts);
+public sealed record BillSupplierChoice(long Id, string Name, bool IsActive);
+
 public sealed record TrackingSaveResult(bool Succeeded, string? Message = null, long? Id = null, uint? Version = null, long? ExistingBillOfLadingId = null)
 {
     public static TrackingSaveResult Invalid(string message) => new(false, message);
@@ -101,7 +104,7 @@ public sealed record TrackingChoice(long Id, long? SupplierId, string PartNumber
 {
     public string Label => PartNumber + " — " + CustomerName + (IsActive ? "" : " (inactive)");
 }
-public sealed record BillOfLadingChoice(long Id, long SupplierId, string Number, string SupplierName, decimal? Duty);
+public sealed record BillOfLadingChoice(long Id, long SupplierId, string Number, string SupplierName, decimal? Duty, bool HasDeparted = false);
 public sealed record ContainerSummary(long Id, uint Version, string Number, string? CbpNumber, DateOnly? Etd, DateOnly? Eta, DateOnly? ReceivedDate,
     bool ReceiptAuditRecorded, bool CanUnreceive, bool AddedToProductionSchedule, bool HasMissingScheduleEligibility, int GroupCount, int Pallets, decimal Weight, List<ContainerGroupSummary> Groups);
 public sealed record ContainerGroupSummary(string SupplierName, string BillNumber, decimal? Duty, decimal? Weight,

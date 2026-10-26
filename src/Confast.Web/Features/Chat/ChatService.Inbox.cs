@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Chat;
@@ -12,7 +13,8 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetIncomingMessagePreviewAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var preference = await db.Users.AsNoTracking().Where(x => x.Id == userId)
             .Select(x => new { x.PresencePreference, x.PresencePreferenceExpiresAtUtc })
             .SingleAsync(cancellationToken);
@@ -47,7 +49,8 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetInboxMessagesAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var query = db.ChatMessages.AsNoTracking().Where(message => message.DeletedAtUtc == null
             && !message.Reads.Any(read => read.UserId == userId)
             && (message.ChannelThreadId == null || message.Type == ChatMessageType.ThreadNotice)
@@ -76,7 +79,8 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MarkMessageReadAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Serialize with manual unread and normal read-boundary updates for this member.
         var member = (await db.ChatConversationMembers.FromSqlInterpolated($"""
@@ -102,7 +106,8 @@ public sealed partial class ChatService
     public async Task MarkAllUnreadReadAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MarkAllUnreadReadAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Lock in a stable order and serialize with individual reads and manual unread.
         var members = await db.ChatConversationMembers.FromSqlInterpolated($"""
@@ -134,9 +139,12 @@ public sealed partial class ChatService
     public async Task<IReadOnlyList<ChatInboxMessage>> GetScheduledMessagesAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetScheduledMessagesAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await db.Set<ChatScheduledMessage>().AsNoTracking()
-            .Where(x => x.SenderUserId == userId)
+            .Where(x => x.SenderUserId == userId && (x.State == ScheduledChatState.Pending || x.State == ScheduledChatState.Failed)
+                && db.ChatConversationMembers.Any(member =>
+                member.ConversationId == x.ConversationId && member.UserId == userId))
             .OrderBy(x => x.ScheduledAtUtc).ThenBy(x => x.Id)
             .Select(x => new ChatInboxMessage(x.Id, x.ConversationId, x.ChannelThreadId, userId,
                 db.Users.Where(u => u.Id == userId).Select(u => u.DisplayName).First(),

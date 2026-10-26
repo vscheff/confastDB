@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:InspectionCriteria.Create")]
 @page "/parts/{PartId:long}/inspection-criteria/create"
 @using Confast.Web.Features.InspectionCriteria
 @inject InspectionCriteriaService CriteriaService
@@ -66,8 +68,9 @@
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to create criteria revision for part {PartId}", PartId);
-            message = "The draft could not be created. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The draft could not be created. Please try again.";
         }
         finally
         {

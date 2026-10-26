@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
@@ -74,7 +75,9 @@ public sealed class ChatNotifications(ILogger<ChatNotifications> logger)
 
 public sealed partial class ChatService(
     IDbContextFactory<AppDbContext> dbFactory,
-    ICurrentUser currentUser,
+    ApplicationAuthorization authorization,
+    EffectivePermissionService permissionEvaluator,
+    IHttpContextAccessor http,
     ChatNotifications notifications,
     TimeProvider clock,
     Microsoft.Extensions.Options.IOptions<ChatGifCacheOptions>? gifCacheOptions = null,
@@ -86,13 +89,12 @@ public sealed partial class ChatService(
     private const string UnsupportedDatabaseEncodingMessage =
         "This database cannot store that character because it is not using UTF-8. An administrator must move the database to UTF-8 before this text can be saved.";
 
-    private async Task<string> RequireUserAsync(AppDbContext db, CancellationToken cancellationToken)
+    private async Task<string> PrepareChatAsync(AppDbContext db, AuthorizedOperation operation,
+        CancellationToken cancellationToken)
     {
-        var userId = await currentUser.GetUserIdAsync();
-        if (userId is null || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
-            throw new UnauthorizedAccessException("An active account is required for chat.");
-        await EnsurePublicChannelMembershipsAsync(db, userId, clock.GetUtcNow().UtcDateTime, cancellationToken);
-        return userId;
+        operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.Access);
+        await EnsurePublicChannelMembershipsAsync(db, operation.ActorUserId, clock.GetUtcNow().UtcDateTime, cancellationToken);
+        return operation.ActorUserId;
     }
 
     internal static Task EnsurePublicChannelMembershipsAsync(AppDbContext db, string userId,
@@ -116,27 +118,23 @@ public sealed partial class ChatService(
     public async Task<string> GetCurrentUserIdAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        return await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetCurrentUserIdAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        return await PrepareChatAsync(db, operation, cancellationToken);
     }
 
-    public async Task<bool> IsCurrentUserAdministratorAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> CanAdministerChannelsAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
-        return await IsAdministratorAsync(db, userId, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(CanAdministerChannelsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
+        return operation.Snapshot.Has(Permissions.Chat.AdministerChannels);
     }
-
-    private static Task<bool> IsAdministratorAsync(AppDbContext db, string userId,
-        CancellationToken cancellationToken) =>
-        (from userRole in db.UserRoles
-         join role in db.Roles on userRole.RoleId equals role.Id
-         where userRole.UserId == userId && role.Name == AppRoles.Administrator
-         select userRole).AnyAsync(cancellationToken);
 
     public async Task<string?> GetLastReactionEmojiAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetLastReactionEmojiAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var emoji = await db.Users.AsNoTracking().Where(x => x.Id == userId)
             .Select(x => x.LastReactionEmoji).SingleAsync(cancellationToken);
         return emoji is not null && IsThumbReaction(emoji) ? null : emoji;
@@ -146,7 +144,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetEmojiTonePreferencesAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await db.ChatEmojiTonePreferences.AsNoTracking()
             .Where(x => x.UserId == userId)
             .ToDictionaryAsync(x => x.DefaultEmoji, x => x.PreferredEmoji, cancellationToken);
@@ -156,7 +155,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetEmojiTonePreferenceAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var family = ChatEmojiCatalog.FindFamily(defaultEmoji);
         if (family is null || family.Tones.Count < 2 || !ChatEmojiCatalog.IsToneOf(defaultEmoji, preferredEmoji))
             throw new InvalidOperationException("Choose a skin tone from this emoji's options.");
@@ -186,7 +186,8 @@ public sealed partial class ChatService(
     public async Task<IReadOnlyList<ChatUser>> GetActiveUsersAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetActiveUsersAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await db.Users.AsNoTracking().Where(x => x.IsActive)
             .OrderBy(x => x.DisplayName).Select(x => new ChatUser(x.Id, x.DisplayName))
             .ToListAsync(cancellationToken);
@@ -195,7 +196,8 @@ public sealed partial class ChatService(
     public async Task<long> OpenDirectAsync(string otherUserId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(OpenDirectAsync), new("Chat"), [Permissions.Chat.CreateConversations], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         if (!await db.Users.AnyAsync(x => x.Id == otherUserId && x.IsActive, cancellationToken))
             throw new InvalidOperationException("Select an active user.");
 
@@ -244,7 +246,8 @@ public sealed partial class ChatService(
         IEnumerable<string> initialUserIds, long? groupId = null, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(CreateChannelAsync), new("Chat"), [Permissions.Chat.CreateChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         name = name.Trim();
         if (name.Length is < 1 or > 120) throw new InvalidOperationException("Channel name must be 1 to 120 characters.");
         if (!Enum.IsDefined(visibility)) throw new InvalidOperationException("Choose a channel visibility.");
@@ -296,7 +299,16 @@ public sealed partial class ChatService(
         bool includeHidden = false)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetConversationsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
+        return await ReadConversationsAsync(db, operation, includeHidden, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<ChatConversationRow>> ReadConversationsAsync(AppDbContext db,
+        AuthorizedOperation operation, bool includeHidden, CancellationToken cancellationToken)
+    {
+        operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.Access);
+        var userId = operation.ActorUserId;
         var rows = await db.ChatConversationMembers.AsNoTracking()
             .Where(m => m.UserId == userId && (includeHidden || !m.IsHidden))
             .OrderByDescending(m => m.PinnedToTopAtUtc != null)
@@ -359,7 +371,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetChannelGroupsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var access = await LoadGroupAccessAsync(db, userId, cancellationToken);
         var rows = await db.ChatChannelGroups.AsNoTracking()
             .OrderBy(group => group.SortOrder).ThenBy(group => group.Id)
@@ -374,7 +387,9 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(CreateChannelGroupAsync), new("Chat"), [Permissions.Chat.CreateCategories], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
+        if (channelId is not null) operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.ReorderChannels);
         name = ValidateGroupName(name);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
@@ -410,7 +425,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(RenameChannelGroupAsync), new("Chat"), [Permissions.Chat.ManageCategories], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         name = ValidateGroupName(name);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
@@ -429,7 +445,8 @@ public sealed partial class ChatService(
     public async Task DeleteChannelGroupAsync(long groupId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(DeleteChannelGroupAsync), new("Chat"), [Permissions.Chat.ManageCategories], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         var group = await RequireManageableGroupAsync(db, groupId, userId, cancellationToken);
@@ -458,7 +475,8 @@ public sealed partial class ChatService(
         bool? beforeIsFolder, long? beforeId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MoveLayoutItemAsync), new("Chat"), [isFolder ? Permissions.Chat.ManageCategories : Permissions.Chat.ReorderChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         var access = await LoadGroupAccessAsync(db, userId, cancellationToken);
@@ -631,7 +649,8 @@ public sealed partial class ChatService(
     public async Task<int> GetTotalUnreadCountAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetTotalUnreadCountAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var total = await db.ChatConversationMembers.AsNoTracking()
             .Where(m => m.UserId == userId && !m.IsHidden)
             .Join(db.ChatMessages.AsNoTracking().Where(x => x.SenderUserId != userId
@@ -656,7 +675,8 @@ public sealed partial class ChatService(
     public async Task<bool> HasUnreadMentionAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(HasUnreadMentionAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await db.ChatConversationMembers.AsNoTracking().Where(x => x.UserId == userId && !x.IsHidden)
             .AnyAsync(member => db.ChatMessageMentions.Any(mention => mention.UserId == userId
                 && mention.Message.ConversationId == member.ConversationId
@@ -670,7 +690,8 @@ public sealed partial class ChatService(
     public async Task<bool> HasUnreadAlertAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(HasUnreadAlertAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await db.ChatConversationMembers.AsNoTracking().Where(member => member.UserId == userId && !member.IsHidden)
             .AnyAsync(member =>
                 (member.Conversation.Kind != ConversationKind.Channel &&
@@ -699,7 +720,8 @@ public sealed partial class ChatService(
     public async Task AddPrivateMemberAsync(long conversationId, string memberUserId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(AddPrivateMemberAsync), new("Chat"), [Permissions.Chat.ManagePrivateChannelMembers], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await RequirePrivateOwnerAsync(db, conversationId, userId, cancellationToken);
         if (!await db.Users.AnyAsync(x => x.Id == memberUserId && x.IsActive, cancellationToken))
             throw new InvalidOperationException("Select an active user.");
@@ -719,11 +741,12 @@ public sealed partial class ChatService(
     public async Task SetChannelTopicAsync(long conversationId, string? topic, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetChannelTopicAsync), new("Chat"), [Permissions.Chat.UpdateChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         topic = string.IsNullOrWhiteSpace(topic) ? null : topic.Trim();
         if (topic?.Length > 4000)
             throw new InvalidOperationException("Channel topic must be 4,000 characters or fewer.");
-        var administrator = await IsAdministratorAsync(db, userId, cancellationToken);
+        var administrator = operation.Snapshot.Has(Permissions.Chat.AdministerChannels);
         var channel = await db.ChatConversations.SingleOrDefaultAsync(x => x.Id == conversationId
             && x.Kind == ConversationKind.Channel && (administrator ||
                 x.Members.Any(member => member.UserId == userId && member.IsOwner)), cancellationToken);
@@ -743,11 +766,12 @@ public sealed partial class ChatService(
     public async Task RenameChannelAsync(long conversationId, string name, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(RenameChannelAsync), new("Chat"), [Permissions.Chat.UpdateChannels], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         name = name.Trim();
         if (name.Length is < 1 or > 120)
             throw new InvalidOperationException("Channel name must be 1 to 120 characters.");
-        var administrator = await IsAdministratorAsync(db, userId, cancellationToken);
+        var administrator = operation.Snapshot.Has(Permissions.Chat.AdministerChannels);
         var channel = await db.ChatConversations.SingleOrDefaultAsync(x => x.Id == conversationId
             && x.Kind == ConversationKind.Channel && (administrator ||
                 x.Members.Any(member => member.UserId == userId && member.IsOwner)),
@@ -769,7 +793,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetChannelMembersAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
             && x.UserId == userId && x.Conversation.Kind == ConversationKind.Channel, cancellationToken))
             throw new UnauthorizedAccessException("You do not belong to this channel.");
@@ -783,7 +808,8 @@ public sealed partial class ChatService(
     public async Task RemovePrivateMemberAsync(long conversationId, string memberUserId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(RemovePrivateMemberAsync), new("Chat"), [Permissions.Chat.ManagePrivateChannelMembers], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await RequirePrivateOwnerAsync(db, conversationId, userId, cancellationToken);
         var member = await db.ChatConversationMembers.SingleOrDefaultAsync(
             x => x.ConversationId == conversationId && x.UserId == memberUserId, cancellationToken);
@@ -807,7 +833,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default, long? startedFromMessageId = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(CreateChannelThreadAsync), new("Chat"), [Permissions.Chat.CreateThreads], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         title = title.Trim();
         if (title.Length is < 1 or > 120)
             throw new InvalidOperationException("Thread title must be 1 to 120 characters.");
@@ -876,10 +903,18 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetChannelThreadsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
             && x.UserId == userId && x.Conversation.Kind == ConversationKind.Channel, cancellationToken))
             throw new UnauthorizedAccessException("You do not belong to this channel.");
+        return await ReadChannelThreadsAsync(db, operation, conversationId, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<ChatChannelThreadRow>> ReadChannelThreadsAsync(AppDbContext db,
+        AuthorizedOperation operation, long conversationId, CancellationToken cancellationToken)
+    {
+        operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.Access);
         return await db.ChatChannelThreads.AsNoTracking()
             .Where(x => x.ConversationId == conversationId)
             .OrderByDescending(x => x.LastMessageAtUtc).ThenByDescending(x => x.Id)
@@ -900,7 +935,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetActiveChannelThreadsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var cutoff = clock.GetUtcNow().UtcDateTime - ChannelThreadActiveFor;
         return await db.ChatChannelThreads.AsNoTracking()
             .Where(x => x.LastMessageAtUtc >= cutoff && db.ChatConversationMembers.Any(member =>
@@ -923,16 +959,17 @@ public sealed partial class ChatService(
         long? throughMessageId = null, long? channelThreadId = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetThreadAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
             throw new UnauthorizedAccessException("You do not belong to this conversation.");
-        var conversation = (await GetConversationsAsync(cancellationToken, includeHidden: true)).Single(x => x.Id == conversationId);
+        var conversation = (await ReadConversationsAsync(db, operation, true, cancellationToken)).Single(x => x.Id == conversationId);
         ChatChannelThreadRow? channelThread = null;
         if (channelThreadId is long requestedThreadId)
         {
             if (conversation.Kind != ConversationKind.Channel)
                 throw new InvalidOperationException("Direct conversations do not have threads.");
-            channelThread = (await GetChannelThreadsAsync(conversationId, cancellationToken))
+            channelThread = (await ReadChannelThreadsAsync(db, operation, conversationId, cancellationToken))
                 .SingleOrDefault(x => x.Id == requestedThreadId)
                 ?? throw new InvalidOperationException("That thread does not belong to this channel.");
         }
@@ -941,7 +978,7 @@ public sealed partial class ChatService(
                     && x.Id == targetId && x.DeletedAtUtc == null, cancellationToken))
             throw new InvalidOperationException("The original message is no longer available.");
         var messages = await db.ChatMessages.AsNoTracking().Where(x => x.ConversationId == conversationId
-                && x.DeletedAtUtc == null
+                && (x.DeletedAtUtc == null || db.Set<ChatModerationHistory>().Any(history => history.MessageId == x.Id))
                 && (channelThreadId == null
                     ? x.ChannelThreadId == null || x.Type == ChatMessageType.ThreadNotice
                     : x.ChannelThreadId == channelThreadId && x.Type != ChatMessageType.ThreadNotice)
@@ -956,9 +993,11 @@ public sealed partial class ChatService(
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUser == null
                     ? "System" : x.ReplyToMessage.SenderUser.DisplayName,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.DeletedAtUtc == null
-                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null, x.GiphyId))
+                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null,
+                x.DeletedAtUtc == null ? x.GiphyId : null))
             .ToListAsync(cancellationToken);
-        var messageIds = messages.Select(x => x.Id).ToArray();
+        // Tombstones must not carry attachment text/metadata, GIF IDs, tags or reactions.
+        var messageIds = messages.Where(x => !x.IsDeleted).Select(x => x.Id).ToArray();
         var polls = await ReadPollsAsync(db, messageIds, userId, cancellationToken);
         var attachmentRows = await db.ChatAttachments.AsNoTracking()
             .Where(x => messageIds.Contains(x.MessageId))
@@ -1085,10 +1124,12 @@ public sealed partial class ChatService(
         long? replyToMessageId = null, long? channelThreadId = null, DateTime? scheduledAtUtc = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SendWithAttachmentsAsync), new("Chat"), [Permissions.Chat.SendMessages], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        if (scheduledAtUtc is not null) operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.ScheduleMessages);
         var id = await SaveOutgoingMessageAsync(db, userId, conversationId, body, attachments,
-            replyToMessageId, channelThreadId, scheduledAtUtc, true, cancellationToken);
+            replyToMessageId, channelThreadId, scheduledAtUtc, true, cancellationToken, schedulingOperation: operation);
         await transaction.CommitAsync(cancellationToken);
         if (scheduledAtUtc is null)
             notifications.Publish(await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId)
@@ -1098,7 +1139,8 @@ public sealed partial class ChatService(
 
     private async Task<long> SaveOutgoingMessageAsync(AppDbContext db, string userId, long conversationId,
         string body, IReadOnlyList<ChatAttachmentUpload> attachments, long? replyToMessageId,
-        long? channelThreadId, DateTime? scheduledAtUtc, bool markSenderRead, CancellationToken cancellationToken, string? giphyId = null)
+        long? channelThreadId, DateTime? scheduledAtUtc, bool markSenderRead, CancellationToken cancellationToken, string? giphyId = null,
+        AuthorizedOperation? schedulingOperation = null)
     {
         var activeConversation = await db.ChatConversations.FromSqlInterpolated($"""
             SELECT * FROM chat_conversations WHERE id = {conversationId} FOR SHARE
@@ -1142,10 +1184,18 @@ public sealed partial class ChatService(
         var now = clock.GetUtcNow().UtcDateTime;
         if (scheduledAtUtc is DateTime scheduled)
         {
-            if (scheduled.Kind != DateTimeKind.Utc || scheduled <= now)
+            if (scheduled.Kind != DateTimeKind.Utc || scheduled <= now || scheduled > DateTime.MaxValue.AddDays(-7))
                 throw new InvalidOperationException("Choose a future date and time.");
+            if (schedulingOperation is null || schedulingOperation.ActorUserId != userId)
+                throw new AuthorizationDeniedException(AuthorizationDenial.WrongOperation);
+            schedulingOperation.Require(nameof(SendWithAttachmentsAsync), new("Chat"), Permissions.Chat.ScheduleMessages);
             var queued = new ChatScheduledMessage
             {
+                RequestId = schedulingOperation.Id, CreatedAtUtc = now,
+                InstallationGeneration = schedulingOperation.Snapshot.Version.Generation,
+                CatalogVersion = schedulingOperation.Snapshot.Version.CatalogVersion,
+                AuthorizationEpoch = schedulingOperation.Snapshot.Version.Epoch,
+                ValidUntilUtc = scheduled.AddDays(7),
                 ConversationId = conversationId, SenderUserId = userId, Body = body,
                 ChannelThreadId = channelThreadId, ReplyToMessageId = replyToMessageId,
                 ScheduledAtUtc = scheduled,
@@ -1202,18 +1252,19 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetAttachmentAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await FindAttachmentAsync(db, attachmentId, userId, cancellationToken);
     }
 
     // Ordinary HTTP file requests have an authenticated HttpContext, but no Blazor circuit.
-    internal async Task<ChatAttachmentFile?> GetAttachmentForHttpUserAsync(long attachmentId,
-        string userId, CancellationToken cancellationToken = default)
+    internal async Task<ChatAttachmentFile?> GetAttachmentForHttpAsync(long attachmentId,
+        CancellationToken cancellationToken = default)
     {
+        var operation = BusinessHttpAuthorization.Require(http.HttpContext!, "ChatAttachment",
+            new("ChatAttachment", attachmentId.ToString(CultureInfo.InvariantCulture)), Permissions.Chat.Access);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        if (!await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
-            throw new UnauthorizedAccessException("An active account is required for chat.");
-        await EnsurePublicChannelMembershipsAsync(db, userId, clock.GetUtcNow().UtcDateTime, cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await FindAttachmentAsync(db, attachmentId, userId, cancellationToken);
     }
 
@@ -1280,7 +1331,8 @@ public sealed partial class ChatService(
             throw new InvalidOperationException("Choose one emoji for the reaction.");
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SaveReactionAsync), new("Chat"), [Permissions.Chat.React], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Lock the message so two toggles for the same message observe each other in order.
         var messages = await db.ChatMessages.FromSqlInterpolated(
@@ -1348,7 +1400,8 @@ public sealed partial class ChatService(
     public async Task MarkReadAsync(long conversationId, long throughMessageId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MarkReadAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(
             x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
@@ -1371,7 +1424,8 @@ public sealed partial class ChatService(
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MarkUnreadAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
                 && x.UserId == userId, cancellationToken))
@@ -1400,7 +1454,8 @@ public sealed partial class ChatService(
     public async Task<long?> MarkConversationReadAsync(long conversationId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(MarkConversationReadAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(
             x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
@@ -1427,7 +1482,8 @@ public sealed partial class ChatService(
     public async Task DeleteOwnMessageAsync(long messageId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(DeleteOwnMessageAsync), new("Chat"), [Permissions.Chat.DeleteOwnMessages], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var message = await db.ChatMessages.SingleOrDefaultAsync(x => x.Id == messageId, cancellationToken);
         if (message is null || message.Type != ChatMessageType.Text || message.SenderUserId != userId
             || !await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == message.ConversationId && x.UserId == userId, cancellationToken))
@@ -1449,7 +1505,8 @@ public sealed partial class ChatService(
     public async Task SetMessagePinnedAsync(long messageId, bool pinned, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetMessagePinnedAsync), new("Chat"), [Permissions.Chat.PinMessages], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var message = await db.ChatMessages.AsNoTracking()
             .Where(x => x.Id == messageId)
             .Select(x => new { x.ConversationId, x.ChannelThreadId, x.Type, x.DeletedAtUtc, x.PinnedAtUtc })
@@ -1503,7 +1560,8 @@ public sealed partial class ChatService(
     public async Task EditOwnMessageAsync(long messageId, string body, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(EditOwnMessageAsync), new("Chat"), [Permissions.Chat.EditOwnMessages], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         body = body.Trim();
         if (body.Length is < 1 or > 4000)
             throw new InvalidOperationException("Message must be 1 to 4000 characters.");

@@ -1,5 +1,6 @@
+@inherits PermissionComponentBase
 @page "/morning-production-review"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Production + "," + AppRoles.Administrator)]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:ProductionReports.Read")]
 @using Confast.Web.Features.MorningProductionReview
 @using Confast.Web.Time
 @inject MorningProductionReviewService Service
@@ -202,6 +203,7 @@
         {
             data = await Service.GetAsync(date);
         }
+        catch (AuthorizationDeniedException exception) { await RefreshPermissionsAsync(); message = exception.Message; }
         catch (Exception exception) when (exception is MorningProductionReviewException or UnauthorizedAccessException)
         {
             message = exception.Message;

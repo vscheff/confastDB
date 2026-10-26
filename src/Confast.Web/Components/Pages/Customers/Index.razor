@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Customers.Read")]
 @page "/"
 @page "/customers"
 @using Confast.Web.Features.Customers
@@ -15,7 +17,7 @@
         <button class="button button-secondary" type="button" @onclick="LoadCustomersAsync" disabled="@isLoading">
             Refresh
         </button>
-        <a class="button button-primary" href="/customers/create">Add Customer</a>
+        @if (Can(Permissions.Customers.Create)) { @if (Can(Permissions.Customers.Create)) { <a class="button button-primary" href="/customers/create">Add Customer</a> } }
     </div>
 </div>
 
@@ -85,8 +87,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load customers");
-            loadError = "Customers could not be loaded. Check that the database is running and configured.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "Customers could not be loaded. Check that the database is running and configured.";
         }
         finally
         {

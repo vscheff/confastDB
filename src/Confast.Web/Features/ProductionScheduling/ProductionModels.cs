@@ -2,6 +2,10 @@ using Confast.Web.Features.Parts;
 
 namespace Confast.Web.Features.ProductionScheduling;
 
+public sealed record ProductionConfiguration(ProductionSettings Settings, List<SortingMachine> Machines,
+    List<ProductionHoliday> Holidays, List<DowntimeReason> Reasons);
+public sealed record PartProductionConfiguration(ProductionSettings Settings, List<SortingMachine> Machines);
+
 public sealed class ProductionSettings
 {
     public int Id { get; set; } = 1;

@@ -1,5 +1,6 @@
+@inherits PermissionComponentBase
 @page "/production-scheduling/settings"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = PermissionPolicies.ProductionConfigurationRead)]
 @using Confast.Web.Features.ProductionScheduling
 @using Confast.Web.Time
 @inject ProductionService Service
@@ -22,11 +23,11 @@
 <div id="scheduling-settings-panel" role="tabpanel" aria-labelledby="scheduling-settings-tab">
 <div class="scheduling-settings-layout">
 <div class="scheduling-settings-left-column">
-<section class="production-panel production-efficiency-panel"><h2>Production Efficiency</h2><div class="production-fields"><label>Efficiency % <InputNumber @bind-Value="efficiency" step="1" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveEfficiencyAsync(data.Settings.Revision, efficiency))">Save Efficiency</button></div><p>Effective PPH = target PPH × efficiency ÷ 100.</p></section>
-<section class="production-panel downtime-reasons-panel"><div class="downtime-reasons-heading"><h2>Downtime Reasons</h2><button class="button button-primary" type="button" @onclick="ShowNewReasonEditor">Add Reason</button></div>
+@if (Can(Permissions.ProductionSettings.Read)) { <section class="production-panel production-efficiency-panel"><fieldset disabled="@(!Can(Permissions.ProductionSettings.Update))"><h2>Production Efficiency</h2><div class="production-fields"><label>Efficiency % <InputNumber @bind-Value="efficiency" step="1" /></label><button class="button button-primary" @onclick="() => Run(() => Service.SaveEfficiencyAsync(data.Settings.Revision, efficiency))">Save Efficiency</button></div><p>Effective PPH = target PPH × efficiency ÷ 100.</p></fieldset></section> }
+@if (Can(Permissions.ProductionDowntimeReasons.Read)) { <section class="production-panel downtime-reasons-panel"><div class="downtime-reasons-heading"><h2>Downtime Reasons</h2>@if (Can(Permissions.ProductionDowntimeReasons.Create)) { <button class="button button-primary" type="button" @onclick="ShowNewReasonEditor">Add Reason</button> }</div>
 @if (showReasonEditor)
 {
-<div class="downtime-reason-editor"><h3>@(reasonId == 0 ? "Add Reason" : "Edit Reason")</h3><form @onsubmit="SaveReasonAsync" @onsubmit:preventDefault="true"><div class="production-fields"><label>Name <input @bind="reasonName" /></label><label><input type="checkbox" @bind="reasonActive" /> Active</label><button class="button button-primary" type="submit">Save Reason</button><button class="button button-secondary" type="button" @onclick="CancelReasonEditor">Cancel</button></div></form></div>
+<div class="downtime-reason-editor"><h3>@(reasonId == 0 ? "Add Reason" : "Edit Reason")</h3><form @onsubmit="SaveReasonAsync" @onsubmit:preventDefault="true"><div class="production-fields"><label>Name <input @bind="reasonName" /></label><label><input type="checkbox" @bind="reasonActive" /> Active</label>@if (Can(reasonId == 0 ? Permissions.ProductionDowntimeReasons.Create : Permissions.ProductionDowntimeReasons.Update)) { <button class="button button-primary" type="submit">Save Reason</button> }<button class="button button-secondary" type="button" @onclick="CancelReasonEditor">Cancel</button></div></form></div>
 }
 @if (data.Reasons.Count == 0)
 {
@@ -34,29 +35,29 @@
 }
 else
 {
-<ul class="downtime-reason-list">@foreach (var reason in data.Reasons) { <li @key="reason.Id"><span>@reason.Name</span><span class="downtime-reason-status">@(reason.IsActive ? "Active" : "Inactive")</span><div class="downtime-reason-actions">@if (deleteReasonId == reason.Id) { <button class="button button-danger-outline" type="button" @onclick="DeleteReasonAsync">Confirm Delete</button><button class="button button-secondary" type="button" @onclick="CancelDeleteReason">Cancel</button> } else { <button class="button button-secondary" type="button" @onclick="() => EditReason(reason)">Edit</button><button class="button button-danger-outline" type="button" @onclick="() => ConfirmDeleteReason(reason.Id)">Delete</button> }</div></li> }</ul>
+<ul class="downtime-reason-list">@foreach (var reason in data.Reasons) { <li @key="reason.Id"><span>@reason.Name</span><span class="downtime-reason-status">@(reason.IsActive ? "Active" : "Inactive")</span><div class="downtime-reason-actions">@if (deleteReasonId == reason.Id) { @if (Can(Permissions.ProductionDowntimeReasons.Delete)) { <button class="button button-danger-outline" type="button" @onclick="DeleteReasonAsync">Confirm Delete</button> }<button class="button button-secondary" type="button" @onclick="CancelDeleteReason">Cancel</button> } else { @if (Can(Permissions.ProductionDowntimeReasons.Update)) { <button class="button button-secondary" type="button" @onclick="() => EditReason(reason)">Edit</button> }@if (Can(Permissions.ProductionDowntimeReasons.Delete)) { <button class="button button-danger-outline" type="button" @onclick="() => ConfirmDeleteReason(reason.Id)">Delete</button> } }</div></li> }</ul>
 }
-</section>
+</section> }
 </div>
-<section class="production-panel holiday-panel"><div class="holidays-heading"><h2>Holidays</h2><button class="button button-primary" type="button" @onclick="AddHoliday">Add Holiday</button></div>
-<table class="data-table holiday-table"><thead><tr><th>Date</th><th>Name</th><th></th></tr></thead><tbody>@foreach (var holiday in holidayEditors) { <tr @key="holiday.Id"><td><span @ref="holiday.DateField"><InputDate @bind-Value="holiday.Date" /></span></td><td><form id="@holiday.FormId" @onsubmit="() => SaveHolidayAsync(holiday)" @onsubmit:preventDefault="true"><input @bind="holiday.Name" aria-label="Holiday name" /></form></td><td><div class="holiday-actions"><button class="button button-primary" type="submit" form="@holiday.FormId">Save</button><button class="button button-danger-outline" type="button" @onclick="() => RemoveHolidayAsync(holiday)">@(holiday.OriginalDate is null ? "Cancel" : "Remove")</button></div></td></tr> }</tbody></table></section>
+@if (Can(Permissions.ProductionHolidays.Read)) { <section class="production-panel holiday-panel"><div class="holidays-heading"><h2>Holidays</h2>@if (Can(Permissions.ProductionHolidays.Create)) { <button class="button button-primary" type="button" @onclick="AddHoliday">Add Holiday</button> }</div>
+<table class="data-table holiday-table"><thead><tr><th>Date</th><th>Name</th><th></th></tr></thead><tbody>@foreach (var holiday in holidayEditors) { <tr @key="holiday.Id"><td><span @ref="holiday.DateField"><InputDate @bind-Value="holiday.Date" disabled="@(!Can(holiday.OriginalDate is null ? Permissions.ProductionHolidays.Create : Permissions.ProductionHolidays.Update))" /></span></td><td><form id="@holiday.FormId" @onsubmit="() => SaveHolidayAsync(holiday)" @onsubmit:preventDefault="true"><input @bind="holiday.Name" aria-label="Holiday name" disabled="@(!Can(holiday.OriginalDate is null ? Permissions.ProductionHolidays.Create : Permissions.ProductionHolidays.Update))" /></form></td><td><div class="holiday-actions">@if (Can(holiday.OriginalDate is null ? Permissions.ProductionHolidays.Create : Permissions.ProductionHolidays.Update)) { <button class="button button-primary" type="submit" form="@holiday.FormId">Save</button> }@if (Can(holiday.OriginalDate is null ? Permissions.ProductionHolidays.Create : Permissions.ProductionHolidays.Delete)) { <button class="button button-danger-outline" type="button" @onclick="() => RemoveHolidayAsync(holiday)">@(holiday.OriginalDate is null ? "Cancel" : "Remove")</button> }</div></td></tr> }</tbody></table></section> }
 </div>
 </div>
 }
 else
 {
-<section class="production-panel" id="scheduling-machines-panel" role="tabpanel" aria-labelledby="scheduling-machines-tab"><div class="machine-tab-heading"><h2>Machines</h2><button class="button button-primary" type="button" @onclick="ShowNewMachineEditor">Add Machine</button></div>
-<section class="default-working-days"><div class="default-working-days-heading"><h3>Default Work Day</h3><button class="button button-primary" @onclick="SaveDefaultWorkingDays">Save</button></div><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="defaultWorkingDayHours[day]" @bind-Value:after="SyncDefaultWorkingDayHours" step="0.1" /></label> }</div><p>Machines marked “Follows Default” update to these hours when the default is saved.</p></section>
+<section class="production-panel" id="scheduling-machines-panel" role="tabpanel" aria-labelledby="scheduling-machines-tab"><div class="machine-tab-heading"><h2>Machines</h2>@if (Can(Permissions.SortingMachines.Create)) { <button class="button button-primary" type="button" @onclick="ShowNewMachineEditor">Add Machine</button> }</div>
+@if (Can(Permissions.ProductionCalendars.Read)) { <section class="default-working-days"><fieldset disabled="@(!Can(Permissions.ProductionCalendars.Update))"><div class="default-working-days-heading"><h3>Default Work Day</h3><button class="button button-primary" @onclick="SaveDefaultWorkingDays">Save</button></div><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="defaultWorkingDayHours[day]" @bind-Value:after="SyncDefaultWorkingDayHours" step="0.1" /></label> }</div><p>Machines marked “Follows Default” update to these hours when the default is saved.</p></fieldset></section> }
 @if (showNewMachineEditor)
 {
-<section class="machine-calendar machine-calendar-new"><div class="machine-editor-heading"><h3>Add Machine</h3><div class="machine-editor-actions"><button class="button button-primary" @onclick="SaveNewMachineAsync">Add Machine</button><button class="button button-secondary" type="button" @onclick="CancelNewMachine">Cancel</button></div></div><div class="machine-calendar-fields"><label>Name <input @bind="newMachine.Name" /></label><label><input type="checkbox" @bind="newMachine.Active" /> Active</label><label><input type="checkbox" @bind="newMachine.UsesDefaultWorkingDays" @bind:after="() => SyncMachineToDefault(newMachine)" /> Follows Default</label></div>
+<section class="machine-calendar machine-calendar-new"><div class="machine-editor-heading"><h3>Add Machine</h3><div class="machine-editor-actions">@if (Can(Permissions.SortingMachines.Create)) { <button class="button button-primary" @onclick="SaveNewMachineAsync">Add Machine</button> }<button class="button button-secondary" type="button" @onclick="CancelNewMachine">Cancel</button></div></div><div class="machine-calendar-fields"><label>Name <input @bind="newMachine.Name" /></label><label><input type="checkbox" @bind="newMachine.Active" /> Active</label><label><input type="checkbox" @bind="newMachine.UsesDefaultWorkingDays" @bind:after="() => SyncMachineToDefault(newMachine)" /> Follows Default</label></div>
 <div class="machine-calendar-hours"><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="newMachine.Hours[day]" disabled="@newMachine.UsesDefaultWorkingDays" step="0.1" /></label> }</div></div><p>Enter zero for non-working days.</p></section>
 }
 <div class="machine-calendar-list">
 @foreach (var machine in machineEditors)
 {
-    <section class="machine-calendar" @key="machine.Id"><div class="machine-calendar-fields"><label>Name <input @bind="machine.Name" /></label><label><input type="checkbox" @bind="machine.Active" /> Active</label><label><input type="checkbox" @bind="machine.UsesDefaultWorkingDays" @bind:after="() => SyncMachineToDefault(machine)" /> Follows Default</label><button class="button button-primary" @onclick="() => SaveMachine(machine)">Save</button></div>
-    <div class="machine-calendar-hours"><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="machine.Hours[day]" disabled="@machine.UsesDefaultWorkingDays" step="0.1" /></label> }</div></div></section>
+    <section class="machine-calendar" @key="machine.Id"><fieldset disabled="@(!Can(Permissions.SortingMachines.Update))"><div class="machine-calendar-fields"><label>Name <input @bind="machine.Name" /></label><label><input type="checkbox" @bind="machine.Active" /> Active</label><label><input type="checkbox" @bind="machine.UsesDefaultWorkingDays" @bind:after="() => SyncMachineToDefault(machine)" /> Follows Default</label><button class="button button-primary" @onclick="() => SaveMachine(machine)">Save</button></div>
+    <div class="machine-calendar-hours"><div class="machine-calendar-day-fields">@foreach (var day in WeekdayIndexes) { <label>@((DayOfWeek)day) <InputNumber @bind-Value="machine.Hours[day]" disabled="@machine.UsesDefaultWorkingDays" step="0.1" /></label> }</div></div></fieldset></section>
 }
 </div>
 </section>
@@ -64,7 +65,7 @@ else
 </fieldset>
 }
 @code {
-    private ProductionSnapshot? data;
+    private ProductionConfiguration? data;
     private string? message;
     private string reasonName = "";
     private bool busy, ready, reasonActive = true, showNewMachineEditor, showReasonEditor;
@@ -94,12 +95,14 @@ else
         try
         {
             await action();
-            data = await Service.GetAsync();
+            data = await Service.GetConfigurationAsync();
             efficiency = decimal.ToInt32(data.Settings.EfficiencyPercent);
             defaultWorkingDayHours = Enumerable.Range(0, 7).Select(i => decimal.Round(data.Settings.DefaultWorkingDays.SingleOrDefault(x => (int)x.Day == i)?.Hours ?? 0, 1)).ToArray();
             machineEditors = data.Machines.Select(MachineEditor.From).ToList();
             holidayEditors = data.Holidays.Select(HolidayEditor.From).ToList();
+            if (!Can(Permissions.SortingMachines.Read) && !Can(Permissions.ProductionCalendars.Read)) activeTab = SettingsTab.Settings;
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; }
         catch (Exception ex) when (ex is SchedulingException or UnauthorizedAccessException) { message = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Scheduling configuration failed"); message = "Could not save scheduling settings. Reload and retry."; }
         finally { busy = false; }

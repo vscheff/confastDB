@@ -1,3 +1,5 @@
+using Confast.Web.Features.Authorization;
+using Microsoft.AspNetCore.Http;
 using Confast.Web.Features.Chat;
 using Confast.Web.Features.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,11 +11,21 @@ public sealed class UserProfilePictureServiceTests(PostgresTestDatabase database
 {
     private readonly ChatNotifications notifications = new(NullLogger<ChatNotifications>.Instance);
 
-    public Task InitializeAsync() => database.ResetAsync();
-    public Task DisposeAsync() => Task.CompletedTask;
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        using var session = new AuthorizationTestSession(database);
+        await session.ProvisionRootAsync();
+    }
+    private readonly List<AuthorizationTestSession> sessions = [];
+    private AuthorizationTestSession Session(string userId)
+    {
+        var session = ChatTestAuthorization.Session(database, userId); sessions.Add(session); return session;
+    }
+    public Task DisposeAsync() { foreach (var session in sessions) session.Dispose(); return Task.CompletedTask; }
 
     private UserProfilePictureService Service(string userId) =>
-        new(database, new TestCurrentUser(userId), notifications);
+        new(database, Session(userId).Guard, new HttpContextAccessor(), notifications);
 
     [Fact]
     public async Task Picture_CanBeReplacedViewedByAnotherUserAndRemoved()
@@ -33,7 +45,7 @@ public sealed class UserProfilePictureServiceTests(PostgresTestDatabase database
         var png = new byte[] { 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1 };
         await owner.SaveAsync(png);
         var firstVersion = (await viewer.GetVersionsAsync())[first];
-        var firstPicture = await viewer.GetAsync(second, first);
+        var firstPicture = await viewer.GetAsync(first);
         Assert.NotNull(firstPicture);
         Assert.Equal(png, firstPicture.Value.Data);
         Assert.Equal("image/png", firstPicture.Value.ContentType);
@@ -41,15 +53,15 @@ public sealed class UserProfilePictureServiceTests(PostgresTestDatabase database
         var jpeg = new byte[] { 0xff, 0xd8, 0xff, 1 };
         await owner.SaveAsync(jpeg);
         Assert.NotEqual(firstVersion, (await viewer.GetVersionsAsync())[first]);
-        var replacement = await viewer.GetAsync(second, first);
+        var replacement = await viewer.GetAsync(first);
         Assert.NotNull(replacement);
         Assert.Equal(jpeg, replacement.Value.Data);
         Assert.Equal("image/jpeg", replacement.Value.ContentType);
-        Assert.Null(await viewer.GetAsync(second, Guid.NewGuid().ToString()));
+        Assert.Null(await viewer.GetAsync(Guid.NewGuid().ToString()));
 
         await owner.RemoveAsync();
         Assert.DoesNotContain(first, await viewer.GetVersionsAsync());
-        Assert.Null(await viewer.GetAsync(second, first));
+        Assert.Null(await viewer.GetAsync(first));
     }
 
     [Fact]
@@ -67,8 +79,8 @@ public sealed class UserProfilePictureServiceTests(PostgresTestDatabase database
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => Service(active).SaveAsync("<svg/>"u8.ToArray()));
         await Assert.ThrowsAsync<InvalidOperationException>(() => Service(active).SaveAsync(new byte[UserProfilePictureService.MaximumPictureBytes + 1]));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(inactive).SaveAsync(new byte[] { 0xff, 0xd8, 0xff }));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(inactive).GetAsync(inactive, active));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Service(inactive).SaveAsync(new byte[] { 0xff, 0xd8, 0xff }));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Service(inactive).GetAsync(active));
     }
 
     private sealed class TestCurrentUser(string userId) : ICurrentUser

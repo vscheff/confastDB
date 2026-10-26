@@ -11,7 +11,7 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class InspectionCertificationTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    private readonly InspectionCriteriaService criteriaService = new(database);
+    private InspectionCriteriaService criteriaService = null!;
     private InspectionService inspectionService = null!;
     private readonly AuthorizationTestSession authorization = new(database);
 
@@ -19,7 +19,8 @@ public sealed class InspectionCertificationTests(PostgresTestDatabase database) 
     {
         await database.ResetAsync();
         await authorization.SignInAsync(await authorization.ProvisionRootAsync());
-        inspectionService = new(database, authorization.Evaluator);
+        criteriaService = new(database, authorization.Guard);
+        inspectionService = authorization.Inspections();
     }
 
     public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }

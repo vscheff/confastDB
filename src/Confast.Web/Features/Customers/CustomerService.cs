@@ -1,13 +1,15 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Customers;
 
-public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
     public async Task<long> CreateCustomerAsync(CustomerEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Customers.Create", new("Customers"), [Permissions.Customers.Create], cancellationToken);
         ArgumentNullException.ThrowIfNull(model);
         ArgumentException.ThrowIfNullOrWhiteSpace(model.Name);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -23,6 +25,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<IReadOnlyList<CustomerListItem>> GetCustomersAsync(CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Customers.Read", new("Customers"), [Permissions.Customers.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Customers.AsNoTracking().OrderBy(x => x.Name)
             .Select(x => new CustomerListItem(x.Id, x.Name, x.IsActive)).ToListAsync(cancellationToken);
@@ -30,6 +33,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<CustomerEditModel?> GetCustomerAsync(long id, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Customers.Read", new("Customer", id.ToString()), [Permissions.Customers.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Customers.AsNoTracking().Where(x => x.Id == id).Select(x => new CustomerEditModel
         { Id = x.Id, Name = x.Name, IsActive = x.IsActive, Version = x.Version }).SingleOrDefaultAsync(cancellationToken);
@@ -37,6 +41,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<SaveCustomerResult> SaveCustomerAsync(CustomerEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Customers.Update", new("Customer", model.Id.ToString()), [Permissions.Customers.Update], cancellationToken);
         ArgumentException.ThrowIfNullOrWhiteSpace(model.Name);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var customer = await db.Customers.SingleOrDefaultAsync(x => x.Id == model.Id, cancellationToken);
@@ -50,6 +55,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<IReadOnlyList<PlantEditModel>> GetPlantsAsync(long customerId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Plants.Read", new("Customer", customerId.ToString()), [Permissions.Plants.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Plants.AsNoTracking().Where(x => x.CustomerId == customerId).OrderBy(x => x.Name)
             .Select(x => new PlantEditModel
@@ -62,6 +68,8 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<PlantOperationResult> SavePlantAsync(PlantEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Plants.Save", new("Plant", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.Plants.Create : Permissions.Plants.Update], cancellationToken);
         var name = model.Name?.Trim() ?? string.Empty;
         if (name.Length == 0 || name.Length > 200)
             return new PlantOperationResult(PlantOperationStatus.ValidationFailed, Message: "Plant name is required and cannot exceed 200 characters.");
@@ -94,6 +102,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<PlantOperationResult> DeletePlantAsync(long customerId, long plantId, uint version, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Plants.Delete", new("Plant", plantId.ToString()), [Permissions.Plants.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var plant = await db.Plants.SingleOrDefaultAsync(x => x.Id == plantId && x.CustomerId == customerId, cancellationToken);
         if (plant is null) return new PlantOperationResult(PlantOperationStatus.NotFound);
@@ -112,18 +121,24 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<PlantCertificationDeliveryEditModel?> GetPlantCertificationDeliveryAsync(long plantId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Plants.CertificationDelivery", new("Plant", plantId.ToString()), [], cancellationToken);
+        var canReadRecipients = operation.Snapshot.Has(Permissions.PlantCertificationRecipients.Read);
+        var canReadSettings = operation.Snapshot.Has(Permissions.PlantCertificationSettings.Read);
+        operation.Require(operation.Purpose, operation.Scope, canReadRecipients
+            ? Permissions.PlantCertificationRecipients.Read : Permissions.PlantCertificationSettings.Read);
+
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         if (!await db.Plants.AsNoTracking().AnyAsync(x => x.Id == plantId, cancellationToken)) return null;
-        var requiredIds = await db.PlantCertificationRequirements.AsNoTracking().Where(x => x.PlantId == plantId)
+        var requiredIds = await db.PlantCertificationRequirements.AsNoTracking().Where(x => canReadSettings && x.PlantId == plantId)
             .Select(x => x.CertificationTypeId).ToHashSetAsync(cancellationToken);
-        var settings = await db.PlantCertificationSettings.AsNoTracking().SingleOrDefaultAsync(x => x.PlantId == plantId, cancellationToken);
+        var settings = await db.PlantCertificationSettings.AsNoTracking().SingleOrDefaultAsync(x => canReadSettings && x.PlantId == plantId, cancellationToken);
         return new PlantCertificationDeliveryEditModel
         {
             PlantId = plantId,
-            Recipients = await db.PlantCertificationRecipients.AsNoTracking().Where(x => x.PlantId == plantId)
+            Recipients = await db.PlantCertificationRecipients.AsNoTracking().Where(x => canReadRecipients && x.PlantId == plantId)
                 .OrderBy(x => x.RecipientType).ThenBy(x => x.Name).ThenBy(x => x.EmailAddress)
                 .Select(x => new PlantCertificationRecipientEditModel { Id = x.Id, PlantId = x.PlantId, Name = x.Name, EmailAddress = x.EmailAddress, RecipientType = x.RecipientType, Version = x.Version }).ToListAsync(cancellationToken),
-            CertificationTypes = await db.CertificationTypes.AsNoTracking().OrderBy(x => x.DisplayOrder)
+            CertificationTypes = await db.CertificationTypes.AsNoTracking().Where(x => canReadSettings).OrderBy(x => x.DisplayOrder)
                 .Select(x => new PlantCertificationTypeChoice { Id = x.Id, Name = x.Name, IsRequired = requiredIds.Contains(x.Id) }).ToListAsync(cancellationToken),
             OriginalRequiredCertificationTypeIds = requiredIds,
             FilenameTemplate = settings?.FilenameTemplate,
@@ -135,6 +150,8 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<PlantCertificationOperationResult> SavePlantCertificationRecipientAsync(PlantCertificationRecipientEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PlantCertificationRecipients.Save", new("Plant", model.PlantId.ToString()),
+            [model.Id == 0 ? Permissions.PlantCertificationRecipients.Create : Permissions.PlantCertificationRecipients.Update], cancellationToken);
         var email = model.EmailAddress?.Trim() ?? string.Empty;
         if (email.Length > 320 || !new EmailAddressAttribute().IsValid(email)) return Failure("Enter a valid email address.");
         if (model.Name?.Trim().Length > 200) return Failure("Recipient name cannot exceed 200 characters.");
@@ -156,6 +173,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<PlantCertificationOperationResult> DeletePlantCertificationRecipientAsync(long plantId, long recipientId, uint version, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PlantCertificationRecipients.Delete", new("Plant", plantId.ToString()), [Permissions.PlantCertificationRecipients.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var recipient = await db.PlantCertificationRecipients.SingleOrDefaultAsync(x => x.Id == recipientId && x.PlantId == plantId, cancellationToken);
         if (recipient is null) return new PlantCertificationOperationResult(PlantCertificationOperationStatus.NotFound);
@@ -166,6 +184,7 @@ public sealed class CustomerService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<PlantCertificationOperationResult> SavePlantCertificationConfigurationAsync(PlantCertificationDeliveryEditModel model, CertificationPackageFilenameFormatter formatter, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PlantCertificationSettings.Update", new("Plant", model.PlantId.ToString()), [Permissions.PlantCertificationSettings.Update], cancellationToken);
         var template = NormalizeOptionalText(model.FilenameTemplate);
         var singlePartMultiLot = NormalizeOptionalText(model.SinglePartMultiLotFilenameTemplate);
         var multiPart = NormalizeOptionalText(model.MultiPartFilenameTemplate);

@@ -1,7 +1,6 @@
 using System.Data;
 using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
-using Confast.Web.Features.Identity;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
@@ -12,9 +11,7 @@ namespace Confast.Web.Features.ContainerTracking;
 
 public sealed class ReceivedPartsService(
     IDbContextFactory<AppDbContext> contextFactory,
-    TrackingAccess trackingAccess,
     InspectionService inspectionService,
-    ICurrentUser currentUser,
     TimeProvider clock,
     ApplicationAuthorization authorization,
     BusinessDateProvider? businessDate = null)
@@ -29,14 +26,17 @@ public sealed class ReceivedPartsService(
         string? correctionReason = null,
         CancellationToken cancellationToken = default)
     {
-        await trackingAccess.RequireEditAsync(cancellationToken);
-        var userId = await RequireUserIdAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Containers.Receipt", new("Container", containerId.ToString()), [Permissions.Containers.Read], cancellationToken);
+        var userId = operation.ActorUserId;
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var container = await db.Containers
             .FromSqlInterpolated($"SELECT c.*, c.xmin FROM containers AS c WHERE id = {containerId} FOR UPDATE")
             .SingleOrDefaultAsync(cancellationToken);
         if (container is null) return ReceiptOperationResult.Invalid("Container no longer exists.");
+        // Existing historical dates are corrections too, even without the newer audit stamp.
+        operation.Require(operation.Purpose, operation.Scope, container.ReceivedDate is null
+            ? Permissions.Containers.Receive : Permissions.Containers.CorrectReceipt);
         if (container.Version != version) return ReceiptOperationResult.Conflict();
         if (receivedDate > Today) return ReceiptOperationResult.Invalid("Received date cannot be in the future.");
         if (container.ReceivedDate == receivedDate && container.ReceivedAtUtc is not null) return new(true);
@@ -74,8 +74,8 @@ public sealed class ReceivedPartsService(
         uint version,
         CancellationToken cancellationToken = default)
     {
-        await trackingAccess.RequireEditAsync(cancellationToken);
-        var userId = await RequireUserIdAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Containers.Unreceive", new("Container", containerId.ToString()), [Permissions.Containers.Unreceive], cancellationToken);
+        var userId = operation.ActorUserId;
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var container = await db.Containers
@@ -117,8 +117,8 @@ public sealed class ReceivedPartsService(
         string reason,
         CancellationToken cancellationToken = default)
     {
-        await trackingAccess.RequireEditAsync(cancellationToken);
-        var userId = await RequireUserIdAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Containers.CorrectReceivedQuantities", new("ReceiptLine", lineId.ToString()), [Permissions.Containers.CorrectReceivedQuantities], cancellationToken);
+        var userId = operation.ActorUserId;
         if (actualQuantity < 0) return ReceiptOperationResult.Invalid("Actual received quantity cannot be negative.");
         if (string.IsNullOrWhiteSpace(reason)) return ReceiptOperationResult.Invalid("A correction reason is required.");
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -192,7 +192,7 @@ public sealed class ReceivedPartsService(
 
         var inspectionIds = lines.SelectMany(x => x.Allocations).Where(x => x.InspectionId != null)
             .Select(x => x.InspectionId!.Value).Distinct().ToArray();
-        var statuses = (await inspectionService.GetInspectionsAsync(inspectionIds, cancellationToken))
+        var statuses = (await inspectionService.GetReceivingInspectionStatusesAsync(inspectionIds, operation, cancellationToken))
             .ToDictionary(x => x.Id);
         var mapped = lines.Select(x =>
         {
@@ -240,7 +240,7 @@ public sealed class ReceivedPartsService(
             .Select(x => new { x.Id, x.LotNumber, x.ManufacturerLotNumber, x.Part.PartNumber,
                 x.ConformancePoNumber, Quantity = x.QuantityReceived ?? 0, x.Version })
             .OrderByDescending(x => x.Id).ToListAsync(cancellationToken);
-        var statuses = (await inspectionService.GetInspectionsAsync(inspections.Select(x => x.Id).ToArray(), cancellationToken))
+        var statuses = (await inspectionService.GetReceivingInspectionStatusesAsync(inspections.Select(x => x.Id).ToArray(), operation, cancellationToken))
             .ToDictionary(x => x.Id);
         return inspections.Select(x => new ReceiptInspectionCandidate(x.Id, x.LotNumber, x.ManufacturerLotNumber,
             x.PartNumber, x.ConformancePoNumber, x.Quantity, statuses.GetValueOrDefault(x.Id)?.Accepted ?? false,
@@ -452,9 +452,6 @@ public sealed class ReceivedPartsService(
         if (container is not null) db.Entry(container).Property(x => x.ContainerNumber).IsModified = true;
         return await SaveAsync(db, transaction, cancellationToken);
     }
-
-    private async Task<string> RequireUserIdAsync(CancellationToken cancellationToken) =>
-        await currentUser.GetUserIdAsync() ?? throw new UnauthorizedAccessException("Sign in to perform this operation.");
 
     private static Task<ContainerGroupPart?> LockLineAsync(AppDbContext db, long lineId, CancellationToken cancellationToken) =>
         db.ContainerGroupParts.FromSqlInterpolated($"SELECT p.* FROM container_group_parts AS p WHERE id = {lineId} FOR UPDATE")

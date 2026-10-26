@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Chat;
@@ -13,7 +14,8 @@ public sealed partial class ChatService
     public async Task<IReadOnlyList<string>> GetGifFavoritesAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetGifFavoritesAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await db.Set<ChatGifFavorite>().AsNoTracking().Where(x => x.UserId == userId)
             .OrderByDescending(x => x.CreatedAtUtc).ThenBy(x => x.GiphyId).Select(x => x.GiphyId)
             .ToArrayAsync(cancellationToken);
@@ -23,7 +25,8 @@ public sealed partial class ChatService
     {
         ValidateGiphyId(giphyId);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetGifFavoriteAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         if (favorite)
         {
             var now = clock.GetUtcNow().UtcDateTime;
@@ -40,7 +43,8 @@ public sealed partial class ChatService
     {
         ValidateGiphyId(giphyId);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SendGifAsync), new("Chat"), [Permissions.Chat.SendMessages], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var id = await SaveOutgoingMessageAsync(db, userId, conversationId, "Shared a GIF", [],
             replyToMessageId, channelThreadId, null, true, cancellationToken, giphyId);

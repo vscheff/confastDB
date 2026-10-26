@@ -17,49 +17,48 @@ public sealed class InspectionService
 
     private readonly IDbContextFactory<AppDbContext> contextFactory;
     private readonly CertificationPreviewRenderer? certificationPreviewRenderer;
-    private readonly ICurrentUser? currentUser;
     private readonly BusinessDateProvider? businessDate;
-    private readonly EffectivePermissionService? permissions;
+    private readonly EffectivePermissionService permissions;
+    private readonly ApplicationAuthorization authorization;
+    private readonly IHttpContextAccessor http;
+    private readonly InspectionPrintRenderTokenService renderTokens;
 
-    public InspectionService(IDbContextFactory<AppDbContext> contextFactory, EffectivePermissionService permissions)
-        : this(contextFactory) => this.permissions = permissions;
-
-    public InspectionService(IDbContextFactory<AppDbContext> contextFactory)
+    public InspectionService(IDbContextFactory<AppDbContext> contextFactory,
+        EffectivePermissionService permissions, ApplicationAuthorization authorization,
+        IHttpContextAccessor http, InspectionPrintRenderTokenService renderTokens,
+        CertificationPreviewRenderer? certificationPreviewRenderer = null, BusinessDateProvider? businessDate = null)
     {
         this.contextFactory = contextFactory;
-    }
-
-    public InspectionService(
-        IDbContextFactory<AppDbContext> contextFactory,
-        CertificationPreviewRenderer certificationPreviewRenderer)
-        : this(contextFactory)
-    {
-        this.certificationPreviewRenderer = certificationPreviewRenderer;
-    }
-
-    public InspectionService(
-        IDbContextFactory<AppDbContext> contextFactory,
-        CertificationPreviewRenderer certificationPreviewRenderer,
-        ICurrentUser currentUser,
-        BusinessDateProvider businessDate,
-        EffectivePermissionService permissions)
-        : this(contextFactory, certificationPreviewRenderer)
-    {
-        this.currentUser = currentUser;
-        this.businessDate = businessDate;
         this.permissions = permissions;
+        this.authorization = authorization;
+        this.http = http;
+        this.renderTokens = renderTokens;
+        this.certificationPreviewRenderer = certificationPreviewRenderer;
+        this.businessDate = businessDate;
     }
 
     public const long MaximumCertificationDocumentBytes = 25 * 1024 * 1024;
 
+    internal async Task<IReadOnlyList<InspectionListItem>> GetReceivingInspectionStatusesAsync(
+        IReadOnlyCollection<long> inspectionIds, AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("Receiving.Read", new("Receiving"), Permissions.Receiving.Read);
+        // IDs are selected from the authorized receipt/allocation or matching Part + PO workflow.
+        return await GetInspectionsAsyncCore(inspectionIds, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsync(
         CancellationToken cancellationToken = default)
-        => await GetInspectionsAsyncCore(null, cancellationToken);
+    {
+        using var operation = await authorization.BeginAsync("Inspections.Read", new("Inspections"), [Permissions.Inspections.Read], cancellationToken);
+        return await GetInspectionsAsyncCore(null, cancellationToken);
+    }
 
     public async Task<IReadOnlyList<InspectionListItem>> GetInspectionsAsync(
         IReadOnlyCollection<long> inspectionIds,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Read", new("Inspections"), [Permissions.Inspections.Read], cancellationToken);
         ArgumentNullException.ThrowIfNull(inspectionIds);
         return await GetInspectionsAsyncCore(inspectionIds, cancellationToken);
     }
@@ -68,6 +67,7 @@ public sealed class InspectionService
         InspectionFindModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Read", new("Inspections"), [Permissions.Inspections.Read], cancellationToken);
         ArgumentNullException.ThrowIfNull(model);
 
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -124,7 +124,7 @@ public sealed class InspectionService
         }
 
         var inspectionIds = await query.Select(x => x.Id).ToArrayAsync(cancellationToken);
-        return await GetInspectionsAsync(inspectionIds, cancellationToken);
+        return await GetInspectionsAsyncCore(inspectionIds, cancellationToken);
     }
 
     private static string LikeContains(string? value) =>
@@ -293,6 +293,7 @@ public sealed class InspectionService
         long? destinationPlantId = null,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.BuildPackage", new("Inspection", activeInspectionId.ToString()), [Permissions.Certifications.BuildPackage], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var activeInspection = await db.Inspections
@@ -355,6 +356,7 @@ public sealed class InspectionService
         long inspectionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.BuildPackage", new("Inspection", inspectionId.ToString()), [Permissions.Certifications.BuildPackage], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.PartPlants
             .AsNoTracking()
@@ -369,6 +371,7 @@ public sealed class InspectionService
         long inspectionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Read", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Inspections
             .AsNoTracking()
@@ -579,6 +582,12 @@ public sealed class InspectionService
         {
             return new InspectionOperationResult(InspectionOperationStatus.Conflict);
         }
+        catch (InvalidOperationException exception) when (exception.InnerException is DbUpdateException update
+            && IsIntegrityOrSerializationConflict(update))
+        {
+            // The provider's non-retrying execution strategy can wrap a 40001 from SaveChanges.
+            return new InspectionOperationResult(InspectionOperationStatus.Conflict);
+        }
     }
 
     public async Task<InspectionOperationResult> DuplicateInspectionAsync(
@@ -587,6 +596,7 @@ public sealed class InspectionService
         string? newLotNumber,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Duplicate", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.Duplicate], cancellationToken);
         var lotNumber = NormalizeOptionalText(newLotNumber);
         if (lotNumber is null)
         {
@@ -746,6 +756,7 @@ public sealed class InspectionService
 
     public async Task<InspectionFlipPreview?> GetFlipPreviewAsync(long inspectionId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Flip", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.Flip], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var source = await db.Inspections.AsNoTracking().Include(x => x.Part).Include(x => x.Results).ThenInclude(x => x.InspectionCriterion).SingleOrDefaultAsync(x => x.Id == inspectionId, cancellationToken);
         if (source is null) return null;
@@ -780,6 +791,7 @@ public sealed class InspectionService
 
     public async Task<InspectionOperationResult> FlipInspectionAsync(long inspectionId, long definitionId, int quantityToMove, string? newLotNumber, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Flip", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.Flip], cancellationToken);
         var lotNumber = NormalizeOptionalText(newLotNumber);
         if (lotNumber is null) return new(InspectionOperationStatus.ValidationFailed, Message: "Lot number is required for the flipped inspection.");
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -863,7 +875,7 @@ public sealed class InspectionService
         }
         db.Inspections.Add(target);
         source.QuantityReceived = quantityReceived - quantityToMove;
-        db.LotFlips.Add(new LotFlip { SourceInspection = source, DestinationInspection = target, PartFlipDefinitionId = definition.Id, PerformedByUserId = currentUser is null ? null : await currentUser.GetUserIdAsync(), PerformedAtUtc = DateTimeOffset.UtcNow, QuantityMoved = quantityToMove });
+        db.LotFlips.Add(new LotFlip { SourceInspection = source, DestinationInspection = target, PartFlipDefinitionId = definition.Id, PerformedByUserId = operation.ActorUserId, PerformedAtUtc = DateTimeOffset.UtcNow, QuantityMoved = quantityToMove });
         try { await db.SaveChangesAsync(cancellationToken); await transaction.CommitAsync(cancellationToken); return new(InspectionOperationStatus.Succeeded, target.Id); }
         catch (DbUpdateException exception) when (HasPostgresError(exception, PostgresErrorCodes.UniqueViolation, UniqueLotNumberConstraint)) { return DuplicateLotNumberResult(await FindInspectionIdByLotNumberAsync(lotNumber, cancellationToken)); }
         catch (DbUpdateException exception) when (IsIntegrityOrSerializationConflict(exception)) { return new(InspectionOperationStatus.Conflict); }
@@ -903,6 +915,7 @@ public sealed class InspectionService
         bool confirmDestinationDeletion,
         CancellationToken cancellationToken = default)
     {
+        using var authorizedUndo = await authorization.BeginAsync("Inspections.UndoLineage", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.UndoLineage], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
@@ -1035,6 +1048,7 @@ public sealed class InspectionService
         int quantityToMove,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.TransferQuantity", new("Inspection", fromInspectionId.ToString()), [Permissions.Inspections.TransferQuantity], cancellationToken);
         if (quantityToMove <= 0 || fromInspectionId == toInspectionId)
         {
             return new(InspectionOperationStatus.ValidationFailed, Message: "Enter a positive quantity to move between different lots.");
@@ -1092,9 +1106,66 @@ public sealed class InspectionService
         }
     }
 
-    public async Task<InspectionEditModel?> GetInspectionAsync(
-        long inspectionId,
+    internal Task<IReadOnlyList<InspectionCertificationDocumentFile>> GetDocumentsForExportAsync(long inspectionId,
+        AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("InspectionSheets.Export", new("Inspection", inspectionId.ToString()), Permissions.InspectionSheets.Export, Permissions.Certifications.Read);
+        return GetCertificationDocumentsForPdfCoreAsync(inspectionId, cancellationToken);
+    }
+
+    public async Task<InspectionEditModel?> GetInspectionAsync(long inspectionId, CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("Inspections.Read", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.Read], cancellationToken);
+        return await GetInspectionCoreAsync(inspectionId, cancellationToken, operation.Snapshot.Has(Permissions.Certifications.Read));
+    }
+
+    internal Task<InspectionEditModel?> GetInspectionForExportAsync(long inspectionId, AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("InspectionSheets.Export", new("Inspection", inspectionId.ToString()), Permissions.InspectionSheets.Export);
+        return GetInspectionCoreAsync(inspectionId, cancellationToken);
+    }
+
+    internal Task<IReadOnlyList<InspectionListItem>> GetPackageStatusesAsync(IReadOnlyCollection<long> ids, long activeInspectionId,
+        AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("Certifications.BuildPackage", new("Inspection", activeInspectionId.ToString()), Permissions.Certifications.BuildPackage);
+        return GetInspectionsAsyncCore(ids, cancellationToken);
+    }
+
+    public async Task<InspectionEditModel?> GetPrintableInspectionAsync(long inspectionId, string? renderToken, bool secondPageNotes,
         CancellationToken cancellationToken = default)
+    {
+        var request = http.HttpContext;
+        var delegated = request is not null && InspectionPrintRenderAuthenticationHandler.CanAuthorizePrint(request, request.User)
+            && request.Request.Path == $"/inspections/{inspectionId}/print"
+            && request.Request.Query["renderToken"] == renderToken
+            && renderTokens.TryGetOptions(renderToken, inspectionId, out _);
+        InspectionEditModel? model;
+        if (delegated)
+        {
+            renderTokens.TryGetOptions(renderToken, inspectionId, out var options);
+            if (options.SecondPageNotes != secondPageNotes) throw new AuthorizationDeniedException(AuthorizationDenial.WrongOperation);
+            model = await GetInspectionCoreAsync(inspectionId, cancellationToken);
+            if (model is not null && options.TemporarilyCompleteForCertificationPackage)
+            {
+                foreach (var process in model.SecondaryProcesses) process.IsComplete = true;
+                model.IsTemporarilyCompletedForCertificationPackage = true;
+            }
+        }
+        else
+        {
+            if (request is not null && BusinessHttpAuthorization.Frame(request) is { } frame)
+            {
+                frame.Require("InspectionSheets.Export", new("Inspection", inspectionId.ToString()), Permissions.InspectionSheets.Export);
+                return await GetInspectionCoreAsync(inspectionId, cancellationToken);
+            }
+            using var operation = await authorization.BeginAsync("InspectionSheets.Export", new("Inspection", inspectionId.ToString()), [Permissions.InspectionSheets.Export], cancellationToken);
+            model = await GetInspectionCoreAsync(inspectionId, cancellationToken);
+        }
+        return model;
+    }
+
+    private async Task<InspectionEditModel?> GetInspectionCoreAsync(long inspectionId, CancellationToken cancellationToken, bool includeDocuments = false)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -1210,7 +1281,7 @@ public sealed class InspectionService
                 x.CertificationTypeName,
                 x.Description,
                 x.Notes,
-                Documents = x.Documents
+                Documents = x.Documents.Where(d => includeDocuments)
                     .OrderBy(d => d.UploadedAtUtc)
                     .ThenBy(d => d.Id)
                     .Select(d => new CertificationDocumentListItem(
@@ -1380,6 +1451,7 @@ public sealed class InspectionService
         byte[] content,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.Create", new("Inspection", inspectionId.ToString()), [Permissions.Certifications.Create], cancellationToken);
         var validationError = ValidateCertificationDocument(fileName, content);
         if (validationError is not null)
         {
@@ -1454,6 +1526,24 @@ public sealed class InspectionService
         long documentId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.Read", new("Inspection", inspectionId.ToString()), [Permissions.Certifications.Read], cancellationToken);
+        return await GetCertificationDocumentCoreAsync(inspectionId, documentId, cancellationToken);
+    }
+
+    internal Task<InspectionCertificationDocumentFile?> GetCertificationDocumentForHttpAsync(
+        long inspectionId,
+        long documentId,
+        AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("Certifications.Read", new("Inspection", inspectionId.ToString()), Permissions.Certifications.Read);
+        return GetCertificationDocumentCoreAsync(inspectionId, documentId, cancellationToken);
+    }
+
+    private async Task<InspectionCertificationDocumentFile?> GetCertificationDocumentCoreAsync(
+        long inspectionId,
+        long documentId,
+        CancellationToken cancellationToken)
+    {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.CertificationDocuments
             .AsNoTracking()
@@ -1469,6 +1559,22 @@ public sealed class InspectionService
     public async Task<IReadOnlyList<InspectionCertificationDocumentFile>> GetCertificationDocumentsForPdfAsync(
         long inspectionId,
         CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("Certifications.Read", new("Inspection", inspectionId.ToString()), [Permissions.Certifications.Read], cancellationToken);
+        return await GetCertificationDocumentsForPdfCoreAsync(inspectionId, cancellationToken);
+    }
+
+    internal Task<IReadOnlyList<InspectionCertificationDocumentFile>> GetCertificationDocumentsForPdfForHttpAsync(
+        long inspectionId,
+        AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("Certifications.Read", new("Inspection", inspectionId.ToString()), Permissions.Certifications.Read);
+        return GetCertificationDocumentsForPdfCoreAsync(inspectionId, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<InspectionCertificationDocumentFile>> GetCertificationDocumentsForPdfCoreAsync(
+        long inspectionId,
+        CancellationToken cancellationToken)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.CertificationDocuments
@@ -1488,6 +1594,24 @@ public sealed class InspectionService
         long inspectionId,
         long documentId,
         CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("Certifications.Read", new("Inspection", inspectionId.ToString()), [Permissions.Certifications.Read], cancellationToken);
+        return await GetCertificationDocumentPreviewCoreAsync(inspectionId, documentId, cancellationToken);
+    }
+
+    internal Task<InspectionCertificationDocumentFile?> GetCertificationDocumentPreviewForHttpAsync(
+        long inspectionId,
+        long documentId,
+        AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("Certifications.Read", new("Inspection", inspectionId.ToString()), Permissions.Certifications.Read);
+        return GetCertificationDocumentPreviewCoreAsync(inspectionId, documentId, cancellationToken);
+    }
+
+    private async Task<InspectionCertificationDocumentFile?> GetCertificationDocumentPreviewCoreAsync(
+        long inspectionId,
+        long documentId,
+        CancellationToken cancellationToken)
     {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var document = await db.CertificationDocuments
@@ -1554,6 +1678,7 @@ public sealed class InspectionService
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.Delete", new("Inspection", inspectionId.ToString()), [Permissions.Certifications.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var document = await db.CertificationDocuments.SingleOrDefaultAsync(
             x => x.Id == documentId
@@ -1581,6 +1706,11 @@ public sealed class InspectionService
         InspectionEditModel model,
         CancellationToken cancellationToken = default)
     {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
+        var current = await permissions.EvaluateCurrentInTransactionAsync(db, cancellationToken);
+        using var operation = current.Begin("Inspections.Update", new("Inspection", model.Id.ToString()), Permissions.Inspections.Update);
+
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -1590,8 +1720,6 @@ public sealed class InspectionService
                 validationError);
         }
 
-        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, cancellationToken);
         var inspection = await db.Inspections
             .Include(x => x.Results)
                 .ThenInclude(x => x.InspectionCriterion)
@@ -1690,9 +1818,6 @@ public sealed class InspectionService
         var selectedInspectorId = NormalizeOptionalText(model.InspectorUserId);
         if (selectedInspectorId != inspection.InspectorUserId)
         {
-            var evaluator = permissions ?? throw new AuthorizationDeniedException(AuthorizationDenial.Unauthenticated);
-            var current = await evaluator.EvaluateCurrentInTransactionAsync(db, cancellationToken);
-            using var op = current.Begin("Inspections.ChangeInspector", new("Inspection", model.Id.ToString()), Permissions.Inspections.Update);
             inspection.Inspector = await InspectorEligibilityService.ResolveSelectionAsync(db, current.Graph,
                 selectedInspectorId, null, cancellationToken);
             inspection.InspectorUserId = selectedInspectorId;
@@ -1762,6 +1887,9 @@ public sealed class InspectionService
 
             result.ActualMin = recordedMinimum;
             result.ActualMax = recordedMaximum;
+            // Compare persisted approvals, including revocation, rather than trusting form intent.
+            if (result.DeviationApproved != submitted.DeviationApproved)
+                operation.Require("Inspections.Update", operation.Scope, Permissions.Inspections.ApproveDeviation);
             result.DeviationApproved = submitted.DeviationApproved;
         }
 
@@ -1831,6 +1959,7 @@ public sealed class InspectionService
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Inspections.Delete", new("Inspection", inspectionId.ToString()), [Permissions.Inspections.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var inspection = await db.Inspections

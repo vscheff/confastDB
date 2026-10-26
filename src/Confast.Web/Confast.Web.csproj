@@ -24,6 +24,8 @@
     <PackageReference Include="HtmlSanitizer" Version="9.1.974" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="PDFsharp" Version="6.2.4" />
+    <!-- Override the vulnerable transitive dependency from MailKit and PDFsharp. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 
 </Project>

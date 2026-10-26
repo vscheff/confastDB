@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,7 +12,8 @@ public sealed partial class ChatService
     public async Task HideDirectConversationAsync(long conversationId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(HideDirectConversationAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Serialize hiding with message delivery, so a newer incoming message always restores visibility.
         await db.Database.ExecuteSqlInterpolatedAsync(
@@ -34,7 +36,8 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetConversationPinnedToTopAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var now = clock.GetUtcNow().UtcDateTime;
         var updated = await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId && x.UserId == userId
                 && x.Conversation.Kind != ConversationKind.Channel)
@@ -49,7 +52,8 @@ public sealed partial class ChatService
     {
         var until = MuteDeadline(muted, minutes);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetConversationMutedAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var updated = await db.ChatConversationMembers.Where(x => x.ConversationId == conversationId && x.UserId == userId
                 && x.Conversation.Kind != ConversationKind.Channel)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsMuted, muted)
@@ -61,7 +65,8 @@ public sealed partial class ChatService
     public async Task LeaveGroupAsync(long conversationId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(LeaveGroupAsync), new("Chat"), [], cancellationToken);
+        var userId = operation.ActorUserId;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Use the same lock as additions, so joining and leaving cannot race over the member set.
         await db.Database.ExecuteSqlInterpolatedAsync(
@@ -88,7 +93,8 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(AddConversationMembersAsync), new("Chat"), [Permissions.Chat.ManageGroupConversations], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Serialize membership additions so overlapping selections create each membership and event once.
         await db.Database.ExecuteSqlInterpolatedAsync(
@@ -99,6 +105,8 @@ public sealed partial class ChatService
         if (source.Kind is not (ConversationKind.Direct or ConversationKind.Group))
             throw new InvalidOperationException("Use channel settings to manage channel members.");
 
+        if (source.Kind == ConversationKind.Direct)
+            operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.CreateConversations);
         var existingIds = source.Members.Select(x => x.UserId).ToHashSet(StringComparer.Ordinal);
         var addedIds = memberUserIds.Distinct(StringComparer.Ordinal).Where(id => !existingIds.Contains(id)).ToArray();
         if (addedIds.Length == 0)
@@ -153,7 +161,8 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(StartGroupAsync), new("Chat"), [Permissions.Chat.CreateConversations], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var ids = memberUserIds.Append(userId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (ids.Length < 3)
             throw new InvalidOperationException("A group chat needs at least three people, including you.");
@@ -177,7 +186,7 @@ public sealed partial class ChatService
                 .Select(x => x.Id).ToArrayAsync(cancellationToken);
             if (existingIds.Length > 0)
             {
-                var existing = (await GetConversationsAsync(cancellationToken))
+                var existing = (await ReadConversationsAsync(db, operation, false, cancellationToken))
                     .Where(x => existingIds.Contains(x.Id)).ToArray();
                 await transaction.CommitAsync(cancellationToken);
                 return new(null, existing);
@@ -217,10 +226,27 @@ public sealed partial class ChatService
         return (picture, contentType);
     }
 
-    public async Task<(byte[] Data, string ContentType)?> GetGroupIconForHttpUserAsync(long conversationId,
-        string requesterUserId, CancellationToken cancellationToken = default)
+    internal async Task<(byte[] Data, string ContentType)?> GetGroupIconForHttpAsync(long conversationId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(http.HttpContext!, "ChatGroupIcon",
+            new("ChatGroupIcon", conversationId.ToString(System.Globalization.CultureInfo.InvariantCulture)), Permissions.Chat.Access);
+        var requesterUserId = operation.ActorUserId;
+        return await FindGroupIconAsync(db, conversationId, requesterUserId, cancellationToken);
+    }
+
+    public async Task<(byte[] Data, string ContentType)?> GetGroupIconAsync(long conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync(nameof(GetGroupIconAsync), new("ChatGroupIcon", conversationId.ToString()),
+            [Permissions.Chat.Access], cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await FindGroupIconAsync(db, conversationId, operation.ActorUserId, cancellationToken);
+    }
+
+    private static async Task<(byte[] Data, string ContentType)?> FindGroupIconAsync(Confast.Web.Data.AppDbContext db,
+        long conversationId, string requesterUserId, CancellationToken cancellationToken)
+    {
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
                 && x.UserId == requesterUserId && x.User.IsActive && x.Conversation.Kind == ConversationKind.Group,
                 cancellationToken))
@@ -237,7 +263,8 @@ public sealed partial class ChatService
         bool changeIcon = true, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(UpdateGroupAsync), new("Chat"), [Permissions.Chat.ManageGroupConversations], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId
                 && x.UserId == userId && x.Conversation.Kind == ConversationKind.Group, cancellationToken))
             throw new UnauthorizedAccessException("You do not belong to this group chat.");

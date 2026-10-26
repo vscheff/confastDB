@@ -1,15 +1,17 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Confast.Web.Features.Parts;
 
-public sealed class PartFlipService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class PartFlipService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
     private const string DuplicateConstraint = "UX_part_flip_definitions_source_target";
 
     public async Task<PartFlipConfiguration?> GetConfigurationAsync(long sourcePartId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PartFlipDefinitions.Read", new("Part", sourcePartId.ToString()), [Permissions.PartFlipDefinitions.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var source = await db.Parts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourcePartId, cancellationToken);
         if (source is null) return null;
@@ -33,12 +35,14 @@ public sealed class PartFlipService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<IReadOnlyList<PartFlipCriterionOption>> GetCurrentCriterionOptionsAsync(long partId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PartFlipDefinitions.Read", new("Part", partId.ToString()), [Permissions.PartFlipDefinitions.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return (await CurrentCriteriaAsync(db, partId, cancellationToken)).Select(ToOption).ToList();
     }
 
     public async Task<SavePartFlipResult> SaveDefinitionAsync(long sourcePartId, long targetPartId, IReadOnlyList<PartFlipMappingInput>? mappings = null, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PartFlipDefinitions.Create", new("Part", sourcePartId.ToString()), [Permissions.PartFlipDefinitions.Create], cancellationToken);
         if (sourcePartId == targetPartId) return new(SavePartFlipStatus.Invalid, Message: "A part cannot flip to itself.");
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         if (!await db.Parts.AnyAsync(x => x.Id == sourcePartId, cancellationToken) || !await db.Parts.AnyAsync(x => x.Id == targetPartId && x.IsActive, cancellationToken)) return new(SavePartFlipStatus.NotFound);
@@ -78,6 +82,7 @@ public sealed class PartFlipService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<SavePartFlipResult> ReplaceMappingsAsync(long definitionId, IReadOnlyList<PartFlipMappingInput> mappings, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PartFlipDefinitions.Update", new("FlipDefinition", definitionId.ToString()), [Permissions.PartFlipDefinitions.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var definition = await db.PartFlipDefinitions.Include(x => x.CriterionMappings).SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken);
         if (definition is null) return new(SavePartFlipStatus.NotFound);
@@ -91,6 +96,7 @@ public sealed class PartFlipService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<bool> DeleteDefinitionAsync(long definitionId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("PartFlipDefinitions.Delete", new("FlipDefinition", definitionId.ToString()), [Permissions.PartFlipDefinitions.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var definition = await db.PartFlipDefinitions.SingleOrDefaultAsync(x => x.Id == definitionId, cancellationToken);
         if (definition is null) return false;

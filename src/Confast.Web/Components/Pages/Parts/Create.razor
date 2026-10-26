@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Parts.Create")]
 @page "/parts/create"
 @using Confast.Web.Features.Parts
 @inject PartService PartService
@@ -36,7 +38,7 @@ else
         <div class="alert alert-error" role="alert">@saveMessage</div>
     }
 
-    <PartForm Model="part"
+    <PartForm CanEdit="Can(Permissions.Parts.Create)" Model="part"
               CustomerOptions="customerOptions"
               PlantOptions="plantOptions"
               SupplierOptions="supplierOptions"
@@ -82,8 +84,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load customers for part creation");
-            loadError = "Customers could not be loaded. Please try again.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "Customers could not be loaded. Please try again.";
         }
         finally
         {
@@ -137,8 +140,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to create part");
-            saveMessage = "The part could not be created. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The part could not be created. Please try again.";
         }
         finally
         {

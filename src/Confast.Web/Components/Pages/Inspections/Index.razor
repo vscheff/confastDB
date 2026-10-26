@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Inspections.Read")]
 @page "/inspections"
 @using Confast.Web.Features.Inspections
 @inject InspectionService InspectionService
@@ -19,7 +21,7 @@
             <button class="button button-secondary" type="button" @onclick="LoadAsync" disabled="@isLoading">
                 Refresh
             </button>
-            <a class="button button-primary" href="/inspections/create">Create Inspection</a>
+            @if (Can(Permissions.Inspections.Create)) { <a class="button button-primary" href="/inspections/create">Create Inspection</a> }
         </div>
     </div>
 
@@ -304,8 +306,9 @@
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load inspections");
-            loadError = "Inspections could not be loaded. Please try again.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "Inspections could not be loaded. Please try again.";
         }
         finally
         {
@@ -351,8 +354,9 @@
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to delete inspection {InspectionId}", inspection.Id);
-            actionMessage = "The inspection could not be deleted. Please try again.";
+            actionMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspection could not be deleted. Please try again.";
             actionMessageClass = "alert-error";
         }
         finally
@@ -407,8 +411,9 @@
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to filter inspections");
-            filterMessage = "The inspections could not be filtered. Please try again.";
+            filterMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspections could not be filtered. Please try again.";
         }
         finally
         {

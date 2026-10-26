@@ -11,7 +11,7 @@ using Npgsql;
 namespace Confast.Web.Tests;
 
 [Collection(PostgresCollection.Name)]
-public sealed class DelegatedAdministrationTests(PostgresTestDatabase database) : IAsyncLifetime
+public sealed partial class DelegatedAdministrationTests(PostgresTestDatabase database) : IAsyncLifetime
 {
     private readonly AuthorizationTestSession session = new(database);
     private readonly TestClock clock = new();
@@ -81,7 +81,6 @@ public sealed class DelegatedAdministrationTests(PostgresTestDatabase database) 
     [Theory]
     [InlineData("self")]
     [InlineData("root")]
-    [InlineData("baseline")]
     [InlineData("unrelated")]
     [InlineData("higher")]
     [InlineData("disabled")]
@@ -91,7 +90,6 @@ public sealed class DelegatedAdministrationTests(PostgresTestDatabase database) 
         var edit = (await Users.GetUserForEditAsync(scenario == "self" ? actor.Id : target.Id))!;
         if (scenario == "self") edit.Roles.Add(lower.Name!);
         if (scenario == "root") edit.Roles.Add(AppRoles.Root);
-        if (scenario == "baseline") edit.Roles.Remove(AppRoles.ReadOnly);
         if (scenario == "unrelated") edit.Roles.Add((await Role(Management)).Name!);
         if (scenario == "higher") edit.Roles.Add(AppRoles.Administrator);
         if (scenario == "disabled")
@@ -114,6 +112,67 @@ public sealed class DelegatedAdministrationTests(PostgresTestDatabase database) 
         Assert.Contains(unrelated.Name!, edit.Roles); edit.Roles.Remove(unrelated.Name!);
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Users.UpdateUserAsync(edit));
         Assert.Contains(unrelated.Name!, (await Users.GetUserForEditAsync(target.Id))!.Roles);
+    }
+
+    [Fact]
+    public async Task AuthorizedAdministratorCanRemoveAndRestoreReadOnlyWithoutChangingOtherAssignments()
+    {
+        var lower = await Role(); var target = await User(lower.Id); await Manager(lower.Id);
+        var edit = (await Users.GetUserForEditAsync(target.Id))!;
+        Assert.True(edit.RoleChoices.Single(x => x.Id == AppRoles.ReadOnlyId).CanChange);
+        edit.Roles.Remove(AppRoles.ReadOnly); Assert.True((await Users.UpdateUserAsync(edit)).Succeeded);
+        edit = (await Users.GetUserForEditAsync(target.Id))!;
+        Assert.Equal([lower.Name!], edit.Roles);
+        edit.Roles.Add(AppRoles.ReadOnly); Assert.True((await Users.UpdateUserAsync(edit)).Succeeded);
+        await using var db = database.CreateDbContext();
+        Assert.Equal(2, await db.UserRoles.CountAsync(x => x.UserId == target.Id));
+        var removed = await db.AuthorizationChangeHistory.Include(x => x.Details).SingleAsync(x => x.Purpose == "Users.Edit" && x.Details.Any(d => d.RoleId == AppRoles.ReadOnlyId && d.IsPresent == false));
+        Assert.True(removed.ResultingEpoch > removed.PreviousEpoch);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReadOnlyRemovalRequiresManageRolesAndTheStoredGrantEnvelope(bool hasManageRoles)
+    {
+        var role = await Role(hasManageRoles ? [Permissions.Users.Read, Permissions.Users.ManageRoles] : [Permissions.Users.Read]);
+        var actor = await User(role.Id); var target = await User();
+        if (hasManageRoles)
+        { await using var db = database.CreateDbContext(); await db.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync(); }
+        await session.SignInAsync(actor.Id);
+        var edit = (await Users.GetUserForEditAsync(target.Id))!;
+        Assert.False(edit.RoleChoices.Single(x => x.Id == AppRoles.ReadOnlyId).CanChange);
+        edit.Roles.Remove(AppRoles.ReadOnly);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Users.UpdateUserAsync(edit));
+    }
+
+    [Fact]
+    public async Task ReadOnlyStillCountsWhenCheckingWhetherAnAccountCanBeTakenOver()
+    {
+        var actor = await Manager(); var target = await User();
+        await using (var db = database.CreateDbContext())
+            await db.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+        var edit = (await Users.GetUserForEditAsync(target.Id))!;
+        Assert.False(edit.CanManageAccount);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Users.GeneratePasswordResetTokenAsync(target.Id, edit.Version, edit.ConcurrencyStamp));
+        var self = (await Users.GetUserForEditAsync(actor.Id))!; self.Roles.Clear();
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Users.UpdateUserAsync(self));
+    }
+
+    [Theory]
+    [InlineData("default")]
+    [InlineData("quality")]
+    [InlineData("none")]
+    public async Task CreationUsesReadOnlyAsTheDefaultButHonorsAnExplicitReplacement(string selection)
+    {
+        var input = new CreateUserInput { Username = "initial." + selection, Email = selection + "@example.test",
+            DisplayName = selection, Version = await Version() };
+        if (selection == "quality") input.Roles = [AppRoles.Quality];
+        if (selection == "none") input.Roles = [];
+        var result = await Users.CreateUserAsync(input); Assert.True(result.Succeeded);
+        await using var db = database.CreateDbContext();
+        var actual = await db.UserRoles.Where(x => x.UserId == result.UserId).Select(x => x.RoleId).ToListAsync();
+        Assert.Equal(selection == "default" ? new[] { AppRoles.ReadOnlyId } : selection == "quality" ? [AppRoles.QualityId] : [], actual);
     }
 
     [Fact]
@@ -312,7 +371,7 @@ public sealed class DelegatedAdministrationTests(PostgresTestDatabase database) 
         await Assert.ThrowsAsync<ArgumentException>(() => Roles.SetParentsAsync(b.Id, [a.Id], item.ConcurrencyStamp, version));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Roles.SetParentsAsync(b.Id, [b.Id], item.ConcurrencyStamp, version));
         await Assert.ThrowsAsync<ArgumentException>(() => Roles.SetParentsAsync(b.Id, [c.Id, c.Id], item.ConcurrencyStamp, version));
-        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Roles.SetParentsAsync(b.Id, [AppRoles.ReadOnlyId], item.ConcurrencyStamp, version));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Roles.SetParentsAsync(b.Id, [AppRoles.RootId], item.ConcurrencyStamp, version));
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => SetGrants(item, version, Permissions.Authorization.ManageSecurity));
     }
 
@@ -430,7 +489,7 @@ public sealed class DelegatedAdministrationTests(PostgresTestDatabase database) 
         await database.ResetAsync(); var actor = await User(AppRoles.AdministratorId); await session.SignInAsync(actor.Id);
         Assert.Equal(AuthorizationDenial.PendingRoot, (await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Users.GetUsersAsync())).Denial);
         Assert.Equal(AuthorizationDenial.PendingRoot, (await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Roles.GetRolesAsync())).Denial);
-        Assert.Empty(await new Confast.Web.Features.Customers.CustomerService(database).GetCustomersAsync());
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => new Confast.Web.Features.Customers.CustomerService(database, session.Guard).GetCustomersAsync());
     }
 
     [Fact]

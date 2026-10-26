@@ -40,15 +40,51 @@ public sealed class ApplicationAuthorization(EffectivePermissionService permissi
 
 public sealed record PermissionRequirement(string PermissionKey) : IAuthorizationRequirement;
 
+public static class PermissionPolicies
+{
+    public const string ProductionConfigurationRead = "ProductionConfigurationRead";
+    public static readonly string[] ProductionConfigurationReadKeys =
+    [Permissions.SortingMachines.Read, Permissions.ProductionCalendars.Read, Permissions.ProductionHolidays.Read,
+        Permissions.ProductionDowntimeReasons.Read, Permissions.ProductionSettings.Read];
+}
+
+public sealed record AnyPermissionRequirement(IReadOnlyList<string> Keys) : IAuthorizationRequirement;
+
+public sealed class AnyPermissionAuthorizationHandler(EffectivePermissionService permissions)
+    : AuthorizationHandler<AnyPermissionRequirement>
+{
+    protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, AnyPermissionRequirement requirement)
+    {
+        try
+        {
+            var snapshot = await permissions.EvaluateAsync(context.User, CancellationToken.None);
+            if (requirement.Keys.Any(key => PermissionCatalog.ExpandRequirements([key]).All(snapshot.Has))) context.Succeed(requirement);
+            else context.Fail();
+        }
+        catch (AuthorizationDeniedException) { context.Fail(); }
+    }
+}
+
 public sealed class PermissionAuthorizationHandler(EffectivePermissionService permissions,
-    Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> identityOptions)
+    Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.IdentityOptions> identityOptions,
+    IHttpContextAccessor http)
     : AuthorizationHandler<PermissionRequirement>
 {
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
         try
         {
-            if (context.Resource is AuthorizedOperation operation)
+            // Only the static, exact print route can complete an already authorized capability.
+            if (requirement.PermissionKey == Permissions.InspectionSheets.Export
+                && Confast.Web.Features.Inspections.InspectionPrintRenderAuthenticationHandler.CanAuthorizePrint(http.HttpContext, context.User))
+            {
+                context.Succeed(requirement);
+                return;
+            }
+            var operation = context.Resource as AuthorizedOperation
+                ?? (context.Resource is HttpContext httpContext ? BusinessHttpAuthorization.Frame(httpContext) : null)
+                ?? (http.HttpContext is { } requestContext ? BusinessHttpAuthorization.Frame(requestContext) : null);
+            if (operation is not null)
             {
                 var claims = identityOptions.Value.ClaimsIdentity;
                 if (context.User.Identity?.IsAuthenticated != true
@@ -74,13 +110,17 @@ public static class AuthorizationRegistration
     public static IServiceCollection AddConfastAuthorization(this IServiceCollection services)
     {
         services.AddSingleton<PermissionCache>();
+        services.AddSingleton<AuthorizationChangeNotifications>();
         services.AddScoped<EffectivePermissionService>();
         services.AddScoped<ApplicationAuthorization>();
         services.AddScoped<RoleAdministrationService>();
         services.AddScoped<InspectorEligibilityService>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddScoped<IAuthorizationHandler, AnyPermissionAuthorizationHandler>();
         services.AddAuthorization(options =>
         {
+            options.AddPolicy(PermissionPolicies.ProductionConfigurationRead, policy => policy.RequireAuthenticatedUser()
+                .AddRequirements(new AnyPermissionRequirement(PermissionPolicies.ProductionConfigurationReadKeys)));
             foreach (var definition in PermissionCatalog.All)
                 options.AddPolicy(PolicyName(definition.Key), policy =>
                     policy.RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(definition.Key)));

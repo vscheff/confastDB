@@ -1,0 +1,53 @@
+@inject UserAdministrationService UserService
+<details class="user-effective-access">
+    <summary>Effective Access And Assignment Impact</summary>
+    <div class="form-actions">
+        <button class="button button-secondary" type="button" disabled="@busy" @onclick="LoadAsync">Review Current Access</button>
+        <button class="button button-secondary" type="button" disabled="@(busy || !CanPreview)" @onclick="PreviewAsync">Preview Assignment Changes</button>
+    </div>
+    @if (error is not null) { <p class="alert alert-error" role="alert">@error</p> }
+    @if (access is not null)
+    {
+        <p>Epoch @access.Version.Epoch · @(access.IsActive ? "Active Account" : "Inactive Account: Stored Grants Are Dormant")</p>
+        @if (access.IsRoot) { <p>Protected Root Designation Supplies All Recognized Permissions. Ordinary Role Assignments Cannot Change This Authority.</p> }
+        @foreach (var role in access.Roles)
+        { <p><strong>@role.Name</strong> @(!role.Enabled ? "(Disabled)" : "") · Parents: @(role.Parents.Count == 0 ? "None" : string.Join(", ", role.Parents))</p> }
+        @if (access.Impact is not null)
+        {
+            <p>@(access.Permitted ? "Assignment Proposal Currently Permitted; Save Independently Rechecks." : access.Rejection)</p>
+            <p>Provenance changes show permissions still supplied by another assigned role.</p>
+            <PermissionImpactSummary Impact="access.Impact" />
+        }
+        <PermissionMatrix Rows="access.Matrix" RoleNames="access.RoleNames" IsRoot="access.IsRoot" />
+    }
+</details>
+@code {
+    [Parameter, EditorRequired] public EditUserInput User { get; set; } = null!;
+    [Parameter] public bool CanPreview { get; set; }
+    [Parameter] public long Revision { get; set; }
+    private string? signature, error;
+    private UserAccessView? access;
+    private bool busy;
+    private long loadGeneration;
+    protected override void OnParametersSet()
+    {
+        var next = User.Id + User.Version + User.ConcurrencyStamp + Revision + string.Join("|", User.Roles.Order());
+        if (signature != next) { signature = next; loadGeneration++; access = null; error = null; }
+    }
+    private Task LoadAsync() => RunAsync(false);
+    private Task PreviewAsync() => RunAsync(true);
+    private async Task RunAsync(bool preview)
+    {
+        busy = true; error = null;
+        var generation = ++loadGeneration;
+        try
+        {
+            var result = await UserService.GetEffectiveAccessAsync(User.Id, preview ? User.Roles.ToArray() : null,
+                preview ? User.Version : null, preview ? User.ConcurrencyStamp : null);
+            if (generation == loadGeneration) access = result;
+        }
+        catch (Exception ex) when (ex is AuthorizationDeniedException or Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException or ArgumentException or InvalidOperationException)
+        { error = ex.Message; access = null; }
+        finally { busy = false; }
+    }
+}

@@ -1,4 +1,5 @@
 @page "/inspections/{InspectionId:long}/print"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:InspectionSheets.Export")]
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.InspectionCriteria
 @inject InspectionService InspectionService
@@ -213,18 +214,7 @@
         loadError = null;
         try
         {
-            inspection = await InspectionService.GetInspectionAsync(InspectionId);
-            if (inspection is not null
-                && RenderTokenService.TryGetOptions(RenderToken, InspectionId, out var renderOptions)
-                && renderOptions.TemporarilyCompleteForCertificationPackage)
-            {
-                foreach (var process in inspection.SecondaryProcesses)
-                {
-                    process.IsComplete = true;
-                }
-
-                inspection.IsTemporarilyCompletedForCertificationPackage = true;
-            }
+            inspection = await InspectionService.GetPrintableInspectionAsync(InspectionId, RenderToken, SecondPageNotes);
         }
         catch (Exception exception)
         {

@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Customers.Create")]
 @page "/customers/create"
 @using Confast.Web.Features.Customers
 @inject CustomerService CustomerService
@@ -60,8 +62,9 @@
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to create customer");
-            saveMessage = "The customer could not be created. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The customer could not be created. Please try again.";
         }
         finally
         {

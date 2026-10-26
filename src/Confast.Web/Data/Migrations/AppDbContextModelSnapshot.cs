@@ -3482,6 +3482,78 @@ namespace Confast.Web.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Chat.ChatModerationHistory", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("ChannelThreadId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("channel_thread_id");
+
+                    b.Property<long>("ConversationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTime>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at_utc");
+
+                    b.Property<long>("MessageId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("ModeratorUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("moderator_user_id");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<string>("OriginalSenderUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("original_sender_user_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<bool>("WasPinned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("was_pinned");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique();
+
+                    b.HasIndex("ModeratorUserId");
+
+                    b.HasIndex("OriginalSenderUserId");
+
+                    b.HasIndex("ConversationId", "ChannelThreadId");
+
+                    b.HasIndex("ConversationId", "Id");
+
+                    b.HasIndex("ConversationId", "MessageId");
+
+                    b.ToTable("chat_moderation_history", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_chat_moderation_other_sender", "moderator_user_id <> original_sender_user_id");
+
+                            t.HasCheckConstraint("CK_chat_moderation_reason", "btrim(reason) <> ''");
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatPoll", b =>
                 {
                     b.Property<long>("MessageId")
@@ -3617,28 +3689,77 @@ namespace Confast.Web.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<long>("AuthorizationEpoch")
+                        .HasColumnType("bigint")
+                        .HasColumnName("authorization_epoch");
+
                     b.Property<string>("Body")
                         .IsRequired()
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)")
                         .HasColumnName("body");
 
+                    b.Property<string>("CatalogVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("catalog_version");
+
                     b.Property<long?>("ChannelThreadId")
                         .HasColumnType("bigint")
                         .HasColumnName("channel_thread_id");
 
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
                     b.Property<long>("ConversationId")
                         .HasColumnType("bigint")
                         .HasColumnName("conversation_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<long?>("DeliveredMessageId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("delivered_message_id");
 
                     b.Property<string>("Failure")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
                         .HasColumnName("failure");
 
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<Guid?>("InstallationGeneration")
+                        .HasColumnType("uuid")
+                        .HasColumnName("installation_generation");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at_utc");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("purpose");
+
                     b.Property<long?>("ReplyToMessageId")
                         .HasColumnType("bigint")
                         .HasColumnName("reply_to_message_id");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
 
                     b.Property<DateTime>("ScheduledAtUtc")
                         .HasColumnType("timestamp with time zone")
@@ -3649,20 +3770,37 @@ namespace Confast.Web.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("sender_user_id");
 
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.Property<DateTime>("ValidUntilUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("valid_until_utc");
+
                     b.HasKey("Id");
 
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
                     b.HasIndex("ScheduledAtUtc")
-                        .HasFilter("failure IS NULL");
+                        .HasFilter("state = 0");
 
                     b.HasIndex("SenderUserId");
 
                     b.HasIndex("ConversationId", "ChannelThreadId");
 
+                    b.HasIndex("ConversationId", "DeliveredMessageId");
+
                     b.HasIndex("ConversationId", "ReplyToMessageId");
 
                     b.ToTable("chat_scheduled_messages", null, t =>
                         {
+                            t.HasCheckConstraint("CK_chat_scheduled_messages_attempts", "attempt_count BETWEEN 0 AND 5");
+
                             t.HasCheckConstraint("CK_chat_scheduled_messages_body", "char_length(body) BETWEEN 1 AND 4000");
+
+                            t.HasCheckConstraint("CK_chat_scheduled_messages_lifecycle", "state BETWEEN 0 AND 3 AND ((state = 0 AND completed_at_utc IS NULL AND failure IS NULL) OR (state <> 0 AND completed_at_utc IS NOT NULL)) AND ((state = 1) = (delivered_message_id IS NOT NULL))");
                         });
                 });
 
@@ -7399,6 +7537,34 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Chat.ChatModerationHistory", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ModeratorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("OriginalSenderUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Confast.Web.Features.Chat.ChatChannelThread", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId", "ChannelThreadId")
+                        .HasPrincipalKey("ConversationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Confast.Web.Features.Chat.ChatMessage", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId", "MessageId")
+                        .HasPrincipalKey("ConversationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatPoll", b =>
                 {
                     b.HasOne("Confast.Web.Features.Chat.ChatMessage", "Message")
@@ -7467,6 +7633,12 @@ namespace Confast.Web.Data.Migrations
                     b.HasOne("Confast.Web.Features.Chat.ChatChannelThread", null)
                         .WithMany()
                         .HasForeignKey("ConversationId", "ChannelThreadId")
+                        .HasPrincipalKey("ConversationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Confast.Web.Features.Chat.ChatMessage", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId", "DeliveredMessageId")
                         .HasPrincipalKey("ConversationId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 

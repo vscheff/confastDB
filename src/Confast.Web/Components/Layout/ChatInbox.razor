@@ -1,3 +1,4 @@
+@using Confast.Web.Features.Authorization
 @using Confast.Web.Features.Chat
 @inject ChatService Chat
 @inject IJSRuntime JS
@@ -36,6 +37,7 @@
                     @if (selected == InboxTab.Scheduled)
                     {
                         <div class="inbox-schedule">◷ Message scheduled for <time datetime="@item.AtUtc.ToString("O")">@TimeLabel(item)</time></div>
+                        <button type="button" class="inbox-cancel-scheduled" disabled="@markingRead" @onclick="() => CancelAsync(item)">Cancel Scheduled Message</button>
                     }
                     <div class="inbox-card-header">
                         <button type="button" class="inbox-destination" disabled="@(conversation is null)" @onclick="() => Opened.InvokeAsync((item, selected == InboxTab.Scheduled))">
@@ -68,6 +70,7 @@
 </section>
 
 @code {
+    [Parameter] public EventCallback AuthorizationChanged { get; set; }
     [Parameter] public long Revision { get; set; }
     [Parameter] public IReadOnlyList<ChatConversationRow> Conversations { get; set; } = [];
     [Parameter] public IReadOnlyList<ChatChannelGroupRow> Groups { get; set; } = [];
@@ -109,6 +112,7 @@
                 .ToDictionary(x => x.date, x => x.label);
         }
         catch (JSDisconnectedException) { }
+        catch (AuthorizationDeniedException) { await AuthorizationChanged.InvokeAsync(); }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Could not load chat inbox.");
@@ -117,6 +121,19 @@
         finally { if (loadedRevision == revision) loading = false; }
     }
     private string TimeLabel(ChatInboxMessage item) => times.GetValueOrDefault(item.AtUtc, "Loading time…");
+    private async Task CancelAsync(ChatInboxMessage item)
+    {
+        if (markingRead) return;
+        markingRead = true;
+        try
+        {
+            await Chat.CancelScheduledMessageAsync(item.Id);
+            scheduled = scheduled.Where(x => x.Id != item.Id).ToArray();
+        }
+        catch (AuthorizationDeniedException) { await AuthorizationChanged.InvokeAsync(); }
+        catch (InvalidOperationException ex) { error = ex.Message; }
+        finally { markingRead = false; }
+    }
     private async Task MarkAllReadAsync()
     {
         if (markingRead) return;
@@ -128,6 +145,7 @@
             loadedRevision = -1;
             await OnParametersSetAsync();
         }
+        catch (AuthorizationDeniedException) { await AuthorizationChanged.InvokeAsync(); }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Could not mark all inbox messages as read.");
@@ -145,6 +163,7 @@
             unreads = unreads.Where(x => x.Id != item.Id).ToArray();
             mentions = mentions.Where(x => x.Id != item.Id).ToArray();
         }
+        catch (AuthorizationDeniedException) { await AuthorizationChanged.InvokeAsync(); }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "Could not mark inbox message {MessageId} as read.", item.Id);

@@ -19,7 +19,9 @@ internal static class AuthorizationMutationLock
     {
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("Authorization changes require an explicit transaction.");
-        var state = await db.AuthorizationState.FromSqlRaw("SELECT * FROM authorization_state WHERE id = 1 FOR UPDATE")
+        // Row locking requires UPDATE privilege in PostgreSQL. The fixed-purpose function
+        // acquires that lock without granting the runtime login writes to protected state.
+        var state = await db.AuthorizationState.FromSqlRaw("SELECT * FROM public.confast_lock_authorization()")
             .AsNoTracking().SingleAsync(cancellationToken);
         return state;
     }

@@ -6,6 +6,7 @@ public static class ChatMapping
 {
     public static void Configure(ModelBuilder model)
     {
+        ChatModerationMapping.Configure(model);
         ChatNotificationMapping.Configure(model);
         ChatPollMapping.Configure(model);
         ChatGifMapping.Configure(model);
@@ -42,7 +43,8 @@ public static class ChatMapping
             "(kind = 1 AND visibility IS NOT NULL AND name IS NOT NULL AND btrim(name) <> '' AND direct_pair_key IS NULL AND channel_sort_order >= 0) OR " +
             "(kind = 2 AND visibility IS NULL AND (name IS NULL OR btrim(name) <> '') AND direct_pair_key IS NULL AND channel_group_id IS NULL AND channel_sort_order = 0)");
         });
-        // Retain unfiltered messages/threads for audit. User-facing reads require an active membership.
+        // Keep deleted-channel data consistent across required navigations.
+        // Audit queries use IgnoreQueryFilters(); all history remains stored.
         conversation.HasQueryFilter(x => x.DeletedAtUtc == null);
         conversation.HasKey(x => x.Id);
         conversation.HasAlternateKey(x => new { x.Id, x.Kind });
@@ -70,6 +72,7 @@ public static class ChatMapping
         conversation.HasIndex(x => new { x.ChannelGroupId, x.ChannelSortOrder, x.Id });
 
         var channelThread = model.Entity<ChatChannelThread>();
+        channelThread.HasQueryFilter(x => x.Conversation.DeletedAtUtc == null);
         channelThread.ToTable("chat_channel_threads", t =>
         {
             t.HasCheckConstraint("CK_chat_channel_threads_title", "btrim(title) <> ''");
@@ -125,6 +128,7 @@ public static class ChatMapping
         member.HasIndex(x => x.UserId);
 
         var message = model.Entity<ChatMessage>();
+        message.HasQueryFilter(x => x.Conversation.DeletedAtUtc == null);
         message.ToTable("chat_messages", t =>
         {
             t.HasCheckConstraint("CK_chat_messages_body", "char_length(body) BETWEEN 1 AND 4000");
@@ -166,6 +170,7 @@ public static class ChatMapping
         message.HasIndex(x => new { x.ConversationId, x.PinnedAtUtc }).HasFilter("pinned_at_utc IS NOT NULL");
 
         var attachment = model.Entity<ChatAttachment>();
+        attachment.HasQueryFilter(x => x.Message.Conversation.DeletedAtUtc == null);
         attachment.ToTable("chat_attachments", table =>
         {
             table.HasCheckConstraint("CK_chat_attachments_content", "octet_length(content) BETWEEN 1 AND 26214400");
@@ -184,6 +189,7 @@ public static class ChatMapping
         attachment.HasIndex(x => x.MessageId);
 
         var read = model.Entity<ChatMessageRead>();
+        read.HasQueryFilter(x => x.Message.Conversation.DeletedAtUtc == null);
         read.ToTable("chat_message_reads");
         read.HasKey(x => new { x.UserId, x.MessageId });
         read.Property(x => x.ConversationId).HasColumnName("conversation_id");
@@ -196,6 +202,7 @@ public static class ChatMapping
             .HasForeignKey(x => new { x.ConversationId, x.UserId }).OnDelete(DeleteBehavior.Cascade);
 
         var mention = model.Entity<ChatMessageMention>();
+        mention.HasQueryFilter(x => x.Message.Conversation.DeletedAtUtc == null);
         mention.ToTable("chat_message_mentions");
         mention.HasKey(x => new { x.MessageId, x.UserId });
         mention.Property(x => x.MessageId).HasColumnName("message_id");
@@ -205,6 +212,7 @@ public static class ChatMapping
         mention.HasIndex(x => x.UserId);
 
         var tag = model.Entity<ChatMessageTag>();
+        tag.HasQueryFilter(x => x.Message.Conversation.DeletedAtUtc == null);
         tag.ToTable("chat_message_tags", table => table.HasCheckConstraint("CK_chat_message_tags_shape",
             "start >= 0 AND length > 0 AND ((kind = 0 AND user_id IS NOT NULL) OR (kind IN (1, 2) AND user_id IS NULL))"));
         tag.HasKey(x => new { x.MessageId, x.Start });
@@ -218,6 +226,7 @@ public static class ChatMapping
         tag.HasIndex(x => x.UserId);
 
         var reaction = model.Entity<ChatMessageReaction>();
+        reaction.HasQueryFilter(x => x.Message.Conversation.DeletedAtUtc == null);
         reaction.ToTable("chat_message_reactions");
         reaction.HasKey(x => new { x.MessageId, x.UserId, x.Emoji });
         reaction.Property(x => x.MessageId).HasColumnName("message_id");

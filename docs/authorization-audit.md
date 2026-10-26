@@ -1,6 +1,16 @@
 # ConfastDB: Phase 1 Authorization Audit and Permission Inventory
 
-Audit date: October 9, 2026. This is a planning report, not an RBAC implementation.
+**Phase 3G reconciliation (October 26, 2026):** this historical report is preserved. All 404 G sites, 248 method checklist rows and F01–F17 findings have current dispositions in the [final verification record](authorization-final-verification.md) and its [row-level reconciliation](security-evidence/historical-reconciliation.csv). Historical role names, proposed keys and line numbers below do not describe current enforcement.
+
+**Phase 3F status (October 16, 2026):** the catalog-backed role matrix, provenance and impact previews, safe role/user editing, process-local advisory refresh, and channel moderation-history UI are implemented. See [the administration UI record](authorization-administration-ui.md) for behavior, validation, and remaining Phase 3G limits. This supersedes historical matrix/refresh/history-UI deferrals below.
+
+**Phase 3E-2 status (October 16, 2026):** scheduled delegation/lifecycle, scoped renderer execution, create-only bootstrap and guarded Development diagnostics are implemented. See [the background and delegation record](authorization-background-delegation.md) for the complete execution inventory, migration, validation and remaining Phase 3F/3G boundaries. This supersedes historical background/bootstrap deferrals below.
+
+**Phase 3E-1 status (October 15, 2026):** chat permissions, media/subscription privacy and scoped moderation are implemented in [the chat authorization record](authorization-chat.md). Its boundary inventory and verification supersede older chat deferrals below; the full hosted-worker redesign remains Phase 3E-2.
+
+**Phase 3D-2 status (October 15, 2026):** logistics, remaining receiving, production configuration/scheduling/tracking/reporting and fixed schedule-read maintenance now use trusted permission boundaries. See [the logistics and production implementation record](authorization-production-logistics.md) for the complete method inventory, verification and remaining Phase 3E boundaries. Historical deferrals below are superseded for this scope.
+
+Audit date: October 9, 2026. This is a historical planning report, not current enforcement status. The 164-key foundation and delegated administration supersede its catalog/design proposals; [Phase 3D-1 core-business coverage](authorization-core-business.md) records current dispositions for the in-scope service, UI and HTTP entries. Other findings remain the later-phase checklist.
 
 ## 1. Executive Summary
 

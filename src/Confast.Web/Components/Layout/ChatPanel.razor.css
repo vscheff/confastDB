@@ -714,3 +714,6 @@
 .chat-picker-tabs { position: sticky; top: -.45rem; z-index: 1; display: flex; gap: .3rem; margin-bottom: .5rem; background: #fff; }
 .chat-picker-tabs button { flex: 1; min-height: 36px; border: 0; border-bottom: 2px solid transparent; background: transparent; font: inherit; cursor: pointer; }
 .chat-picker-tabs button[aria-selected="true"] { border-bottom-color: #176b9c; color: #176b9c; font-weight: bold; }
+
+.chat-compose-permission-fields { display: contents; margin: 0; padding: 0; border: 0; min-width: 0; }
+.chat-delete-dialog textarea { width: 100%; box-sizing: border-box; }

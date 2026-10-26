@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Gages.Read")]
 @page "/gages"
 @using Confast.Web.Features.Gages
 @inject GageService GageService
@@ -31,13 +33,13 @@ else
         <button class="subtab @(activeTab == GageTab.PhysicalGages ? "subtab-active" : null)"
                 type="button"
                 aria-pressed="@(activeTab == GageTab.PhysicalGages)"
-                @onclick="() => SelectTab(GageTab.PhysicalGages)">
+                disabled="@(!Can(Permissions.Gages.Read))" @onclick="() => SelectTab(GageTab.PhysicalGages)">
             Physical Gages
         </button>
         <button class="subtab @(activeTab == GageTab.Types ? "subtab-active" : null)"
                 type="button"
                 aria-pressed="@(activeTab == GageTab.Types)"
-                @onclick="() => SelectTab(GageTab.Types)">
+                disabled="@(!Can(Permissions.GageTypes.Read))" @onclick="() => SelectTab(GageTab.Types)">
             Gage Types
         </button>
     </div>
@@ -47,7 +49,7 @@ else
     <section>
         <div class="gage-tab-toolbar">
             <h2>Gage Types</h2>
-            <button class="button button-primary" type="button" @onclick="BeginAddType" disabled="@(isSaving || typeModel is not null)">Add Gage Type</button>
+            <button class="button button-primary" type="button" @onclick="BeginAddType" disabled="@(!(Can(Permissions.GageTypes.Create)) || (isSaving || typeModel is not null))">Add Gage Type</button>
         </div>
 
         @if (typeModel is not null)
@@ -57,12 +59,12 @@ else
                 <div class="record-form compact-record-form">
                     <div class="form-field">
                         <label for="gage-type-name">Name</label>
-                        <input id="gage-type-name" @ref="gageTypeNameInput" @bind="typeModel.Name" @bind:event="oninput" />
+                        <input id="gage-type-name" @ref="gageTypeNameInput" @bind="typeModel.Name" @bind:event="oninput" disabled="@(!Can(typeModel.Id == 0 ? Permissions.GageTypes.Create : Permissions.GageTypes.Update))" />
                         <ValidationMessage For="() => typeModel.Name" />
                     </div>
-                    <label class="checkbox-field"><InputCheckbox @bind-Value="typeModel.IsActive" /> Active</label>
+                    <label class="checkbox-field"><InputCheckbox @bind-Value="typeModel.IsActive" disabled="@(!Can(typeModel.Id == 0 ? Permissions.GageTypes.Create : Permissions.GageTypes.Update))" /> Active</label>
                     <div class="form-actions">
-                        <button class="button button-primary" type="submit" disabled="@isSaving">Save</button>
+                        <button class="button button-primary" type="submit" disabled="@(!Can(typeModel.Id == 0 ? Permissions.GageTypes.Create : Permissions.GageTypes.Update) || (isSaving))">Save</button>
                         <button class="button button-secondary" type="button" @onclick="CancelType" disabled="@isSaving">Cancel</button>
                     </div>
                 </div>
@@ -80,8 +82,8 @@ else
                             <td data-label="Status"><span class="status-pill @(type.IsActive ? "status-active" : "status-inactive")">@(type.IsActive ? "Active" : "Inactive")</span></td>
                             <td class="table-action" data-label="Actions">
                                 <div class="row-actions">
-                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditType(type)" disabled="@(isSaving || typeModel is not null)">Edit</button>
-                                    <button class="button button-secondary" type="button" @onclick="() => ToggleTypeAsync(type)" disabled="@isSaving">@(type.IsActive ? "Deactivate" : "Activate")</button>
+                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditType(type)" disabled="@(!(Can(Permissions.GageTypes.Update)) || (isSaving || typeModel is not null))">Edit</button>
+                                    <button class="button button-secondary" type="button" @onclick="() => ToggleTypeAsync(type)" disabled="@(!(Can(Permissions.GageTypes.Update)) || (isSaving))">@(type.IsActive ? "Deactivate" : "Activate")</button>
                                 </div>
                             </td>
                         </tr>
@@ -96,7 +98,7 @@ else
     <section>
         <div class="gage-tab-toolbar">
             <h2>Physical Gages</h2>
-            <button class="button button-primary" type="button" @onclick="BeginAddGage" disabled="@(isSaving || gageModel is not null || gageTypes.Count == 0)">Add Gage</button>
+            <button class="button button-primary" type="button" @onclick="BeginAddGage" disabled="@(!(Can(Permissions.Gages.Create)) || (isSaving || gageModel is not null || gageTypes.Count == 0))">Add Gage</button>
         </div>
 
         @if (gageModel is not null)
@@ -106,12 +108,12 @@ else
                 <div class="record-form compact-record-form">
                     <div class="form-field">
                         <label for="gage-number">Gage number</label>
-                        <input id="gage-number" @ref="gageNumberInput" @bind="gageModel.GageNumber" @bind:event="oninput" />
+                        <input id="gage-number" @ref="gageNumberInput" @bind="gageModel.GageNumber" @bind:event="oninput" disabled="@(!Can(gageModel.Id == 0 ? Permissions.Gages.Create : Permissions.Gages.Update))" />
                         <ValidationMessage For="() => gageModel.GageNumber" />
                     </div>
                     <div class="form-field">
                         <label for="gage-type">Gage type</label>
-                        <InputSelect id="gage-type" @bind-Value="gageModel.GageTypeId">
+                        <InputSelect id="gage-type" @bind-Value="gageModel.GageTypeId" disabled="@(!Can(gageModel.Id == 0 ? Permissions.Gages.Create : Permissions.Gages.Update))">
                             <option value="0">Select a gage type</option>
                             @foreach (var type in gageTypes)
                             {
@@ -120,9 +122,9 @@ else
                         </InputSelect>
                         <ValidationMessage For="() => gageModel.GageTypeId" />
                     </div>
-                    <label class="checkbox-field"><InputCheckbox @bind-Value="gageModel.IsActive" /> Active</label>
+                    <label class="checkbox-field"><InputCheckbox @bind-Value="gageModel.IsActive" disabled="@(!Can(gageModel.Id == 0 ? Permissions.Gages.Create : Permissions.Gages.Update))" /> Active</label>
                     <div class="form-actions">
-                        <button class="button button-primary" type="submit" disabled="@isSaving">Save</button>
+                        <button class="button button-primary" type="submit" disabled="@(!Can(gageModel.Id == 0 ? Permissions.Gages.Create : Permissions.Gages.Update) || (isSaving))">Save</button>
                         <button class="button button-secondary" type="button" @onclick="CancelGage" disabled="@isSaving">Cancel</button>
                     </div>
                 </div>
@@ -162,8 +164,8 @@ else
                             <td data-label="Status"><span class="status-pill @(gage.IsActive ? "status-active" : "status-inactive")">@(gage.IsActive ? "Active" : "Inactive")</span></td>
                             <td class="table-action" data-label="Actions">
                                 <div class="row-actions">
-                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditGage(gage)" disabled="@(isSaving || gageModel is not null)">Edit</button>
-                                    <button class="button button-secondary" type="button" @onclick="() => ToggleGageAsync(gage)" disabled="@isSaving">@(gage.IsActive ? "Deactivate" : "Activate")</button>
+                                    <button class="button button-secondary" type="button" @onclick="() => BeginEditGage(gage)" disabled="@(!(Can(Permissions.Gages.Update)) || (isSaving || gageModel is not null))">Edit</button>
+                                    <button class="button button-secondary" type="button" @onclick="() => ToggleGageAsync(gage)" disabled="@(!(Can(Permissions.Gages.Update)) || (isSaving))">@(gage.IsActive ? "Deactivate" : "Activate")</button>
                                 </div>
                             </td>
                         </tr>
@@ -262,13 +264,17 @@ else
         loadError = null;
         try
         {
-            gageTypes = await GageService.GetGageTypesAsync();
-            gages = await GageService.GetGagesAsync();
+            gageTypes = Can(Permissions.GageTypes.Read) ? await GageService.GetGageTypesAsync()
+                : (await GageService.GetGageMethodChoicesAsync()).Select(x => new GageTypeListItem(x.Id, x.Name, x.IsActive, 0)).ToArray();
+            gages = Can(Permissions.Gages.Read) ? await GageService.GetGagesAsync() : [];
+            if (!Can(Permissions.GageTypes.Read)) activeTab = GageTab.PhysicalGages;
+            else if (!Can(Permissions.Gages.Read)) activeTab = GageTab.Types;
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load gages");
-            loadError = "Gages could not be loaded. Check that the database is running and configured.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "Gages could not be loaded. Check that the database is running and configured.";
         }
         finally
         {
@@ -369,8 +375,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save a gage record");
-            message = "The record could not be saved. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The record could not be saved. Please try again.";
             messageClass = "alert-error";
         }
         finally

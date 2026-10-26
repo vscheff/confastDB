@@ -1,3 +1,5 @@
+using Confast.Web.Features.Authorization;
+using Microsoft.AspNetCore.Http;
 using Confast.Web.Features.Chat;
 using Confast.Web.Features.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -277,7 +279,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         $"https://media.giphy.com/{id}/image.gif", $"https://giphy.com/gifs/{id}", "GIPHY");
 
     private ChatService GifService(string userId, TimeProvider time, int limit = 100, int reserve = 20) =>
-        new(database, new TestCurrentUser(userId), notifications, time,
+        new(database, Session(userId).Guard, Session(userId).Evaluator, new HttpContextAccessor(), notifications, time,
             Microsoft.Extensions.Options.Options.Create(new ChatGifCacheOptions
             { SearchCacheLifetimeHours = 1, HourlyRequestLimit = limit, RefreshRequestReserve = reserve }));
 
@@ -359,7 +361,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
             GifService(i % 2 == 0 ? owner : member, time, limit: 5, reserve: 2).RecordGifRequestAsync()));
         await using var db = database.CreateDbContext();
         Assert.Equal(16, await db.Set<ChatGifApiRequest>().CountAsync());
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => GifService("missing", time).RecordGifRequestAsync());
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => GifService("missing", time).RecordGifRequestAsync());
     }
 
     [Fact]
@@ -409,7 +411,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         await Service(owner).ResolveGifSearchAsync("lol", 24, 24, Fetch);
         await Service(owner).ResolveGifSearchAsync("lol", 0, 1, () => Task.FromResult(new ChatGifResult([CachedGif("abc123")], 99, null)));
         Assert.Equal(2, calls);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service("missing-user").ResolveGifSearchAsync("lol", 0, 24, Fetch));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Service("missing-user").ResolveGifSearchAsync("lol", 0, 24, Fetch));
     }
 
     [Fact]
@@ -458,7 +460,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Empty(await Service(owner).GetGifFavoritesAsync());
         Assert.Equal(["abc123"], await Service(member).GetGifFavoritesAsync());
         await Assert.ThrowsAsync<InvalidOperationException>(() => Service(owner).SetGifFavoriteAsync("https://example.com/file.gif", true));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service("missing-user").GetGifFavoritesAsync());
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Service("missing-user").GetGifFavoritesAsync());
     }
 
     [Fact]
@@ -489,14 +491,26 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Equal("abc123", stored.GiphyId);
     }
 
-    public Task InitializeAsync() => database.ResetAsync();
-    public Task DisposeAsync() => Task.CompletedTask;
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        using var session = new AuthorizationTestSession(database);
+        await session.ProvisionRootAsync();
+    }
+    private readonly List<AuthorizationTestSession> sessions = [];
+    private AuthorizationTestSession Session(string userId)
+    {
+        var session = ChatTestAuthorization.Session(database, userId);
+        sessions.Add(session);
+        return session;
+    }
+    public Task DisposeAsync() { foreach (var session in sessions) session.Dispose(); return Task.CompletedTask; }
 
     private ChatService Service(string userId) =>
-        new(database, new TestCurrentUser(userId), notifications, TimeProvider.System);
+        new(database, Session(userId).Guard, Session(userId).Evaluator, new HttpContextAccessor(), notifications, TimeProvider.System);
 
     private ChatService Service(string userId, TimeProvider timeProvider) =>
-        new(database, new TestCurrentUser(userId), notifications, timeProvider);
+        new(database, Session(userId).Guard, Session(userId).Evaluator, new HttpContextAccessor(), notifications, timeProvider);
 
     private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
     {
@@ -571,13 +585,13 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var row = (await Service(member).GetConversationsAsync()).Single();
         Assert.True(row.HasIconPicture);
         Assert.Null(row.IconGiphyId);
-        var picture = await Service(owner).GetGroupIconForHttpUserAsync(id, member);
+        var picture = await Service(member).GetGroupIconAsync(id);
         Assert.Equal(png, picture!.Value.Data);
         Assert.Equal("image/png", picture.Value.ContentType);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(owner).GetGroupIconForHttpUserAsync(id, outsider));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).GetGroupIconAsync(id));
         await using var db2 = database.CreateDbContext();
         await db2.Users.Where(x => x.Id == member).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false));
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(owner).GetGroupIconForHttpUserAsync(id, member));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Service(member).GetGroupIconAsync(id));
         var invalidIcon = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => db2.ChatConversations
             .Where(x => x.Id == id).ExecuteUpdateAsync(s => s.SetProperty(x => x.IconGiphyId, "validId")));
         Assert.Equal("23514", invalidIcon.SqlState);
@@ -603,7 +617,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(outsider).UpdateGroupAsync(id, "Forged", new(GiphyId: "abc123")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => Service(member).UpdateGroupAsync(id, "Invalid", new([1, 2, 3])));
         Assert.Equal("Edited", (await Service(owner).GetConversationsAsync()).Single().Name);
-        Assert.Equal(png, (await Service(owner).GetGroupIconForHttpUserAsync(id, member))!.Value.Data);
+        Assert.Equal(png, (await Service(member).GetGroupIconAsync(id))!.Value.Data);
         await Service(member).RenameGroupAsync(id, "Name only");
         Assert.True((await Service(owner).GetConversationsAsync()).Single().HasIconPicture);
         await Service(member).UpdateGroupAsync(id, "GIF icon", new(GiphyId: "abc123"));
@@ -634,7 +648,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Equal("Member, Outsider, Owner", row.Name);
         Assert.Equal("validId", row.IconGiphyId);
         Assert.False(row.HasIconPicture);
-        Assert.Null(await chat.GetGroupIconForHttpUserAsync(id, member));
+        Assert.Null(await Service(member).GetGroupIconAsync(id));
     }
 
     [Fact]
@@ -800,7 +814,22 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Equal([third, first, second], (await chat.GetConversationsAsync()).OrderBy(x => x.ChannelSortOrder).Select(x => x.Id));
         await chat.MoveChannelToCategoryEdgeAsync(third, false);
         Assert.Equal([first, second, third], (await chat.GetConversationsAsync()).OrderBy(x => x.ChannelSortOrder).Select(x => x.Id));
-        var message = await chat.SendAsync(second, "Audit record");
+        var message = await chat.SendWithAttachmentsAsync(second, "Audit record @Member",
+            [new("audit.txt", System.Text.Encoding.UTF8.GetBytes("Retained attachment"))]);
+        await Service(member).AddReactionAsync(message, "🎉");
+        await Service(member).MarkMessageReadAsync(second, message);
+        var thread = await chat.CreateChannelThreadAsync(second, "Audit thread", "Retained thread message");
+        var poll = await chat.CreatePollAsync(second, "Audit poll", [new("Yes"), new("No")]);
+        var answer = (await chat.GetThreadAsync(second)).Messages.Single(x => x.Id == poll).Poll!.Answers[0].Id;
+        await Service(member).TogglePollVoteAsync(poll, answer);
+        await using (var beforeDelete = database.CreateDbContext())
+        {
+            var messageIds = await beforeDelete.ChatMessages.OrderBy(x => x.Id).Select(x => x.Id).ToListAsync();
+            var withConversations = await beforeDelete.ChatMessages.AsNoTracking()
+                .Include(x => x.Conversation).OrderBy(x => x.Id).ToListAsync();
+            Assert.Equal(messageIds, withConversations.Select(x => x.Id));
+            Assert.Single(await beforeDelete.ChatChannelThreads.Include(x => x.Conversation).ToListAsync());
+        }
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Service(member).DeleteChannelAsync(second));
         await chat.DeleteChannelAsync(second);
         Assert.DoesNotContain(await Service(outsider).GetConversationsAsync(), x => x.Id == second);
@@ -811,7 +840,28 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var deleted = await db.ChatConversations.IgnoreQueryFilters().SingleAsync(x => x.Id == second);
         Assert.Equal(owner, deleted.DeletedByUserId);
         Assert.NotNull(deleted.DeletedAtUtc);
-        Assert.True(await db.ChatMessages.AnyAsync(x => x.Id == message));
+        Assert.False(await db.ChatMessages.AnyAsync(x => x.Id == message));
+        Assert.True(await db.ChatMessages.IgnoreQueryFilters().AnyAsync(x => x.Id == message));
+        Assert.Empty(await db.ChatMessages.Include(x => x.Conversation).ToListAsync());
+        Assert.Empty(await db.ChatChannelThreads.Include(x => x.Conversation).ToListAsync());
+        Assert.Equal(thread, (await db.ChatChannelThreads.IgnoreQueryFilters()
+            .Include(x => x.Conversation).SingleAsync()).Id);
+        Assert.All(await db.ChatMessages.IgnoreQueryFilters().Include(x => x.Conversation).ToListAsync(),
+            x => Assert.NotNull(x.Conversation.DeletedAtUtc));
+        await AssertHistoryHiddenAndRetainedAsync<ChatAttachment>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatMessageRead>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatMessageMention>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatMessageTag>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatMessageReaction>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatPoll>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatPollAnswer>();
+        await AssertHistoryHiddenAndRetainedAsync<ChatPollVote>();
+
+        async Task AssertHistoryHiddenAndRetainedAsync<T>() where T : class
+        {
+            Assert.Empty(await db.Set<T>().AsNoTracking().ToListAsync());
+            Assert.NotEmpty(await db.Set<T>().AsNoTracking().IgnoreQueryFilters().ToListAsync());
+        }
     }
 
     [Theory]
@@ -1009,7 +1059,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var time = new MutableTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
         var sender = Service(owner, time);
         var recipient = Service(member, time);
-        var presence = new UserPresenceService(database, new TestCurrentUser(member), notifications, time);
+        var presence = new UserPresenceService(database, new TestCurrentUser(member), Session(member).Guard, notifications, time);
         var channel = await sender.CreateChannelAsync("Quiet", ChannelVisibility.Private, [member]);
         await presence.SetPreferenceAsync(UserPresencePreference.DoNotDisturb, TimeSpan.FromMinutes(15));
         var id = await sender.SendAsync(channel, "Incoming while busy");
@@ -1305,7 +1355,8 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Contains((await chat.GetThreadAsync(channel, channelThreadId: thread)).Messages, x => x.Body == "Thread delivery");
         Assert.DoesNotContain((await chat.GetThreadAsync(channel)).Messages, x => x.Body == "Inactive");
         await using var check = database.CreateDbContext();
-        Assert.NotNull(Assert.Single(check.Set<ChatScheduledMessage>()).Failure);
+        Assert.NotNull(Assert.Single(check.Set<ChatScheduledMessage>().Where(x => x.State == ScheduledChatState.Failed)).Failure);
+        Assert.Single(check.Set<ChatScheduledMessage>().Where(x => x.State == ScheduledChatState.Delivered));
     }
 
     [Fact]
@@ -1726,7 +1777,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var (owner, member, outsider) = await UsersAsync();
         var id = await Service(owner).CreateChannelAsync("Production", ChannelVisibility.Public, []);
         await using (var db = database.CreateDbContext())
-            Assert.Equal(3, db.ChatConversationMembers.Count(x => x.ConversationId == id));
+            Assert.Equal(4, db.ChatConversationMembers.Count(x => x.ConversationId == id));
         Assert.Equal(id, Assert.Single(await Service(member).GetConversationsAsync()).Id);
         Assert.Equal(id, Assert.Single(await Service(outsider).GetConversationsAsync()).Id);
 
@@ -1746,7 +1797,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         Assert.Equal("Earlier message", (await newcomer.GetThreadAsync(id)).Messages.Single().Body);
         await newcomer.SendAsync(id, "Hello everyone");
         await using (var db = database.CreateDbContext())
-            Assert.Equal(4, db.ChatConversationMembers.Count(x => x.ConversationId == id));
+            Assert.Equal(5, db.ChatConversationMembers.Count(x => x.ConversationId == id));
     }
 
     [Fact]
@@ -1829,7 +1880,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var channelId = await ownerService.CreateChannelAsync("First name", ChannelVisibility.Public, []);
         var privateChannelId = await Service(outsider).CreateChannelAsync("Private name", ChannelVisibility.Private, []);
         Assert.False((await Service(member).GetConversationsAsync()).Single().IsOwner);
-        Assert.False(await Service(member).IsCurrentUserAdministratorAsync());
+        Assert.False(await Service(member).CanAdministerChannelsAsync());
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             Service(member).RenameChannelAsync(channelId, "Not allowed"));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
@@ -1845,7 +1896,7 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
             await db.SaveChangesAsync();
         }
 
-        Assert.True(await Service(member).IsCurrentUserAdministratorAsync());
+        Assert.True(await Service(member).CanAdministerChannelsAsync());
         await Service(member).RenameChannelAsync(channelId, "  Updated by administrator  ");
         Assert.Equal("Updated by administrator", (await Service(owner).GetConversationsAsync()).Single().Name);
         await Service(member).RenameChannelAsync(privateChannelId, "Updated private name");

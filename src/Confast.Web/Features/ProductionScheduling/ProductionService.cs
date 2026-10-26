@@ -1,6 +1,6 @@
 using System.Data;
 using Confast.Web.Data;
-using Confast.Web.Features.Identity;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Time;
@@ -11,55 +11,50 @@ namespace Confast.Web.Features.ProductionScheduling;
 
 public sealed class ProductionService(
     IDbContextFactory<AppDbContext> factory,
-    ICurrentUser currentUser,
+    ApplicationAuthorization authorization,
     TimeProvider clock,
     BusinessDateProvider? businessDate = null)
 {
     private DateOnly Today => businessDate?.Today
         ?? DateOnly.FromDateTime(clock.GetLocalNow().DateTime);
 
-    private async Task<(string User, bool Edit, bool Admin)> Access(AppDbContext db)
-    {
-        var id = await currentUser.GetUserIdAsync();
-        if (id == null || !await db.Users.AnyAsync(x => x.Id == id && x.IsActive))
-            throw new UnauthorizedAccessException("Sign in with an active account to use Production Scheduling.");
-        var roles = await (from ur in db.UserRoles join r in db.Roles on ur.RoleId equals r.Id where ur.UserId == id select r.Name).ToListAsync();
-        var admin = roles.Contains(AppRoles.Administrator);
-        return (id, admin || roles.Contains(AppRoles.Production), admin);
-    }
-
     public async Task<ProductionSnapshot> GetAsync()
     {
+        using var operation = await authorization.BeginAsync("ProductionSchedules.Read", new("ProductionSchedule"), [Permissions.ProductionSchedules.Read]);
+        return await ReadScheduleAsync(operation, maintain: true);
+    }
+
+    private async Task<ProductionSnapshot> ReadScheduleAsync(AuthorizedOperation operation, bool maintain)
+    {
+        operation.Require(operation.Purpose, operation.Scope, Permissions.ProductionSchedules.Read);
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
-        var access = await Access(db);
-        // Passing an ETD is a time-based domain event, not a checkbox a planner has
-        // to remember. Catch it up when the schedule is opened; the source-line key
-        // makes repeated reads harmless.
-        var settings = await db.Set<ProductionSettings>().FromSqlRaw("SELECT *, xmin FROM production_settings WHERE id = 1 FOR UPDATE").SingleAsync();
-        var result = await Load(db, access.Edit, access.Admin);
-        var clearedLegacyConstraints = ClearLegacyContainerArrivalConstraints(result);
-        var initializedRunningForecasts = InitializeRunningForecasts(result);
-        var appendedContainerParts = await AppendDepartedContainerPartsAsync(db, result);
-        if (clearedLegacyConstraints || appendedContainerParts || initializedRunningForecasts)
-        {
-            settings.Revision++;
-            db.Set<ProductionAudit>().Add(new()
-            {
-                Revision = settings.Revision,
-                RecordedAt = clock.GetUtcNow().UtcDateTime,
-                RecordedBy = "System",
-                Description = initializedRunningForecasts
-                    ? "Captured the planned dates for running production work"
-                    : appendedContainerParts
-                    ? "Appended departed container parts to the production schedule"
-                    : "Replaced legacy container arrival constraints with the source material gate"
-            });
-            await db.SaveChangesAsync();
-            result = await Load(db, access.Edit, access.Admin);
-        }
+        if (maintain)
+            await db.Set<ProductionSettings>().FromSqlRaw("SELECT *, xmin FROM production_settings WHERE id = 1 FOR UPDATE").SingleAsync();
+        var result = await Load(db, false, false);
+        if (maintain && await MaintainScheduleOnReadAsync(db, result)) result = await Load(db, false, false);
         await transaction.CommitAsync();
         return result;
+    }
+
+    // Fixed, private domain catch-up. An authorized reader cannot supply mutations or a system actor.
+    // Preserve the existing read-triggered timing, serialization, idempotency and System attribution.
+    private async Task<bool> MaintainScheduleOnReadAsync(AppDbContext db, ProductionSnapshot data)
+    {
+        var cleared = ClearLegacyContainerArrivalConstraints(data);
+        var initialized = InitializeRunningForecasts(data);
+        var appended = await AppendDepartedContainerPartsAsync(db, data);
+        if (!cleared && !initialized && !appended) return false;
+        data.Settings.Revision++;
+        db.Set<ProductionAudit>().Add(new()
+        {
+            Revision = data.Settings.Revision, RecordedAt = clock.GetUtcNow().UtcDateTime, RecordedBy = "System",
+            Description = initialized ? "Captured the planned dates for running production work"
+                : appended ? "Appended departed container parts to the production schedule"
+                : "Replaced legacy container arrival constraints with the source material gate"
+        });
+        await db.SaveChangesAsync();
+        return true;
     }
 
     private static bool InitializeRunningForecasts(ProductionSnapshot data)
@@ -86,12 +81,61 @@ public sealed class ProductionService(
 
     public async Task<ProductionSnapshot> GetReadOnlyAsync()
     {
+        using var operation = await authorization.BeginAsync("ProductionSchedules.Read", new("ProductionSchedule"), [Permissions.ProductionSchedules.Read]);
+        return await ReadScheduleAsync(operation, maintain: false);
+    }
+
+    internal async Task<ProductionSnapshot> GetReportScheduleAsync(AuthorizedOperation operation)
+    {
+        operation.Require("ProductionReports.Read", new("ProductionReports"), Permissions.ProductionReports.Read);
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
-        var access = await Access(db);
-        var result = await Load(db, access.Edit, access.Admin);
+        var result = await Load(db, false, false);
         await transaction.CommitAsync();
         return result;
+    }
+
+    public async Task<ProductionConfiguration> GetConfigurationAsync()
+    {
+        using var operation = await authorization.BeginAsync("Production.Configuration", new("ProductionConfiguration"), []);
+        var readable = PermissionPolicies.ProductionConfigurationReadKeys.FirstOrDefault(operation.Snapshot.Has)
+            ?? throw new AuthorizationDeniedException(AuthorizationDenial.MissingPermission);
+        operation.Require(operation.Purpose, operation.Scope, readable);
+        await using var db = await factory.CreateDbContextAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
+        var settings = await db.Set<ProductionSettings>().AsNoTracking().SingleAsync();
+        if (!operation.Snapshot.Has(Permissions.ProductionSettings.Read)) settings.EfficiencyPercent = 0;
+        // A machine editor needs the default hours to edit its Follows Default choice.
+        if (operation.Snapshot.Has(Permissions.ProductionCalendars.Read) || operation.Snapshot.Has(Permissions.SortingMachines.Read))
+            settings.DefaultWorkingDays = await db.Set<DefaultWorkingDay>().AsNoTracking().ToListAsync();
+        var machines = operation.Snapshot.Has(Permissions.SortingMachines.Read)
+            ? await db.Set<SortingMachine>().AsNoTracking().Include(x => x.WorkingDays).OrderBy(x => x.Name).ToListAsync() : [];
+        var holidays = operation.Snapshot.Has(Permissions.ProductionHolidays.Read)
+            ? await db.Set<ProductionHoliday>().AsNoTracking().OrderBy(x => x.Date).ToListAsync() : [];
+        var reasons = operation.Snapshot.Has(Permissions.ProductionDowntimeReasons.Read)
+            ? await db.Set<DowntimeReason>().AsNoTracking().OrderBy(x => x.Name).ToListAsync() : [];
+        await transaction.CommitAsync();
+        return new(settings, machines, holidays, reasons);
+    }
+
+    public async Task<PartProductionConfiguration> GetPartConfigurationAsync(long partId)
+    {
+        using var operation = await authorization.BeginAsync("Production.PartConfiguration", new("Part", partId.ToString()), []);
+        operation.Require(operation.Purpose, operation.Scope, operation.Snapshot.Has(Permissions.PartMachineEligibility.Read)
+            ? Permissions.PartMachineEligibility.Read : Permissions.Parts.Read);
+        await using var db = await factory.CreateDbContextAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead);
+        var settings = await db.Set<ProductionSettings>().AsNoTracking()
+            .Select(x => new ProductionSettings { Revision = x.Revision, EfficiencyPercent = x.EfficiencyPercent }).SingleAsync();
+        var machines = await db.Set<SortingMachine>().AsNoTracking().OrderBy(x => x.Name)
+            .Select(x => new SortingMachine
+            {
+                Id = x.Id, Name = x.Name, IsActive = x.IsActive,
+                Parts = x.Parts.Where(p => p.PartId == partId).Select(p => new PartMachine
+                { MachineId = p.MachineId, PartId = p.PartId, TargetPph = p.TargetPph, IsPreferred = p.IsPreferred }).ToList()
+            }).ToListAsync();
+        await transaction.CommitAsync();
+        return new(settings, machines);
     }
 
     private async Task<bool> AppendDepartedContainerPartsAsync(AppDbContext db, ProductionSnapshot data, long? containerGroupPartId = null)
@@ -148,8 +192,9 @@ public sealed class ProductionService(
 
     public async Task AppendContainerPartAsync(long containerGroupPartId)
     {
-        var snapshot = await GetAsync();
-        await Write(snapshot.Settings.Revision, false, $"Append container part {containerGroupPartId} to the production schedule", async (db, data, user) =>
+        using var operation = await authorization.BeginAsync("ProductionSchedules.AppendContainerPart", new("ProductionSchedule"), [Permissions.ProductionSchedules.AppendContainerPart]);
+        var snapshot = await ReadScheduleAsync(operation, maintain: true);
+        await WriteAuthorizedAsync(operation, snapshot.Settings.Revision, $"Append container part {containerGroupPartId} to the production schedule", async (db, data, user) =>
         {
             await AppendDepartedContainerPartsAsync(db, data, containerGroupPartId);
             if (!data.Jobs.Any(job => job.ContainerGroupPartId == containerGroupPartId))
@@ -315,22 +360,30 @@ public sealed class ProductionService(
     private sealed record ProductionInspectionProcess(long InspectionId, long RequirementId,
         string ProcessName, bool IsComplete);
 
-    private async Task Write(long revision, bool administrator, string description,
-        Func<AppDbContext, ProductionSnapshot, string, Task> action)
+    private async Task Write(long revision, string[] requiredKeys, string description,
+        Func<AppDbContext, ProductionSnapshot, string, Task> action,
+        Func<ProductionSnapshot, string>? persistedPermission = null)
     {
+        using var operation = await authorization.BeginAsync("Production.Write", new("ProductionSchedule"), requiredKeys);
+        await WriteAuthorizedAsync(operation, revision, description, action, persistedPermission);
+    }
+
+    private async Task WriteAuthorizedAsync(AuthorizedOperation operation, long revision, string description,
+        Func<AppDbContext, ProductionSnapshot, string, Task> action,
+        Func<ProductionSnapshot, string>? persistedPermission = null)
+    {
+        operation.Require(operation.Purpose, operation.Scope, operation.RequiredKeys.ToArray());
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        var access = await Access(db);
-        if (!access.Edit || administrator && !access.Admin)
-            throw new UnauthorizedAccessException(administrator ? "Administrator access is required for scheduling settings." : "Production or Administrator access is required to plan work.");
         // A single small planning aggregate serializes changes across machines, including global calendars.
         var settings = await db.Set<ProductionSettings>().FromSqlRaw("SELECT *, xmin FROM production_settings WHERE id = 1 FOR UPDATE").SingleAsync();
         if (settings.Revision != revision) throw new SchedulingException("The schedule changed elsewhere. Reload and review before saving.");
-        var data = await Load(db, access.Edit, access.Admin);
-        await action(db, data, access.User);
+        var data = await Load(db, false, false);
+        if (persistedPermission is not null) operation.Require(operation.Purpose, operation.Scope, persistedPermission(data));
+        await action(db, data, operation.ActorUserId);
         Validate(data);
         settings.Revision++;
-        db.Set<ProductionAudit>().Add(new() { Revision = settings.Revision, RecordedAt = clock.GetUtcNow().UtcDateTime, RecordedBy = access.User, Description = description });
+        db.Set<ProductionAudit>().Add(new() { Revision = settings.Revision, RecordedAt = clock.GetUtcNow().UtcDateTime, RecordedBy = operation.ActorUserId, Description = description });
         try
         {
             await db.SaveChangesAsync();
@@ -415,7 +468,7 @@ public sealed class ProductionService(
     }
 
     public Task SaveJobAsync(long revision, long id, long partId, long machineId, decimal quantity, string? po, string? mo, string? notes) =>
-        Write(revision, false, $"Save job {id}: part {partId}, quantity {quantity}, PO {po}, MO {mo}", (db, data, user) =>
+        Write(revision, [id == 0 ? Permissions.ProductionJobs.Create : Permissions.ProductionJobs.Update], $"Save job {id}: part {partId}, quantity {quantity}, PO {po}, MO {mo}", (db, data, user) =>
         {
             Quantity(quantity, "Job quantity");
             var job = data.Jobs.SingleOrDefault(x => x.Id == id);
@@ -440,7 +493,7 @@ public sealed class ProductionService(
         });
 
     public Task DeleteJobAsync(long revision, long jobId) =>
-        Write(revision, false, $"Delete job {jobId}", async (db, data, user) =>
+        Write(revision, [Permissions.ProductionJobs.Delete], $"Delete job {jobId}", async (db, data, user) =>
         {
             var job = data.Jobs.SingleOrDefault(x => x.Id == jobId)
                 ?? throw new SchedulingException("Job no longer exists.");
@@ -466,7 +519,7 @@ public sealed class ProductionService(
     }
 
     public Task SaveRequirementAsync(long revision, long jobId, long requirementId, DateOnly date, decimal? additionalQuantity, bool remove = false) =>
-        Write(revision, false, $"Requirement for job {jobId}: {date}, additional {additionalQuantity}, remove {remove}", (db, data, user) =>
+        Write(revision, [Permissions.ProductionJobs.Update], $"Requirement for job {jobId}: {date}, additional {additionalQuantity}, remove {remove}", (db, data, user) =>
         {
             var job = data.Jobs.Single(x => x.Id == jobId);
             var partRequirements = data.Requirements.Where(x => x.PartId == job.PartId).ToList();
@@ -489,7 +542,7 @@ public sealed class ProductionService(
             return Task.CompletedTask;
         });
 
-    public Task StartAsync(long revision, long segmentId) => Write(revision, false, $"Start segment {segmentId}", (db, data, user) =>
+    public Task StartAsync(long revision, long segmentId) => Write(revision, [Permissions.ProductionSchedules.StartWork], $"Start segment {segmentId}", (db, data, user) =>
     {
         var s = data.Segments.Single(x => x.Id == segmentId);
         if (s.State != ProductionState.Pending) throw new SchedulingException("Only pending work can start.");
@@ -514,7 +567,7 @@ public sealed class ProductionService(
     });
 
     public Task ProgressAsync(long revision, long segmentId, decimal additionalCompleted, DateOnly asOf, string? notes, bool complete) =>
-        Write(revision, false, $"Progress segment {segmentId}: add {additionalCompleted} through {asOf}; complete {complete}", (db, data, user) =>
+        Write(revision, complete ? [Permissions.ProductionSchedules.RecordProgress, Permissions.ProductionSchedules.CompleteWork] : [Permissions.ProductionSchedules.RecordProgress], $"Progress segment {segmentId}: add {additionalCompleted} through {asOf}; complete {complete}", (db, data, user) =>
         {
             var s = data.Segments.Single(x => x.Id == segmentId);
             if (s.State != ProductionState.Running) throw new SchedulingException("Only running segments accept progress. Completed history is locked.");
@@ -528,7 +581,7 @@ public sealed class ProductionService(
 
     public Task CompleteSegmentAsync(long revision, long segmentId, decimal finalCompleted, DateOnly asOf, string? notes,
         CompletionQuantityAdjustment adjustment) =>
-        Write(revision, false, $"Complete segment {segmentId}: final {finalCompleted}; adjustment {adjustment}", (db, data, user) =>
+        Write(revision, [Permissions.ProductionSchedules.CompleteWork], $"Complete segment {segmentId}: final {finalCompleted}; adjustment {adjustment}", (db, data, user) =>
         {
             var segment = data.Segments.Single(x => x.Id == segmentId);
             if (segment.State != ProductionState.Running) throw new SchedulingException("Only running segments can be completed.");
@@ -574,7 +627,7 @@ public sealed class ProductionService(
         });
 
     public Task CorrectProgressAsync(long revision, long segmentId, decimal cumulativeCompleted, DateOnly asOf, string? notes) =>
-        Write(revision, false, $"Correct progress segment {segmentId}: {cumulativeCompleted} through {asOf}", (db, data, user) =>
+        Write(revision, [Permissions.ProductionSchedules.CorrectProgress], $"Correct progress segment {segmentId}: {cumulativeCompleted} through {asOf}", (db, data, user) =>
         {
             var s = data.Segments.Single(x => x.Id == segmentId);
             if (s.State != ProductionState.Running) throw new SchedulingException("Only running segments accept progress corrections. Completed history is locked.");
@@ -599,7 +652,7 @@ public sealed class ProductionService(
     }
 
     public Task SetConstraintAsync(long revision, long segmentId, DateOnly? notBefore, bool pinned) =>
-        Write(revision, false, $"Constraint segment {segmentId}: {notBefore}, pinned {pinned}", (db, data, user) =>
+        Write(revision, [Permissions.ProductionSchedules.Arrange], $"Constraint segment {segmentId}: {notBefore}, pinned {pinned}", (db, data, user) =>
         {
             var s = data.Segments.Single(x => x.Id == segmentId);
             if (s.State != ProductionState.Pending) throw new SchedulingException("Only pending work accepts start constraints and optimizer pins.");
@@ -612,7 +665,7 @@ public sealed class ProductionService(
     private static DateOnly? ContainerArrivalDate(ProductionSnapshot data, ProductionSegment segment) =>
         data.ContainerArrivalDatesByJobId.GetValueOrDefault(segment.JobId);
 
-    public Task MoveAsync(long revision, long segmentId, int direction) => Write(revision, false, $"Move segment {segmentId}: {direction}", (db, data, user) =>
+    public Task MoveAsync(long revision, long segmentId, int direction) => Write(revision, [Permissions.ProductionSchedules.Arrange], $"Move segment {segmentId}: {direction}", (db, data, user) =>
     {
         var s = data.Segments.Single(x => x.Id == segmentId);
         if (s.State != ProductionState.Pending || direction is not (-1 or 1)) throw new SchedulingException("Only pending work can move earlier or later.");
@@ -622,7 +675,7 @@ public sealed class ProductionService(
         return Task.CompletedTask;
     });
 
-    public Task ReassignAsync(long revision, long segmentId, long machineId) => Write(revision, false, $"Reassign remaining segment {segmentId} to {machineId}", (db, data, user) =>
+    public Task ReassignAsync(long revision, long segmentId, long machineId) => Write(revision, [Permissions.ProductionSchedules.Arrange], $"Reassign remaining segment {segmentId} to {machineId}", (db, data, user) =>
     {
         var s = data.Segments.Single(x => x.Id == segmentId);
         if (s.State == ProductionState.Completed) throw new SchedulingException("Completed machine history cannot be reassigned.");
@@ -651,7 +704,7 @@ public sealed class ProductionService(
     });
 
     public Task CutInAsync(long revision, long segmentId, long interruptingSegmentId, decimal jobStopTarget) =>
-        Write(revision, false, $"Cut-in segment {segmentId}, stop job at {jobStopTarget}, insert {interruptingSegmentId}", async (db, data, user) =>
+        Write(revision, [Permissions.ProductionSchedules.Arrange], $"Cut-in segment {segmentId}, stop job at {jobStopTarget}, insert {interruptingSegmentId}", async (db, data, user) =>
         {
             var s = data.Segments.Single(x => x.Id == segmentId);
             var interrupt = data.Segments.Single(x => x.Id == interruptingSegmentId);
@@ -679,7 +732,7 @@ public sealed class ProductionService(
             for (var i = 0; i < queue.Count; i++) queue[i].Sequence = i + 1;
         });
 
-    public Task ApplyOptimizationAsync(OptimizationPreview preview) => Write(preview.Revision, false, $"Optimize machine {preview.MachineId}", (db, data, user) =>
+    public Task ApplyOptimizationAsync(OptimizationPreview preview) => Write(preview.Revision, [Permissions.ProductionSchedules.Optimize], $"Optimize machine {preview.MachineId}", (db, data, user) =>
     {
         if (preview.Horizon != Today) throw new SchedulingException("The planning date changed. Generate a fresh preview.");
         var verified = ProductionScheduler.Optimize(data, preview.MachineId);
@@ -695,12 +748,13 @@ public sealed class ProductionService(
     });
 
     public Task SaveMachineAsync(long revision, long id, string name, bool active, bool usesDefaultWorkingDays, decimal[] hours) =>
-        Write(revision, true, $"Machine {id}: {name}, active {active}, uses default calendar {usesDefaultWorkingDays}, hours {string.Join(',', hours)}", (db, data, user) =>
+        Write(revision, [id == 0 ? Permissions.SortingMachines.Create : Permissions.SortingMachines.Update], $"Machine {id}: {name}, active {active}, uses default calendar {usesDefaultWorkingDays}, hours {string.Join(',', hours)}", (db, data, user) =>
         {
             name = Clean(name, 150) ?? throw new SchedulingException("Enter a machine name.");
             if (data.Machines.Any(x => x.Id != id && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) throw new SchedulingException("Machine names must be unique.");
             ValidateWorkingDayHours(hours);
             var machine = data.Machines.SingleOrDefault(x => x.Id == id);
+            if (machine == null && id != 0) throw new SchedulingException("Machine no longer exists.");
             if (machine == null) { machine = new(); data.Machines.Add(machine); db.Add(machine); }
             machine.Name = name; machine.IsActive = active; machine.UsesDefaultWorkingDays = usesDefaultWorkingDays;
             SetWorkingDayHours(machine, usesDefaultWorkingDays ? DefaultWorkingDayHours(data.Settings) : hours);
@@ -708,7 +762,7 @@ public sealed class ProductionService(
         });
 
     public Task SaveDefaultWorkingDaysAsync(long revision, decimal[] hours) =>
-        Write(revision, true, $"Default working days: {string.Join(',', hours)}", (db, data, user) =>
+        Write(revision, [Permissions.ProductionCalendars.Update], $"Default working days: {string.Join(',', hours)}", (db, data, user) =>
         {
             ValidateWorkingDayHours(hours);
             for (var i = 0; i < 7; i++)
@@ -741,7 +795,7 @@ public sealed class ProductionService(
     }
 
     public Task SaveRateAsync(long revision, long machineId, long partId, decimal pph) =>
-        Write(revision, true, $"Part {partId}, machine {machineId}: target PPH {pph}", (db, data, user) =>
+        Write(revision, [Permissions.PartMachineEligibility.Read], $"Part {partId}, machine {machineId}: target PPH {pph}", (db, data, user) =>
         {
             WholeNumber(pph, "Target PPH");
             var machine = data.Machines.SingleOrDefault(x => x.Id == machineId) ?? throw new SchedulingException("Select a machine.");
@@ -760,10 +814,11 @@ public sealed class ProductionService(
             }
             rate.TargetPph = pph;
             return Task.CompletedTask;
-        });
+        }, data => data.Machines.Any(m => m.Id == machineId && m.Parts.Any(p => p.PartId == partId))
+            ? Permissions.PartMachineEligibility.Update : Permissions.PartMachineEligibility.Create);
 
     public Task SetPreferredMachineAsync(long revision, long machineId, long partId) =>
-        Write(revision, true, $"Part {partId}: preferred machine {machineId}", async (db, data, user) =>
+        Write(revision, [Permissions.PartMachineEligibility.Update], $"Part {partId}: preferred machine {machineId}", async (db, data, user) =>
         {
             var machine = data.Machines.SingleOrDefault(x => x.Id == machineId) ?? throw new SchedulingException("Select a machine.");
             if (!machine.IsActive) throw new SchedulingException("A preferred machine must be active.");
@@ -781,7 +836,7 @@ public sealed class ProductionService(
             preferred.IsPreferred = true;
         });
 
-    public Task RemoveRateAsync(long revision, long machineId, long partId) => Write(revision, true, $"Remove eligibility: part {partId}, machine {machineId}", (db, data, user) =>
+    public Task RemoveRateAsync(long revision, long machineId, long partId) => Write(revision, [Permissions.PartMachineEligibility.Delete], $"Remove eligibility: part {partId}, machine {machineId}", (db, data, user) =>
     {
         if (data.Jobs.Any(j => j.PartId == partId && j.Segments.Any(s => s.MachineId == machineId && s.State != ProductionState.Completed)))
             throw new SchedulingException("Finish or explicitly reassign this part's unfinished work before removing eligibility.");
@@ -804,7 +859,7 @@ public sealed class ProductionService(
         return Task.CompletedTask;
     });
 
-    public Task SaveEfficiencyAsync(long revision, decimal efficiency) => Write(revision, true, $"Efficiency {efficiency}%", (db, data, user) =>
+    public Task SaveEfficiencyAsync(long revision, decimal efficiency) => Write(revision, [Permissions.ProductionSettings.Update], $"Efficiency {efficiency}%", (db, data, user) =>
     {
         _ = ProductionScheduler.EffectivePph(1, efficiency);
         if (efficiency != decimal.Truncate(efficiency)) throw new SchedulingException("Production efficiency must be a whole number.");
@@ -812,7 +867,7 @@ public sealed class ProductionService(
         return Task.CompletedTask;
     });
 
-    public Task SaveHolidayAsync(long revision, DateOnly date, string name, bool remove) => Write(revision, true, $"Holiday {date}: {name}; remove {remove}", (db, data, user) =>
+    public Task SaveHolidayAsync(long revision, DateOnly date, string name, bool remove) => Write(revision, [Permissions.ProductionHolidays.Read], $"Holiday {date}: {name}; remove {remove}", (db, data, user) =>
     {
         var holiday = data.Holidays.SingleOrDefault(x => x.Date == date);
         if (remove) { if (holiday != null) db.Remove(holiday); }
@@ -822,9 +877,10 @@ public sealed class ProductionService(
             holiday.Name = Clean(name, 150) ?? throw new SchedulingException("Enter a holiday name.");
         }
         return Task.CompletedTask;
-    });
+    }, data => remove ? Permissions.ProductionHolidays.Delete : data.Holidays.Any(x => x.Date == date)
+        ? Permissions.ProductionHolidays.Update : Permissions.ProductionHolidays.Create);
 
-    public Task UpdateHolidayAsync(long revision, DateOnly originalDate, DateOnly date, string name) => Write(revision, true, $"Holiday {originalDate} changed to {date}: {name}", (db, data, user) =>
+    public Task UpdateHolidayAsync(long revision, DateOnly originalDate, DateOnly date, string name) => Write(revision, [Permissions.ProductionHolidays.Update], $"Holiday {originalDate} changed to {date}: {name}", (db, data, user) =>
     {
         var holiday = data.Holidays.SingleOrDefault(x => x.Date == originalDate)
             ?? throw new SchedulingException("This holiday no longer exists. Reload and try again.");
@@ -843,9 +899,10 @@ public sealed class ProductionService(
         return Task.CompletedTask;
     });
 
-    public Task SaveReasonAsync(long revision, long id, string name, bool active) => Write(revision, true, $"Downtime reason {id}: {name}, active {active}", (db, data, user) =>
+    public Task SaveReasonAsync(long revision, long id, string name, bool active) => Write(revision, [id == 0 ? Permissions.ProductionDowntimeReasons.Create : Permissions.ProductionDowntimeReasons.Update], $"Downtime reason {id}: {name}, active {active}", (db, data, user) =>
     {
         var reason = data.Reasons.SingleOrDefault(x => x.Id == id);
+        if (reason == null && id != 0) throw new SchedulingException("Downtime reason no longer exists.");
         if (reason == null) { reason = new(); db.Add(reason); }
         var cleanName = Clean(name, 150) ?? throw new SchedulingException("Enter a reason name.");
         if (data.Reasons.Any(x => x.Id != reason.Id && string.Equals(x.Name, cleanName, StringComparison.OrdinalIgnoreCase)))
@@ -854,7 +911,7 @@ public sealed class ProductionService(
         return Task.CompletedTask;
     });
 
-    public Task DeleteReasonAsync(long revision, long id) => Write(revision, true, $"Delete downtime reason {id}", (db, data, user) =>
+    public Task DeleteReasonAsync(long revision, long id) => Write(revision, [Permissions.ProductionDowntimeReasons.Delete], $"Delete downtime reason {id}", (db, data, user) =>
     {
         var reason = data.Reasons.SingleOrDefault(x => x.Id == id) ?? throw new SchedulingException("The downtime reason no longer exists.");
         if (data.Downtime.Any(x => x.ReasonId == id))
@@ -864,13 +921,14 @@ public sealed class ProductionService(
     });
 
     public Task SaveDowntimeAsync(long revision, long id, long machineId, long reasonId, DateOnly start, DateOnly end, string? notes, bool remove = false) =>
-        Write(revision, false, $"Downtime {id}: machine {machineId}, reason {reasonId}, {start} through {end}, remove {remove}", (db, data, user) =>
+        Write(revision, [remove ? Permissions.MachineDowntime.Delete : id == 0 ? Permissions.MachineDowntime.Create : Permissions.MachineDowntime.Update], $"Downtime {id}: machine {machineId}, reason {reasonId}, {start} through {end}, remove {remove}", (db, data, user) =>
         {
             var down = data.Downtime.SingleOrDefault(x => x.Id == id);
             if (remove) { if (down != null) db.Remove(down); return Task.CompletedTask; }
             if (start > end) throw new SchedulingException("Downtime end date must be on or after its start date.");
             if (!data.Machines.Any(x => x.Id == machineId)) throw new SchedulingException("Select a machine.");
             if (!data.Reasons.Any(x => x.Id == reasonId && (x.IsActive || down?.ReasonId == reasonId))) throw new SchedulingException("Select an active downtime reason.");
+            if (down == null && id != 0) throw new SchedulingException("Planned downtime no longer exists.");
             if (down == null) { down = new(); db.Add(down); }
             down.MachineId = machineId; down.ReasonId = reasonId; down.Start = start; down.End = end; down.Notes = Clean(notes, 4000);
             return Task.CompletedTask;

@@ -9,11 +9,17 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class GageServiceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    private readonly GageService service = new(database);
+    private GageService service = null!;
 
-    public Task InitializeAsync() => database.ResetAsync();
+    private readonly AuthorizationTestSession authorization = new(database);
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+        service = new(database, authorization.Guard);
+    }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task CreatesGageTypeAndRejectsDuplicateName()
@@ -68,7 +74,7 @@ public sealed class GageServiceTests(PostgresTestDatabase database) : IAsyncLife
     {
         var typeId = await CreateGageTypeAsync("Thread Ring Gage");
         var partId = await CreatePartAsync();
-        var criteriaService = new InspectionCriteriaService(database);
+        var criteriaService = new InspectionCriteriaService(database, authorization.Guard);
         var revisionId = (await criteriaService.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
 
         var save = await criteriaService.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel
@@ -99,7 +105,7 @@ public sealed class GageServiceTests(PostgresTestDatabase database) : IAsyncLife
     {
         var typeId = await CreateGageTypeAsync("Inactive method", false);
         var partId = await CreatePartAsync();
-        var criteriaService = new InspectionCriteriaService(database);
+        var criteriaService = new InspectionCriteriaService(database, authorization.Guard);
         var revisionId = (await criteriaService.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
 
         var result = await criteriaService.AddCriterionAsync(partId, revisionId, new InspectionCriterionEditModel

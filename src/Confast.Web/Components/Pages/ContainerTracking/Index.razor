@@ -1,9 +1,9 @@
+@inherits PermissionComponentBase
 @page "/container-tracking"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Shipments.Read")]
 @using Confast.Web.Features.ContainerTracking
 @inject ContainerTrackingService Tracking
 @inject ReceivedPartsService ReceivedParts
-@inject TrackingAccess Access
 @inject ILogger<Index> Logger
 
 <PageTitle>Container Tracking</PageTitle>
@@ -14,7 +14,7 @@
         <button type="button" class="button button-secondary" @onclick="ToggleContainersExpanded" aria-expanded="@containersExpanded">
             @(containersExpanded ? "Collapse containers" : "Expand containers")
         </button>
-        @if (permissions.CanEdit) { <button class="button button-primary" @onclick="NewShipment">Create shipment</button> }
+        @if (Can(Permissions.Shipments.Create)) { <button class="button button-primary" @onclick="NewShipment">Create shipment</button> }
     </div>
 </div>
 @if (message is not null) { <div class="alert @(isError ? "alert-error" : "alert-success")" role="status">@message</div> }
@@ -27,7 +27,7 @@
     <EditForm Model="editing" OnValidSubmit="SaveShipmentAsync" FormName="shipment" class="record-form tracking-form">
         <DataAnnotationsValidator /><ValidationSummary />
         <h2>@(editing.Id == 0 ? "Create shipment" : "Shipment bill numbers")</h2>
-        <fieldset disabled="@busy" class="tracking-fields">
+        <fieldset disabled="@(busy || !Can(editing.Id == 0 ? Permissions.Shipments.Create : Permissions.Shipments.Update))" class="tracking-fields">
             <div class="form-field"><label>Freight cost ($)<ThousandsSeparatedMoneyInput @bind-Value="editing.FreightCost" /></label></div>
             @foreach (var bill in editing.BillNumbers)
             {
@@ -39,7 +39,7 @@
         </fieldset>
         <div class="form-actions">
             <button type="button" class="button button-secondary" @onclick="() => editing.BillNumbers.Add(new())" disabled="@busy">Add bill number</button>
-            <button class="button button-primary" disabled="@busy">Save shipment</button>
+            <button class="button button-primary" disabled="@(busy || !Can(editing.Id == 0 ? Permissions.Shipments.Create : Permissions.Shipments.Update))">Save shipment</button>
             <button type="button" class="button button-secondary" @onclick="() => editing = null" disabled="@busy">Cancel</button>
         </div>
     </EditForm>
@@ -50,12 +50,12 @@
         <div class="section-heading">
             <div><h2>@string.Join(" · ", shipment.BillNumbers)</h2>
                 @if (shipment.FreightCost is not null) { <p class="tracking-freight-cost">Freight cost: @shipment.FreightCost.Value.ToString("C2")</p> }</div>
-            @if (permissions.CanEdit)
+            @if (Can(Permissions.Shipments.Update) || Can(Permissions.Containers.Create) || Can(Permissions.Shipments.Delete))
             {
                 <div class="heading-actions">
-                    <button class="button button-secondary" @onclick="() => EditShipmentAsync(shipment.Id)" disabled="@busy">Edit bills</button>
-                    <a class="button button-primary" href="@($"/container-tracking/shipments/{shipment.Id}/containers/create")">Add container</a>
-                    @if (shipment.Containers.Count == 0)
+                    @if (Can(Permissions.Shipments.Update)) { <button class="button button-secondary" @onclick="() => EditShipmentAsync(shipment.Id)" disabled="@busy">Edit bills</button> }
+                    @if (Can(Permissions.Containers.Create)) { <a class="button button-primary" href="@($"/container-tracking/shipments/{shipment.Id}/containers/create")">Add container</a> }
+                    @if (shipment.Containers.Count == 0 && Can(Permissions.Shipments.Delete))
                     {
                         @if (confirmShipmentDeleteId == shipment.Id)
                         {
@@ -84,10 +84,10 @@
                     <td>@Date(container.Etd)</td><td>@Date(container.Eta)</td><td>@(container.ReceivedDate is null ? "Not received" : Date(container.ReceivedDate))</td>
                     <td>@container.GroupCount</td><td>@container.Pallets.ToString("N0")</td><td>@container.Weight.ToString("N3")</td><td>@(container.HasMissingScheduleEligibility ? "Missing Eligibility" : container.AddedToProductionSchedule ? "Yes" : "No")</td>
                     <td class="table-action"><div class="tracking-receipt-cell">
-                        @if (permissions.CanEdit)
+                        @if (Can(container.ReceivedDate is null ? Permissions.Containers.Receive : Permissions.Containers.CorrectReceipt) || Can(Permissions.Containers.Unreceive))
                         {
-                            <button type="button" class="button button-primary" @onclick="() => OpenReceiveDialog(container)" disabled="@busy">@ReceiptButtonLabel(container)</button>
-                            @if (container.CanUnreceive)
+                            @if (Can(container.ReceivedDate is null ? Permissions.Containers.Receive : Permissions.Containers.CorrectReceipt)) { <button type="button" class="button button-primary" @onclick="() => OpenReceiveDialog(container)" disabled="@busy">@ReceiptButtonLabel(container)</button> }
+                            @if (container.CanUnreceive && Can(Permissions.Containers.Unreceive))
                             {
                                 @if (confirmUnreceiveId == container.Id)
                                 {
@@ -163,7 +163,7 @@
                 <div class="form-field form-field-wide"><label for="receive-reason">@(!receiving.ReceiptAuditRecorded ? "Reconciliation reason" : "Correction reason")</label><InputTextArea id="receive-reason" @bind-Value="receiveReason" /></div>
             }
             <div class="form-actions">
-                <button type="button" class="button button-primary" @onclick="ReceiveAsync" disabled="@busy">Confirm</button>
+                <button type="button" class="button button-primary" @onclick="ReceiveAsync" disabled="@(busy || !Can(receiving.ReceivedDate is null ? Permissions.Containers.Receive : Permissions.Containers.CorrectReceipt))">Confirm</button>
                 <button type="button" class="button button-secondary" @onclick="CloseReceiveDialog" disabled="@busy">Cancel</button>
             </div>
         </section>
@@ -171,7 +171,6 @@
 }
 
 @code {
-    private TrackingPermissions permissions = new(false, false);
     private List<ShipmentSummary> shipments = [];
     private ShipmentEditModel? editing;
     private ContainerSummary? receiving;
@@ -211,6 +210,7 @@
                 shipments = await Tracking.SearchAsync(search);
             }
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to unreceive container {ContainerId}", container.Id); message = "Container could not be unreceived."; isError = true; }
         finally { busy = false; }
     }
@@ -228,19 +228,22 @@
             isError = false;
             shipments = await Tracking.SearchAsync(search);
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to receive container {ContainerId}", target.Id); message = "Container receipt could not be saved."; isError = true; }
         finally { busy = false; }
     }
     private async Task LoadAsync()
     {
         busy = true; confirmShipmentDeleteId = null; confirmUnreceiveId = null;
-        try { permissions = await Access.GetAsync(); shipments = await Tracking.SearchAsync(search); }
+        try { await RefreshPermissionsAsync(); shipments = await Tracking.SearchAsync(search); }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load shipments"); message = "Shipments could not be loaded."; isError = true; }
         finally { busy = false; }
     }
     private async Task EditShipmentAsync(long id)
     {
         try { editing = await Tracking.GetShipmentAsync(id); message = editing is null ? "Shipment no longer exists." : null; }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to open shipment {ShipmentId}", id); message = "Shipment could not be opened."; isError = true; }
     }
     private async Task SaveShipmentAsync()
@@ -253,6 +256,7 @@
             message = result.Message ?? "Shipment saved."; isError = !result.Succeeded;
             if (result.Succeeded) { editing = null; search = null; shipments = await Tracking.SearchAsync(); }
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to save shipment"); message = "Shipment could not be saved."; isError = true; }
         finally { busy = false; }
     }
@@ -271,6 +275,7 @@
                 shipments = await Tracking.SearchAsync(search);
             }
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to delete shipment {ShipmentId}", shipment.Id); message = "Shipment could not be deleted."; isError = true; }
         finally { busy = false; }
     }

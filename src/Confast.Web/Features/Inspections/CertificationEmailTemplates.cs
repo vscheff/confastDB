@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
@@ -50,10 +51,12 @@ public interface ICertificationEmailTemplateResolver
     Task<CertificationEmailTemplateEditModel> ResolveEmailTemplateAsync(CertificationEmailTemplateType templateType, CancellationToken cancellationToken = default);
 }
 
-public sealed class CertificationEmailTemplateResolver(IDbContextFactory<AppDbContext> contextFactory) : ICertificationEmailTemplateResolver
+public sealed class CertificationEmailTemplateResolver(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization) : ICertificationEmailTemplateResolver
 {
     public async Task<CertificationEmailTemplateEditModel> ResolveEmailTemplateAsync(CertificationEmailTemplateType templateType, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Certifications.EmailTemplate", new("EmailTemplate", templateType.ToString()),
+            [Permissions.Certifications.SendEmail], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var template = await db.CertificationEmailTemplates.AsNoTracking()
             .SingleOrDefaultAsync(x => x.TemplateType == templateType, cancellationToken)
@@ -75,12 +78,13 @@ public interface ICertificationEmailTemplateService
 
 public sealed class CertificationEmailTemplateService(
     IDbContextFactory<AppDbContext> contextFactory,
-    ICurrentUser currentUser,
     CertificationEmailTemplateRenderer renderer,
-    CertificationEmailHtmlSanitizer sanitizer) : ICertificationEmailTemplateService
+    CertificationEmailHtmlSanitizer sanitizer,
+    ApplicationAuthorization authorization) : ICertificationEmailTemplateService
 {
     public async Task<IReadOnlyList<CertificationEmailTemplateEditModel>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("CertificationEmailTemplates.Read", new("CertificationEmailTemplates"), [Permissions.CertificationEmailTemplates.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.CertificationEmailTemplates.AsNoTracking().OrderBy(x => x.TemplateType)
             .Select(x => new CertificationEmailTemplateEditModel(x.TemplateType, x.SubjectTemplate, x.HtmlBodyTemplate, x.UpdatedAtUtc, x.UpdatedByUserId))
@@ -89,6 +93,7 @@ public sealed class CertificationEmailTemplateService(
 
     public async Task SaveAsync(CertificationEmailTemplateEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("CertificationEmailTemplates.Update", new("CertificationEmailTemplates"), [Permissions.CertificationEmailTemplates.Update], cancellationToken);
         if (string.IsNullOrWhiteSpace(model.SubjectTemplate)) throw new CertificationEmailTemplateException("Email subject is required.");
         if (string.IsNullOrWhiteSpace(model.HtmlBodyTemplate)) throw new CertificationEmailTemplateException("Email body is required.");
         renderer.ValidateTemplate(model.TemplateType, model.SubjectTemplate, model.HtmlBodyTemplate);
@@ -101,12 +106,13 @@ public sealed class CertificationEmailTemplateService(
         template.SubjectTemplate = model.SubjectTemplate.Trim();
         template.HtmlBodyTemplate = body;
         template.UpdatedAtUtc = DateTimeOffset.UtcNow;
-        template.UpdatedByUserId = await currentUser.GetUserIdAsync();
+        template.UpdatedByUserId = operation.ActorUserId;
         await db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<CertificationEmailSettingsEditModel> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("CertificationEmailSettings.Read", new("CertificationEmailSettings"), [Permissions.CertificationEmailSettings.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var settings = await db.CertificationEmailSettings.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);
@@ -115,6 +121,7 @@ public sealed class CertificationEmailTemplateService(
 
     public async Task SaveSettingsAsync(CertificationEmailSettingsEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("CertificationEmailSettings.Update", new("CertificationEmailSettings"), [Permissions.CertificationEmailSettings.Update], cancellationToken);
         var address = NormalizeImplicitCcAddress(model.ImplicitCcAddress);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var settings = await db.CertificationEmailSettings.SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);

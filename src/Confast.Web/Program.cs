@@ -16,8 +16,6 @@ using Confast.Web.Time;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -76,6 +74,8 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.Name = "Confast.Authentication";
     options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+        ? CookieSecurePolicy.SameAsRequest : CookieSecurePolicy.Always;
     options.SlidingExpiration = true;
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.Events.OnValidatePrincipal = async context =>
@@ -118,7 +118,6 @@ builder.Services.AddScoped<CustomerService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DevelopmentDateOverrideTimeProvider>();
 builder.Services.AddSingleton<BusinessDateProvider>();
-builder.Services.AddScoped<TrackingAccess>();
 builder.Services.AddScoped<ContainerTrackingService>();
 builder.Services.AddScoped<ReceivedPartsService>();
 builder.Services.AddScoped<SupplierService>();
@@ -160,35 +159,19 @@ builder.Services.AddScoped<Confast.Web.Features.ProductionTracking.ProductionTra
 builder.Services.AddScoped<Confast.Web.Features.MorningProductionReview.MorningProductionReviewService>();
 builder.Services.AddScoped<PartFlipService>();
 
+builder.AddConfastHostSecurity();
 if (builder.Environment.IsDevelopment())
 {
-    // The sandboxed development process may not be able to use the Windows
-    // user-profile services that the default providers rely on. Identity also
-    // registers Data Protection, so this replacement must happen after all
-    // application services have been added.
-    for (var index = builder.Services.Count - 1; index >= 0; index--)
-    {
-        var descriptor = builder.Services[index];
-        if (descriptor.ServiceType == typeof(IDataProtectionProvider)
-            || descriptor.ServiceType == typeof(IKeyManager)
-            || descriptor.ServiceType.FullName
-                == "Microsoft.AspNetCore.DataProtection.KeyManagement.Internal.IKeyRingProvider"
-            || descriptor.ImplementationType?.FullName
-                == "Microsoft.AspNetCore.DataProtection.KeyManagement.KeyRingProvider"
-            || (descriptor.ServiceType == typeof(IHostedService)
-                && descriptor.ImplementationType?.FullName
-                    == "Microsoft.AspNetCore.DataProtection.Internal.DataProtectionHostedService"))
-        {
-            builder.Services.RemoveAt(index);
-        }
-    }
-
-    builder.Services.AddSingleton<IDataProtectionProvider, EphemeralDataProtectionProvider>();
+    builder.Services.AddScoped<DevelopmentUtilities>();
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole();
 }
 
 var app = builder.Build();
+
+// No implicit trust in loopback proxies or client-supplied forwarded headers.
+if (builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() is { Length: > 0 })
+    app.UseForwardedHeaders();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -201,53 +184,50 @@ app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages:
 app.UseHttpsRedirection();
 
 app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Query.ContainsKey("renderToken"))
+    {
+        context.Response.Headers.CacheControl = "private, no-store";
+        context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+    }
+    await next(context);
+});
+app.UseBusinessAuthorization();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.Use(async (context, next) =>
+{
+    try { await next(context); }
+    catch (AuthorizationDeniedException exception) when (!context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        context.Response.ContentType = "text/plain; charset=utf-8";
+        context.Response.Headers.CacheControl = "private, no-store";
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        await context.Response.WriteAsync(exception.Message);
+    }
+});
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapPost(
-        "/development/smtp-test",
-        async Task<IResult> (
-            ICurrentEmailSender currentEmailSender,
-            IEmailService emailService,
-            Microsoft.Extensions.Options.IOptions<EmailOptions> emailOptions,
-            ILoggerFactory loggerFactory,
-            CancellationToken cancellationToken) =>
+    app.MapPost("/development/smtp-test", async Task<IResult> (HttpContext context,
+        Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, DevelopmentUtilities utilities,
+        CancellationToken cancellationToken) =>
+    {
+        try
         {
-            try
-            {
-                var recipient = emailOptions.Value.TestRecipient;
-                if (string.IsNullOrWhiteSpace(recipient))
-                {
-                    return Results.BadRequest(new { message = "Set Email:TestRecipient before running the SMTP proof of concept." });
-                }
-                var sender = await currentEmailSender.GetAsync(cancellationToken);
-                await emailService.SendAsync(new EmailMessage(
-                    sender,
-                    [recipient],
-                    [],
-                    "Confast DB SMTP proof of concept",
-                    "This message verifies the configured certification-email sender and Reply-To behavior.",
-                    "confast-smtp-test.pdf",
-                    [37, 80, 68, 70, 45, 49, 46, 52]));
-                return Results.Ok(new { message = "SMTP test message submitted. Inspect the received From, Reply-To, Return-Path, and authentication headers." });
-            }
-            catch (EmailDeliveryException exception)
-            {
-                return Results.BadRequest(new { message = exception.Message });
-            }
-            catch (Exception exception)
-            {
-                loggerFactory.CreateLogger("DevelopmentSmtpTest")
-                    .LogError(exception, "Development SMTP proof-of-concept send failed.");
-                return Results.Problem("The SMTP test could not be sent.");
-            }
-        })
-        .DisableAntiforgery()
-        .RequireAuthorization(policy => policy.RequireRole(AppRoles.Administrator));
+            await antiforgery.ValidateRequestAsync(context);
+            return Results.Ok(await utilities.PrepareEmailAsync(context, cancellationToken));
+        }
+        catch (Microsoft.AspNetCore.Antiforgery.AntiforgeryValidationException)
+        { return Results.BadRequest(new { message = "A valid antiforgery token is required." }); }
+        catch (EmailDeliveryException)
+        { return Results.BadRequest(new { message = "The current account needs a valid email address for this diagnostic." }); }
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.Certifications.SendEmail))
+      .WithMetadata(new BusinessHttpBoundary("Development.EmailDiagnostic", Permissions.Certifications.SendEmail, _ => new("Development")));
 }
-
 app.MapStaticAssets().AllowAnonymous();
 app.MapIdentityEndpoints();
 app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
@@ -257,14 +237,16 @@ app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
     if (requesterUserId is null) return Results.Unauthorized();
     try
     {
-        var picture = await pictures.GetAsync(requesterUserId, userId, cancellationToken);
+        var picture = await pictures.GetForHttpAsync(userId, cancellationToken);
         if (picture is null) return Results.NotFound();
         context.Response.Headers.XContentTypeOptions = "nosniff";
         context.Response.Headers.CacheControl = "private, no-store";
         return Results.File(picture.Value.Data, picture.Value.ContentType);
     }
     catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
-}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+}).WithMetadata(new BusinessHttpBoundary("ChatProfilePicture", Permissions.Chat.Access,
+    context => new("ChatProfilePicture", context.Request.RouteValues["userId"]!.ToString())))
+    .RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet("/chat/group-icons/{conversationId:long}", async Task<IResult> (
     long conversationId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
 {
@@ -272,41 +254,47 @@ app.MapGet("/chat/group-icons/{conversationId:long}", async Task<IResult> (
     if (userId is null) return Results.Unauthorized();
     try
     {
-        var picture = await chat.GetGroupIconForHttpUserAsync(conversationId, userId, cancellationToken);
+        var picture = await chat.GetGroupIconForHttpAsync(conversationId, cancellationToken);
         if (picture is null) return Results.NotFound();
         context.Response.Headers.XContentTypeOptions = "nosniff";
         context.Response.Headers.CacheControl = "private, no-store";
         return Results.File(picture.Value.Data, picture.Value.ContentType);
     }
     catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
-}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+}).WithMetadata(new BusinessHttpBoundary("ChatGroupIcon", Permissions.Chat.Access,
+    context => new("ChatGroupIcon", context.Request.RouteValues["conversationId"]!.ToString())))
+    .RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet("/chat/attachments/{attachmentId:long}", async Task<IResult> (
     long attachmentId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
 {
     var requesterUserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
     if (requesterUserId is null) return Results.Unauthorized();
     ChatAttachmentFile? file;
-    try { file = await chat.GetAttachmentForHttpUserAsync(attachmentId, requesterUserId, cancellationToken); }
+    try { file = await chat.GetAttachmentForHttpAsync(attachmentId, cancellationToken); }
     catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
     if (file is null || file.Kind is not (ChatAttachmentKind.Image or ChatAttachmentKind.Video))
         return Results.NotFound();
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers.CacheControl = "private, no-store";
     return Results.File(file.Content, file.ContentType, enableRangeProcessing: true);
-}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+}).WithMetadata(new BusinessHttpBoundary("ChatAttachment", Permissions.Chat.Access,
+    context => new("ChatAttachment", context.Request.RouteValues["attachmentId"]!.ToString())))
+    .RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet("/chat/attachments/{attachmentId:long}/download", async Task<IResult> (
     long attachmentId, ChatService chat, HttpContext context, CancellationToken cancellationToken) =>
 {
     var requesterUserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
     if (requesterUserId is null) return Results.Unauthorized();
     ChatAttachmentFile? file;
-    try { file = await chat.GetAttachmentForHttpUserAsync(attachmentId, requesterUserId, cancellationToken); }
+    try { file = await chat.GetAttachmentForHttpAsync(attachmentId, cancellationToken); }
     catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
     if (file is null) return Results.NotFound();
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers.CacheControl = "private, no-store";
     return Results.File(file.Content, "application/octet-stream", fileDownloadName: file.FileName);
-}).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
+}).WithMetadata(new BusinessHttpBoundary("ChatAttachment", Permissions.Chat.Access,
+    context => new("ChatAttachment", context.Request.RouteValues["attachmentId"]!.ToString())))
+    .RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 app.MapGet(
     "/parts/{partId:long}/inspection-criteria/{revisionId:long}/master-print",
     async Task<IResult> (
@@ -316,10 +304,8 @@ app.MapGet(
         HttpContext httpContext,
         CancellationToken cancellationToken) =>
     {
-        var file = await criteriaService.GetMasterPrintAsync(
-            partId,
-            revisionId,
-            cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(httpContext, "MasterPrints.Read", new("CriteriaRevision", $"{partId}/{revisionId}"), Permissions.MasterPrints.Read);
+        var file = await criteriaService.GetMasterPrintForHttpAsync(partId, revisionId, operation, cancellationToken);
         if (file is null)
         {
             return Results.NotFound();
@@ -330,7 +316,8 @@ app.MapGet(
             file.Content,
             contentType: "application/pdf",
             enableRangeProcessing: true);
-    });
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.MasterPrints.Read))
+    .WithMetadata(new BusinessHttpBoundary("MasterPrints.Read", Permissions.MasterPrints.Read, context => new("CriteriaRevision", $"{context.Request.RouteValues["partId"]}/{context.Request.RouteValues["revisionId"]}")));
 app.MapGet(
     "/inspections/{inspectionId:long}/certifications/documents/{documentId:long}",
     async Task<IResult> (
@@ -340,10 +327,8 @@ app.MapGet(
         HttpContext httpContext,
         CancellationToken cancellationToken) =>
     {
-        var file = await inspectionService.GetCertificationDocumentAsync(
-            inspectionId,
-            documentId,
-            cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(httpContext, "Certifications.Read", new("Inspection", inspectionId.ToString()), Permissions.Certifications.Read);
+        var file = await inspectionService.GetCertificationDocumentForHttpAsync(inspectionId, documentId, operation, cancellationToken);
         if (file is null)
         {
             return Results.NotFound();
@@ -354,7 +339,8 @@ app.MapGet(
             file.Content,
             contentType: file.ContentType,
         enableRangeProcessing: true);
-    });
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.Certifications.Read))
+    .WithMetadata(new BusinessHttpBoundary("Certifications.Read", Permissions.Certifications.Read, context => new("Inspection", context.Request.RouteValues["inspectionId"]!.ToString())));
 app.MapGet(
     "/inspections/{inspectionId:long}/certifications/documents/{documentId:long}/preview",
     async Task<IResult> (
@@ -364,10 +350,8 @@ app.MapGet(
         HttpContext httpContext,
         CancellationToken cancellationToken) =>
     {
-        var file = await inspectionService.GetCertificationDocumentPreviewAsync(
-            inspectionId,
-            documentId,
-            cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(httpContext, "Certifications.Read", new("Inspection", inspectionId.ToString()), Permissions.Certifications.Read);
+        var file = await inspectionService.GetCertificationDocumentPreviewForHttpAsync(inspectionId, documentId, operation, cancellationToken);
         if (file is null)
         {
             return Results.NotFound();
@@ -378,7 +362,8 @@ app.MapGet(
             file.Content,
             contentType: "application/pdf",
             enableRangeProcessing: true);
-    });
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.Certifications.Read))
+    .WithMetadata(new BusinessHttpBoundary("Certifications.Read", Permissions.Certifications.Read, context => new("Inspection", context.Request.RouteValues["inspectionId"]!.ToString())));
 app.MapGet(
     "/inspections/{inspectionId:long}/certifications/documents/{documentId:long}/download",
     async Task<IResult> (
@@ -388,10 +373,8 @@ app.MapGet(
         HttpContext httpContext,
         CancellationToken cancellationToken) =>
     {
-        var file = await inspectionService.GetCertificationDocumentAsync(
-            inspectionId,
-            documentId,
-            cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(httpContext, "Certifications.Read", new("Inspection", inspectionId.ToString()), Permissions.Certifications.Read);
+        var file = await inspectionService.GetCertificationDocumentForHttpAsync(inspectionId, documentId, operation, cancellationToken);
         if (file is null)
         {
             return Results.NotFound();
@@ -403,7 +386,8 @@ app.MapGet(
             contentType: file.ContentType,
             fileDownloadName: file.OriginalFileName,
             enableRangeProcessing: true);
-    });
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.Certifications.Read))
+    .WithMetadata(new BusinessHttpBoundary("Certifications.Read", Permissions.Certifications.Read, context => new("Inspection", context.Request.RouteValues["inspectionId"]!.ToString())));
 app.MapGet(
     "/inspections/{inspectionId:long}/print/download",
     async Task<IResult> (
@@ -415,7 +399,8 @@ app.MapGet(
         string? notesPage,
         CancellationToken cancellationToken) =>
     {
-        var inspection = await inspectionService.GetInspectionAsync(inspectionId, cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(httpContext, "InspectionSheets.Export", new("Inspection", inspectionId.ToString()), Permissions.InspectionSheets.Export);
+        var inspection = await inspectionService.GetInspectionForExportAsync(inspectionId, operation, cancellationToken);
         if (inspection is null)
         {
             return Results.NotFound();
@@ -426,7 +411,7 @@ app.MapGet(
             ? inspectionId.ToString(CultureInfo.InvariantCulture)
             : inspection.LotNumber.Trim();
         var fileName = $"Lot# {lotNumber}.pdf";
-        var renderToken = Uri.EscapeDataString(renderTokenService.Create(inspectionId));
+        var renderToken = Uri.EscapeDataString(renderTokenService.CreateForExport(operation, inspectionId, string.Equals(notesPage, "second", StringComparison.OrdinalIgnoreCase)));
         var previewUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}/inspections/{inspectionId}/print?renderToken={renderToken}";
         if (string.Equals(notesPage, "second", StringComparison.OrdinalIgnoreCase))
         {
@@ -436,7 +421,8 @@ app.MapGet(
             await pdfRenderer.RenderAsync(previewUrl, cancellationToken),
             contentType: "application/pdf",
             fileDownloadName: fileName);
-    });
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.InspectionSheets.Export))
+    .WithMetadata(new BusinessHttpBoundary("InspectionSheets.Export", Permissions.InspectionSheets.Export, context => new("Inspection", context.Request.RouteValues["inspectionId"]!.ToString())));
 app.MapGet(
     "/inspections/{inspectionId:long}/inspection-sheet/download",
     async Task<IResult> (
@@ -448,23 +434,22 @@ app.MapGet(
         HttpContext httpContext,
         CancellationToken cancellationToken) =>
     {
-        var inspection = await inspectionService.GetInspectionAsync(inspectionId, cancellationToken);
+        var operation = BusinessHttpAuthorization.Require(httpContext, "InspectionSheets.Export", new("Inspection", inspectionId.ToString()), Permissions.InspectionSheets.Export);
+        var inspection = await inspectionService.GetInspectionForExportAsync(inspectionId, operation, cancellationToken);
         if (inspection is null)
         {
             return Results.NotFound();
         }
 
-        var renderToken = Uri.EscapeDataString(renderTokenService.Create(inspectionId));
+        var renderToken = Uri.EscapeDataString(renderTokenService.CreateForExport(operation, inspectionId, !string.IsNullOrWhiteSpace(inspection.InHouseNotes)));
         var previewUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}/inspections/{inspectionId}/print?renderToken={renderToken}";
         if (!string.IsNullOrWhiteSpace(inspection.InHouseNotes))
         {
             previewUrl += "&notesPage=second";
         }
 
+        var certifications = await inspectionService.GetDocumentsForExportAsync(inspectionId, operation, cancellationToken);
         var inspectionSheet = await pdfRenderer.RenderAsync(previewUrl, cancellationToken);
-        var certifications = await inspectionService.GetCertificationDocumentsForPdfAsync(
-            inspectionId,
-            cancellationToken);
         var mergedPdf = pdfMerger.Merge(
             inspectionSheet,
             certifications.Select(x => x.Content));
@@ -477,9 +462,17 @@ app.MapGet(
             mergedPdf,
             contentType: "application/pdf",
             fileDownloadName: $"Lot# {lotNumber} Inspection Sheet.pdf");
-    });
-app.MapRazorComponents<App>()
+    }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.InspectionSheets.Export))
+    .WithMetadata(new BusinessHttpBoundary("InspectionSheets.Export", Permissions.InspectionSheets.Export, context => new("Inspection", context.Request.RouteValues["inspectionId"]!.ToString())));
+var componentEndpoints = app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+componentEndpoints.Add(endpoint =>
+{
+    if (endpoint is Microsoft.AspNetCore.Routing.RouteEndpointBuilder route
+        && route.RoutePattern.RawText?.TrimStart('/') == "inspections/{InspectionId:long}/print")
+        endpoint.Metadata.Add(new BusinessHttpBoundary("InspectionSheets.Export", Permissions.InspectionSheets.Export,
+            context => new("Inspection", context.Request.RouteValues["InspectionId"]!.ToString())));
+});
 
 await IdentityBootstrapper.CreateInitialAdministratorAsync(app.Services);
 if (app.Environment.IsDevelopment())

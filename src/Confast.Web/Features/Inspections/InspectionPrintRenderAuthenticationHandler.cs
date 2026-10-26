@@ -19,6 +19,17 @@ public sealed class InspectionPrintRenderAuthenticationHandler(
         TryGetInspectionId(request.Path, out var inspectionId)
         && renderTokenService.IsValid(request.Query["renderToken"], inspectionId);
 
+    internal static bool CanAuthorizePrint(HttpContext? context, ClaimsPrincipal principal)
+    {
+        if (context is null || principal.Identity?.AuthenticationType != SchemeName
+            || context.User.Identity?.AuthenticationType != SchemeName
+            || principal.FindFirstValue(ClaimTypes.NameIdentifier) != "inspection-print-renderer"
+            || !TryGetInspectionId(context.Request.Path, out var id)) return false;
+        var tokens = context.RequestServices.GetRequiredService<InspectionPrintRenderTokenService>();
+        return tokens.TryGetOptions(context.Request.Query["renderToken"], id, out var options)
+            && options.SecondPageNotes == string.Equals(context.Request.Query["notesPage"], "second", StringComparison.OrdinalIgnoreCase);
+    }
+
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!TryGetInspectionId(Request.Path, out var inspectionId)

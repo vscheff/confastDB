@@ -1,12 +1,24 @@
 # Phase 3B Authorization Foundation
 
+**Phase 3F status (October 16, 2026):** the catalog-backed role matrix, provenance and impact previews, safe role/user editing, process-local advisory refresh, and channel moderation-history UI are implemented. See [the administration UI record](authorization-administration-ui.md) for behavior, validation, and remaining Phase 3G limits. This supersedes historical matrix/refresh/history-UI deferrals below.
+
+**Phase 3E-2 status (October 16, 2026):** scheduled delegation/lifecycle, scoped renderer execution, create-only bootstrap and guarded Development diagnostics are implemented. See [the background and delegation record](authorization-background-delegation.md) for the complete execution inventory, migration, validation and remaining Phase 3F/3G boundaries. This supersedes historical background/bootstrap deferrals below.
+
+**Phase 3E-1 status (October 15, 2026):** chat permissions, media/subscription privacy and scoped moderation are implemented in [the chat authorization record](authorization-chat.md). Its boundary inventory and verification supersede older chat deferrals below; the full hosted-worker redesign remains Phase 3E-2.
+
+**Phase 3D-2 status (October 15, 2026):** logistics, remaining receiving, production configuration/scheduling/tracking/reporting and fixed schedule-read maintenance now use trusted permission boundaries. See [the logistics and production implementation record](authorization-production-logistics.md) for the complete method inventory, verification and remaining Phase 3E boundaries. Historical deferrals below are superseded for this scope.
+
 Implemented October 9, 2026. The approved [architecture](authorization-design.md) and [boundary audit](authorization-audit.md) remain the migration references. This document records the foundation and its deployment limits **as completed in Phase 3B**. It is a historical implementation record: its legacy-editor/reset and future-Phase-3C descriptions have since been superseded by [Phase 3C delegated administration](authorization-administration.md). The catalog, initial seeds, structural invariants and offline provisioning procedure below still apply; consult the Phase 3C record for currently migrated boundaries and reset-link compatibility.
+
+**October 14, 2026 correction:** the permanent ReadOnly membership described in this historical record has been replaced with initial default enrollment and removable membership. See the clarification in [the current implementation record](authorization-administration.md). The original migration remains historical; `MakeReadOnlyDefaultOnly` removes the requirement without dropping protected role/Root invariants.
+
+**Phase 3D-1 status:** core business, inspection, certification, settings and document boundaries are now migrated as listed in [the current core-business record](authorization-core-business.md). Historical statements below that no business boundaries are migrated describe the Phase 3B completion date.
 
 ## What is active
 
 ASP.NET Core Identity still owns users, roles, credentials, cookies, sign-in and circuit revalidation. `ApplicationRole` extends IdentityRole; the four existing IDs and their assignments survive the additive migration. Existing role checks, business services, chat membership/privacy checks, anonymous/token endpoints and the print authentication scheme continue to operate. No business page/service has been switched to permission policies.
 
-Every Identity user is a human and permanently holds ReadOnly. A PostgreSQL insert trigger enrolls each new user atomically; migration backfills missing memberships idempotently. A deferred constraint prevents removal while the user exists. Ordinary user deletion can still remove that user's memberships. ReadOnly's Identity role claim is now included for all users; this implements the requested baseline membership, rather than globally enforcing the new read-only business boundaries. The existing editor preserves it even if the checkbox is omitted. User creation enlists the actual scoped Identity store, initial role assignments and public-channel enrollment in one transaction.
+ReadOnly is an atomic initial enrollment default, not mandatory membership. Authorized creation/assignment can omit, replace or remove it; ordinary updates and startup do not restore intentional removal. A no-role account is valid and has no implicit permission grants. The protected ReadOnly role identity/envelope remains. The original Phase 3B migration backfilled memberships and introduced a retention constraint; the approved `20261014173727_MakeReadOnlyDefaultOnly` migration supersedes that retention rule without changing credentials or the Root designation. User creation still enlists the scoped Identity store, selected roles and public-channel enrollment in one transaction.
 
 The legacy editor blocks updates, password-reset issuance and deletion of the explicitly designated Root account. The existing anonymous reset endpoint also rejects Root, including tokens issued before designation, while keeping ordinary token redemption available in PendingRoot. Its actual Identity store transaction locks state to serialize with provisioning. The editor still uses its existing authorization for ordinary accounts. Full peer/lower delegation, account-takeover checks, atomic ordinary-user updates and the protected Root self-security workflow belong to Phase 3C. Ordinary Administrator remains distinct from Root. Bootstrap still manages its configured legacy Administrator as before; neither startup bootstrap nor BrowserTestUser provisioning invokes Root provisioning.
 
@@ -14,15 +26,15 @@ The legacy editor blocks updates, password-reset issuance and deletion of the ex
 
 `Features/Authorization/Permissions.cs` defines named constants; `PermissionCatalog.cs` defines all 164 keys, labels, categories, prerequisites, resource/action classifications and baseline eligibility. SHA-256 of sorted semantic definitions is the deterministic CatalogVersion. Prerequisites are code definitions and included in the fingerprint. They are required when checking an operation; possessing a key does not implicitly grant its prerequisites. Inspections.Create has no read prerequisite. Context-dependent extras such as scheduling a poll remain the future caller's responsibility.
 
-| Role | Direct grants | Effective human grants |
+| Role | Direct grants | Effective grants without / with assigned ReadOnly |
 |---|---:|---:|
 | ReadOnly | 16 | 16 |
-| Quality | 69 | 85 |
-| Production | 61 | 77 |
-| Administrator | 57 | 163 |
+| Quality | 69 | 69 / 85 |
+| Production | 61 | 61 / 77 |
+| Administrator | 57 | 147 / 163 |
 | Root Administrator Prime | 0 | 164, only when designated and ready |
 
-The initial graph contains Administrator → Quality and Administrator → Production. A child inherits its parents. Quality/Production have no ReadOnly parent edge: users already hold baseline directly. All grant lists are explicit; future keys do not automatically become Administrator grants. ReadOnly has no Chat.Access. The sole Root-only key is Authorization.ManageSecurity; obsolete delegation flags/keys are absent.
+The initial graph contains Administrator → Quality and Administrator → Production. A child inherits its parents. Quality/Production have no ReadOnly parent edge; ReadOnly contributes only when actually assigned or inherited through an authorized custom relationship. All grant lists are explicit; future keys do not automatically become Administrator grants. ReadOnly has no Chat.Access. The sole Root-only key is Authorization.ManageSecurity; obsolete delegation flags/keys are absent.
 
 The manifest table is immutable to normal DML, including owner DML while its guard is enabled. A reviewed future catalog migration must deliberately remove/recreate the manifest guard around definition changes and update the stored fingerprint atomically. Updating a code definition alone is insufficient. Root's new permission coverage does not add the legacy Administrator role claim: a Root account without ordinary Administrator membership still encounters existing role-gated screens until their planned migration.
 
@@ -34,7 +46,7 @@ Migration `20261009183927_AddAuthorizationFoundation` adds role metadata and six
 
 The singleton contains protected role IDs, nullable staged RootUserId, readiness, generation, catalog version and a concurrency-token GlobalEpoch. PostgreSQL before-statement triggers acquire its row lock before relevant security writes. Grant/edge/role/assignment writes advance the epoch transactionally; security-relevant account changes do too. Display/presence-only changes do not. The epoch is a monotonically increasing version, not an edit count: one transaction may advance it several times, and a no-op security statement can advance it. Rollback rolls back the epoch.
 
-FKs, composite unique keys, protected-role triggers, code-manifest immutability, baseline enrollment/retention, inheritance cycle checks, deferred ready-state Root consistency and protected truncate checks provide structural backstops. Root cannot have grants/edges, lose its designation/membership, become inactive or lose initialized credentials in normal writes. Protected state cannot be deleted. Security history and normalized details are append-only. No passwords or credential tokens are stored in history.
+FKs, composite unique keys, protected-role triggers, code-manifest immutability, initial default enrollment and protected role envelope, inheritance cycle checks, deferred ready-state Root consistency and protected truncate checks provide structural backstops. Root cannot have grants/edges, lose its designation/membership, become inactive or lose initialized credentials in normal writes. Protected state cannot be deleted. Security history and normalized details are append-only. No passwords or credential tokens are stored in history.
 
 Future mutation cores must start one explicit transaction on the **same DbContext used by the Identity store**, acquire `AuthorizationMutationLock` before authorization-dependent mutation reads, reject a stale expected version, validate the whole proposed graph/actor/delegation state under that lock, save all changes and record history through `AuthorizationAudit` before committing. A retry must repeat authorization and validation. The internal helpers do not expose a public mutation API or establish a human's delegation rights by themselves. Direct SQL writes enforce structure/versioning; trusted application/operator adapters supply human authorization and audit provenance. Application mutation integration remains Phase 3C.
 
@@ -117,7 +129,7 @@ New source is in `src/Confast.Web/Features/Authorization/`: Permissions, Permiss
 
 Modified integration points are Program, AppDbContext, AppRoles, ApplicationUserClaimsPrincipalFactory, IdentityBootstrapper, UserAdministrationService and IdentityEndpoints. Migration files are AddAuthorizationFoundation and its designer plus historical AuthorizationFoundationSql; the model snapshot retains the preceding uncommitted chat migration. README links this document. The approved design and audit were preserved.
 
-New test files are PermissionCatalogTests, RoleGraphTests and AuthorizationFoundationTests. IdentityTests and AuthorizationEndpointTests cover baseline/provisioning compatibility and actual reset-token redemption. PostgresTestDatabase restores authorization seeds safely between cases. ContainerTrackingTests, ProductionServiceTests and one ChatServiceTests role-removal statement were adjusted to preserve the intentionally mandatory baseline; their business expectations and existing uncommitted chat work were preserved.
+New test files are PermissionCatalogTests, RoleGraphTests and AuthorizationFoundationTests. IdentityTests and AuthorizationEndpointTests cover baseline/provisioning compatibility and actual reset-token redemption. PostgresTestDatabase restores authorization seeds safely between cases. ContainerTrackingTests, ProductionServiceTests and one ChatServiceTests role-removal statement were adjusted for the historical Phase 3B retention rule, now superseded by optional default membership; their business expectations and existing uncommitted chat work were preserved.
 
 Validation on October 9, 2026:
 

@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +11,8 @@ public sealed partial class ChatService
     public async Task<ChatNotificationSettings> GetNotificationSettingsAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetNotificationSettingsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         return await LoadNotificationSettingsAsync(db, userId, cancellationToken);
     }
 
@@ -47,7 +49,8 @@ public sealed partial class ChatService
     {
         if (!Enum.IsDefined(mode)) throw new InvalidOperationException("Choose a notification setting.");
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetChannelNotificationModeAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await RequireNotificationChannelAsync(db, channelId, userId, cancellationToken);
         await db.ChatConversationMembers.Where(x => x.ConversationId == channelId && x.UserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.NotificationMode, mode), cancellationToken);
@@ -59,7 +62,8 @@ public sealed partial class ChatService
     {
         var until = MuteDeadline(muted, minutes);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetChannelMutedAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await RequireNotificationChannelAsync(db, channelId, userId, cancellationToken);
         await db.ChatConversationMembers.Where(x => x.ConversationId == channelId && x.UserId == userId)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsMuted, muted).SetProperty(x => x.MutedUntilUtc, until), cancellationToken);
@@ -88,7 +92,8 @@ public sealed partial class ChatService
         if (!Enum.IsDefined(mode) || mode == ChatNotificationMode.CategoryDefault)
             throw new InvalidOperationException("Choose a category notification setting.");
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetCategoryNotificationModeAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         await RequireVisibleNotificationCategoryAsync(db, groupId, userId, cancellationToken);
@@ -107,7 +112,8 @@ public sealed partial class ChatService
     {
         var until = MuteDeadline(muted, minutes);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SetCategoryMutedAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await LockChannelLayoutAsync(db, cancellationToken);
         await RequireVisibleNotificationCategoryAsync(db, groupId, userId, cancellationToken);
@@ -135,7 +141,8 @@ public sealed partial class ChatService
     public async Task<IReadOnlyDictionary<long, ChatNotificationUnreadSummary>> GetNotificationUnreadCountsAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetNotificationUnreadCountsAsync), new("Chat"), [Permissions.Chat.Access], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         var settings = await LoadNotificationSettingsAsync(db, userId, cancellationToken);
         var rows = await db.ChatConversationMembers.AsNoTracking().Where(m => m.UserId == userId && !m.IsHidden)
             .Select(m => new

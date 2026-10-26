@@ -82,6 +82,21 @@ public sealed class EffectivePermissionService(
         PasswordResetDelegation delegation, CancellationToken cancellationToken) =>
         EvaluateCoreAsync(db, delegation.IssuerUserId, delegation.IssuerSecurityStamp, false, cancellationToken);
 
+    // A locked persisted instruction is the identity source. Credential rotation is not
+    // cancellation of that instruction; current Active status and grants still apply.
+    internal async Task<EffectivePermissionSnapshot> EvaluateScheduledChatSenderAsync(AppDbContext db,
+        Confast.Web.Features.Chat.ChatScheduledMessage draft, CancellationToken cancellationToken)
+    {
+        var stamp = await db.Users.Where(x => x.Id == draft.SenderUserId).Select(x => x.SecurityStamp)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrEmpty(stamp)) throw new AuthorizationDeniedException(AuthorizationDenial.InvalidSession);
+        var snapshot = (await EvaluateCoreAsync(db, draft.SenderUserId, stamp, true, cancellationToken)).Snapshot;
+        if (draft.InstallationGeneration != snapshot.Version.Generation
+            || draft.CatalogVersion != snapshot.Version.CatalogVersion)
+            throw new AuthorizationDeniedException(AuthorizationDenial.DelegationDenied);
+        return snapshot;
+    }
+
     internal async Task<RoleGraph> GraphForOperationAsync(AppDbContext db, AuthorizedOperation operation, CancellationToken ct)
     {
         operation.Require(operation.Purpose, operation.Scope, operation.RequiredKeys.ToArray());
@@ -109,7 +124,6 @@ public sealed class EffectivePermissionService(
             {
                 actor.IsActive, actor.SecurityStamp, state.RootUserId, state.Readiness, state.BaselineRoleId,
                 state.RootRoleId, state.GlobalEpoch, state.InstallationGeneration, state.CatalogVersion,
-                HasBaseline = db.UserRoles.Any(x => x.UserId == actorId && x.RoleId == AppRoles.ReadOnlyId),
                 RootMembers = db.UserRoles.Count(x => x.RoleId == AppRoles.RootId),
                 MatchingRoot = db.UserRoles.Any(x => x.RoleId == AppRoles.RootId && x.UserId == state.RootUserId),
                 RootAccountValid = db.Users.Any(x => x.Id == state.RootUserId && x.IsActive && x.PasswordHash != null && x.PasswordHash != ""),
@@ -127,7 +141,7 @@ public sealed class EffectivePermissionService(
         if (!string.Equals(current.SecurityStamp, stamp, StringComparison.Ordinal))
             throw new AuthorizationDeniedException(AuthorizationDenial.InvalidSession);
         if (current.BaselineRoleId != AppRoles.ReadOnlyId || current.RootRoleId != AppRoles.RootId
-            || current.ProtectedRoles != 2 || current.SystemRoles != 2 || !current.HasBaseline
+            || current.ProtectedRoles != 2 || current.SystemRoles != 2
             || current.InstallationGeneration == Guid.Empty || current.GlobalEpoch < 0)
             throw new AuthorizationDeniedException(AuthorizationDenial.InvalidState);
         if (current.CatalogVersion != PermissionCatalog.Version || current.ManifestCount != PermissionCatalog.All.Length

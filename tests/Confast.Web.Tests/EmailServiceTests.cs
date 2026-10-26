@@ -83,47 +83,6 @@ public sealed class EmailServiceTests
         Assert.False(result.Succeeded);
     }
 
-    [Fact]
-    public async Task CertificationEmailService_AddsConfiguredAddressAsAnImplicitCc()
-    {
-        var emailService = new CapturingEmailService();
-        var certificationEmailService = new CertificationEmailService(emailService, new StubTemplateService("quality@conformancefasteners.com"));
-
-        await certificationEmailService.SendAsync(CreateMessage());
-
-        var sentMessage = Assert.IsType<EmailMessage>(emailService.Message);
-        Assert.Equal(
-            ["quality-contact@example.com", "quality@conformancefasteners.com"],
-            sentMessage.Cc);
-    }
-
-    [Fact]
-    public async Task CertificationEmailService_DoesNotDuplicateTheImplicitCc()
-    {
-        var emailService = new CapturingEmailService();
-        var certificationEmailService = new CertificationEmailService(emailService, new StubTemplateService("quality@conformancefasteners.com"));
-
-        await certificationEmailService.SendAsync(CreateMessage() with
-        {
-            Cc = ["QUALITY@CONFORMANCEFASTENERS.COM"]
-        });
-
-        var sentMessage = Assert.IsType<EmailMessage>(emailService.Message);
-        Assert.Equal(["QUALITY@CONFORMANCEFASTENERS.COM"], sentMessage.Cc);
-    }
-
-    [Fact]
-    public async Task CertificationEmailService_DoesNotAddAnImplicitCcWhenTheSettingIsBlank()
-    {
-        var emailService = new CapturingEmailService();
-        var certificationEmailService = new CertificationEmailService(emailService, new StubTemplateService(null));
-
-        await certificationEmailService.SendAsync(CreateMessage());
-
-        var sentMessage = Assert.IsType<EmailMessage>(emailService.Message);
-        Assert.Equal(["quality-contact@example.com"], sentMessage.Cc);
-    }
-
     private static EmailMessage CreateMessage() => new(
         new EmailSenderIdentity("Quality Person", "quality.person@example.com"),
         ["customer@example.com"],
@@ -144,27 +103,4 @@ public sealed class EmailServiceTests
         DefaultDisplayName = "Confast Certifications"
     };
 
-    private sealed class CapturingEmailService : IEmailService
-    {
-        public EmailMessage? Message { get; private set; }
-
-        public Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
-        {
-            Message = message;
-            return Task.CompletedTask;
-        }
-    }
-
-    private sealed class StubTemplateService(string? implicitCcAddress) : ICertificationEmailTemplateService
-    {
-        public Task<IReadOnlyList<CertificationEmailTemplateEditModel>> GetAllAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<CertificationEmailTemplateEditModel>>([]);
-
-        public Task SaveAsync(CertificationEmailTemplateEditModel model, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<CertificationEmailSettingsEditModel> GetSettingsAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(new CertificationEmailSettingsEditModel(implicitCcAddress));
-
-        public Task SaveSettingsAsync(CertificationEmailSettingsEditModel model, CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
 }

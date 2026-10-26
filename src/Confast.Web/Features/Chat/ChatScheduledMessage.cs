@@ -5,7 +5,21 @@ namespace Confast.Web.Features.Chat;
 
 public sealed class ChatScheduledMessage
 {
+    public const string DeliveryPurpose = "Chat.ScheduledDelivery";
     public long Id { get; set; }
+    public Guid RequestId { get; set; }
+    public string Purpose { get; set; } = DeliveryPurpose;
+    public DateTime CreatedAtUtc { get; set; }
+    public Guid? InstallationGeneration { get; set; }
+    public string CatalogVersion { get; set; } = string.Empty;
+    public long AuthorizationEpoch { get; set; }
+    public DateTime ValidUntilUtc { get; set; }
+    public ScheduledChatState State { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTime? NextAttemptAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public long? DeliveredMessageId { get; set; }
+    public string? FailureCode { get; set; }
     public long ConversationId { get; set; }
     public string SenderUserId { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
@@ -15,6 +29,8 @@ public sealed class ChatScheduledMessage
     public string? Failure { get; set; }
     public List<ChatScheduledAttachment> Attachments { get; set; } = [];
 }
+
+public enum ScheduledChatState { Pending, Delivered, Failed, Canceled }
 
 public sealed class ChatScheduledAttachment
 {
@@ -32,6 +48,22 @@ public static class ChatScheduledMessageMapping
         message.ToTable("chat_scheduled_messages", t => t.HasCheckConstraint("CK_chat_scheduled_messages_body", "char_length(body) BETWEEN 1 AND 4000"));
         message.HasKey(x => x.Id);
         message.Property(x => x.Id).HasColumnName("id");
+        message.Property(x => x.RequestId).HasColumnName("request_id");
+        message.Property(x => x.Purpose).HasColumnName("purpose").HasMaxLength(100);
+        message.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        message.Property(x => x.InstallationGeneration).HasColumnName("installation_generation");
+        message.Property(x => x.CatalogVersion).HasColumnName("catalog_version").HasMaxLength(100);
+        message.Property(x => x.AuthorizationEpoch).HasColumnName("authorization_epoch");
+        message.Property(x => x.ValidUntilUtc).HasColumnName("valid_until_utc");
+        message.Property(x => x.State).HasColumnName("state");
+        message.Property(x => x.AttemptCount).HasColumnName("attempt_count");
+        message.Property(x => x.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
+        message.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
+        message.Property(x => x.DeliveredMessageId).HasColumnName("delivered_message_id");
+        message.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(80);
+        message.HasIndex(x => x.RequestId).IsUnique();
+        message.HasOne<ChatMessage>().WithMany().HasForeignKey(x => new { x.ConversationId, x.DeliveredMessageId })
+            .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         message.Property(x => x.ConversationId).HasColumnName("conversation_id");
         message.Property(x => x.SenderUserId).HasColumnName("sender_user_id");
         message.Property(x => x.Body).HasColumnName("body").HasMaxLength(4000);
@@ -45,7 +77,12 @@ public static class ChatScheduledMessageMapping
             .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         message.HasOne<ChatMessage>().WithMany().HasForeignKey(x => new { x.ConversationId, x.ReplyToMessageId })
             .HasPrincipalKey(x => new { x.ConversationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
-        message.HasIndex(x => x.ScheduledAtUtc).HasFilter("failure IS NULL");
+        message.HasIndex(x => x.ScheduledAtUtc).HasFilter("state = 0");
+        message.ToTable(t =>
+        {
+            t.HasCheckConstraint("CK_chat_scheduled_messages_attempts", "attempt_count BETWEEN 0 AND 5");
+            t.HasCheckConstraint("CK_chat_scheduled_messages_lifecycle", "state BETWEEN 0 AND 3 AND ((state = 0 AND completed_at_utc IS NULL AND failure IS NULL) OR (state <> 0 AND completed_at_utc IS NOT NULL)) AND ((state = 1) = (delivered_message_id IS NOT NULL))");
+        });
 
         var attachment = model.Entity<ChatScheduledAttachment>();
         attachment.ToTable("chat_scheduled_attachments", t =>

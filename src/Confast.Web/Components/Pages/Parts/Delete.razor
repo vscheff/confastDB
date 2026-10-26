@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Parts.Delete")]
 @page "/parts/{Id:long}/delete"
 @using Confast.Web.Features.Parts
 @inject PartService PartService
@@ -67,8 +69,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load part {PartId} for deletion", Id);
-            loadError = "The part could not be loaded. Please try again.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The part could not be loaded. Please try again.";
         }
         finally
         {
@@ -111,8 +114,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to delete part {PartId}", part.Id);
-            deleteMessage = "The part could not be deleted. Please try again.";
+            deleteMessage = exception is AuthorizationDeniedException ? exception.Message : "The part could not be deleted. Please try again.";
         }
         finally
         {

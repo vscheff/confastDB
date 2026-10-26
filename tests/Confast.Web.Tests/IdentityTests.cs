@@ -344,6 +344,7 @@ public sealed class IdentityTests(PostgresTestDatabase database) : IAsyncLifetim
     private ServiceProvider CreateServices(BrowserTestUserOptions? browserTestUser = null)
     {
         var services = new ServiceCollection();
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(new TestHostEnvironment());
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
         services.AddOptions<BrowserTestUserOptions>().Configure(options =>

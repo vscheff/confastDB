@@ -1,3 +1,5 @@
+using Confast.Web.Features.Authorization;
+using Microsoft.AspNetCore.Http;
 using Confast.Web.Features.Chat;
 using Confast.Web.Features.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,11 +11,23 @@ public sealed class UserPresenceServiceTests(PostgresTestDatabase database) : IA
 {
     private readonly ChatNotifications notifications = new(NullLogger<ChatNotifications>.Instance);
 
-    public Task InitializeAsync() => database.ResetAsync();
-    public Task DisposeAsync() => Task.CompletedTask;
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        using var session = new AuthorizationTestSession(database);
+        await session.ProvisionRootAsync();
+    }
+    private readonly List<AuthorizationTestSession> sessions = [];
+    private AuthorizationTestSession Session(string userId)
+    {
+        var session = ChatTestAuthorization.Session(database, userId);
+        sessions.Add(session);
+        return session;
+    }
+    public Task DisposeAsync() { foreach (var session in sessions) session.Dispose(); return Task.CompletedTask; }
 
     private UserPresenceService Service(string userId) =>
-        new(database, new TestCurrentUser(userId), notifications, TimeProvider.System);
+        new(database, new TestCurrentUser(userId), Session(userId).Guard, notifications, TimeProvider.System);
 
     private async Task<(string First, string Second)> UsersAsync()
     {
@@ -120,8 +134,8 @@ public sealed class UserPresenceServiceTests(PostgresTestDatabase database) : IA
     {
         var (first, second) = await UsersAsync();
         var clock = new PresenceClock();
-        var service = new UserPresenceService(database, new TestCurrentUser(first), notifications, clock);
-        var viewer = new UserPresenceService(database, new TestCurrentUser(second), notifications, clock);
+        var service = new UserPresenceService(database, new TestCurrentUser(first), Session(first).Guard, notifications, clock);
+        var viewer = new UserPresenceService(database, new TestCurrentUser(second), Session(second).Guard, notifications, clock);
         var sessionId = Guid.NewGuid();
         await service.SetCustomStatusAsync("😊", "Testing expiry");
         await service.HeartbeatAsync(sessionId, 0);
@@ -152,7 +166,7 @@ public sealed class UserPresenceServiceTests(PostgresTestDatabase database) : IA
     {
         var (first, _) = await UsersAsync();
         var clock = new PresenceClock();
-        var service = new UserPresenceService(database, new TestCurrentUser(first), notifications, clock);
+        var service = new UserPresenceService(database, new TestCurrentUser(first), Session(first).Guard, notifications, clock);
         foreach (var duration in new[] { TimeSpan.FromMinutes(15), TimeSpan.FromHours(1),
                      TimeSpan.FromHours(8), TimeSpan.FromHours(24), TimeSpan.FromDays(3) })
         {

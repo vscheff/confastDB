@@ -79,7 +79,7 @@ public sealed class PostgresTestDatabase : IAsyncLifetime, IDbContextFactory<App
         await using var transaction = await db.Database.BeginTransactionAsync();
         // Disposable database OWNER reset, never a runtime bypass flag. The suite lock and
         // test-name guard were acquired before migration/reset. Restore triggers atomically.
-        string[] securityTables = ["authorization_state", "identity_roles", "identity_users", "identity_user_roles",
+        string[] securityTables = ["chat_moderation_history", "authorization_state", "identity_roles", "identity_users", "identity_user_roles",
             "role_permissions", "role_inheritance", "authorization_change_history", "authorization_change_details", "password_reset_delegations"];
         // These identifiers are a fixed source-controlled list, never input.
 #pragma warning disable EF1002

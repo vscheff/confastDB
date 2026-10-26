@@ -5,6 +5,22 @@ namespace Confast.Web.Tests;
 
 public sealed class RoleGraphTests
 {
+    [Fact]
+    public void ReadOnlyContributesOnlyWhenAssignedOrInherited()
+    {
+        var graph = PermissionCatalogTests.SeedGraph();
+        Assert.Empty(graph.EvaluateOrdinary([]));
+        Assert.Equal(69, graph.EvaluateOrdinary([AppRoles.QualityId]).Count);
+        Assert.Equal(85, graph.EvaluateOrdinary([AppRoles.QualityId, AppRoles.ReadOnlyId]).Count);
+        Assert.DoesNotContain(Permissions.Customers.Read, graph.EvaluateOrdinary([AppRoles.QualityId]).Keys);
+        Assert.Contains(Permissions.Customers.Read, graph.StoredUserEnvelope([AppRoles.ReadOnlyId]).AsEnumerable());
+
+        var inherited = new RoleGraph(graph.Roles.Values,
+            RoleAdministrationService.Grants(graph), [new(AppRoles.QualityId, AppRoles.ReadOnlyId)]);
+        Assert.Equal(new GrantProvenance(AppRoles.QualityId, AppRoles.ReadOnlyId, true),
+            Assert.Single(inherited.EvaluateOrdinary([AppRoles.QualityId])[Permissions.Customers.Read]));
+    }
+
     private static RoleGraph Graph(GraphEdge[] edges, GraphGrant[]? grants = null, string? disabled = null) => new(
         AppRoles.Seeds.Select(x => new GraphRole(x.Id, x.SystemKind, x.IsEnabled))
             .Concat(new[] { "a", "b", "c", "d" }.Select(x => new GraphRole(x, SystemRoleKind.Ordinary, x != disabled))),

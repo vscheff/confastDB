@@ -1,4 +1,5 @@
 using System.Data;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Confast.Web.Features.ProductionScheduling;
 using Confast.Web.Time;
@@ -9,7 +10,7 @@ namespace Confast.Web.Features.ContainerTracking;
 
 public sealed class ContainerTrackingService(
     IDbContextFactory<AppDbContext> contextFactory,
-    TrackingAccess access,
+    ApplicationAuthorization authorization,
     TimeProvider clock,
     BusinessDateProvider? businessDate = null)
 {
@@ -18,22 +19,23 @@ public sealed class ContainerTrackingService(
 
     public async Task<List<ShipmentSummary>> SearchAsync(string? search = null, CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Shipments.Read", new("Shipments"), [Permissions.Shipments.Read], cancellationToken);
+        var canReadContainers = operation.Snapshot.Has(Permissions.Containers.Read);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var query = db.Shipments.AsNoTracking().AsSplitQuery();
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim().ToUpperInvariant();
             query = query.Where(s => s.BillNumbers.Any(b => b.Number.ToUpper().Contains(term)) ||
-                s.Containers.Any(c => c.ContainerNumber.ToUpper().Contains(term) ||
+                (canReadContainers && s.Containers.Any(c => c.ContainerNumber.ToUpper().Contains(term) ||
                     (c.CbpNumber != null && c.CbpNumber.ToUpper().Contains(term)) || c.Groups.Any(g =>
                     g.BillOfLading.Number.Contains(term) || g.BillOfLading.Supplier.Name.ToUpper().Contains(term) ||
                     (g.InvoiceNumber != null && g.InvoiceNumber.ToUpper().Contains(term)) ||
-                    g.Parts.Any(p => p.Part.PartNumber.ToUpper().Contains(term)))));
+                    g.Parts.Any(p => p.Part.PartNumber.ToUpper().Contains(term))))));
         }
         return await query.OrderByDescending(x => x.Id).Select(s => new ShipmentSummary(s.Id, s.Version, s.FreightCost,
             s.BillNumbers.OrderBy(b => b.Id).Select(b => b.Number).ToList(),
-            s.Containers.OrderBy(c => c.Id).Select(c => new ContainerSummary(c.Id, c.Version, c.ContainerNumber, c.CbpNumber,
+            s.Containers.Where(c => canReadContainers).OrderBy(c => c.Id).Select(c => new ContainerSummary(c.Id, c.Version, c.ContainerNumber, c.CbpNumber,
                 c.EstimatedDepartureDate, c.EstimatedArrivalDate, c.ReceivedDate, c.ReceivedAtUtc != null,
                 c.ReceivedDate != null && !c.Groups.SelectMany(g => g.Parts).Any(p => p.ReceiptAllocations.Any()), c.AddedToProductionSchedule,
                 c.EstimatedDepartureDate < Today && c.EstimatedArrivalDate != null && c.Groups.SelectMany(g => g.Parts).Any(p =>
@@ -49,7 +51,7 @@ public sealed class ContainerTrackingService(
 
     public async Task<ShipmentEditModel?> GetShipmentAsync(long id, CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Shipments.Read", new("Shipment", id.ToString()), [Permissions.Shipments.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Shipments.AsNoTracking().Where(x => x.Id == id).Select(x => new ShipmentEditModel
         {
@@ -64,7 +66,8 @@ public sealed class ContainerTrackingService(
 
     public async Task<TrackingSaveResult> SaveShipmentAsync(ShipmentEditModel model, CancellationToken cancellationToken = default)
     {
-        await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Shipments.Save", new("Shipment", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.Shipments.Create : Permissions.Shipments.Update], cancellationToken);
         if (model.BillNumbers.Count == 0) return TrackingSaveResult.Invalid("A shipment needs at least one bill number.");
         foreach (var number in model.BillNumbers)
         {
@@ -101,7 +104,7 @@ public sealed class ContainerTrackingService(
 
     public async Task<TrackingSaveResult> DeleteShipmentAsync(long id, uint version, CancellationToken cancellationToken = default)
     {
-        await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Shipments.Delete", new("Shipment", id.ToString()), [Permissions.Shipments.Delete], cancellationToken);
         return await MutateAsync(async db =>
         {
             var shipment = await db.Shipments.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
@@ -119,7 +122,7 @@ public sealed class ContainerTrackingService(
 
     public async Task<ContainerDetail?> GetContainerAsync(long id, CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Containers.Read", new("Container", id.ToString()), [Permissions.Containers.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         // A single statement keeps this bounded aggregate and its concurrency token consistent.
         return await db.Containers.AsNoTracking().AsSingleQuery().Where(c => c.Id == id).Select(c => new ContainerDetail(
@@ -160,7 +163,8 @@ public sealed class ContainerTrackingService(
 
     public async Task<TrackingSaveResult> SaveContainerAsync(ContainerEditModel model, CancellationToken cancellationToken = default)
     {
-        var permissions = await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Containers.Save", new("Container", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.Containers.Create : Permissions.Containers.Update], cancellationToken);
         model.ContainerNumber = model.ContainerNumber?.Trim() ?? string.Empty;
         model.CbpNumber = string.IsNullOrWhiteSpace(model.CbpNumber) ? null : model.CbpNumber.Trim();
         if (TrackingValidation.Validate(model) is { } error) return TrackingSaveResult.Invalid(error);
@@ -178,11 +182,11 @@ public sealed class ContainerTrackingService(
             // cannot race a departure change or a new assignment.
             if (model.Id != 0)
                 await db.ContainerGroups.Where(x => x.ContainerId == container.Id).Select(x => x.BillOfLading.Version).ToListAsync(cancellationToken);
-            if (!ContainerEditPolicy.CanEditMetadata(container.EstimatedDepartureDate, Today, permissions.IsAdministrator) &&
+            if (ContainerEditPolicy.HasDeparted(container.EstimatedDepartureDate, Today) &&
                 (container.ContainerNumber != model.ContainerNumber || container.EstimatedDepartureDate != model.EstimatedDepartureDate ||
                  container.EstimatedArrivalDate != model.EstimatedArrivalDate || container.QuotedRate != model.QuotedRate ||
                  container.DrayageCharge != model.DrayageCharge || container.CbpNumber != model.CbpNumber))
-                return TrackingSaveResult.Invalid("Departed / Locked. Only an administrator can correct container metadata; receipt and schedule status can still be recorded.");
+                operation.Require(operation.Purpose, operation.Scope, Permissions.Containers.CorrectDepartedMetadata);
             if (model.Id == 0) db.Containers.Add(container);
             container.ContainerNumber = model.ContainerNumber;
             container.CbpNumber = model.CbpNumber;
@@ -203,14 +207,14 @@ public sealed class ContainerTrackingService(
 
     public async Task<TrackingSaveResult> DeleteContainerAsync(long id, uint version, CancellationToken cancellationToken = default)
     {
-        var permissions = await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Containers.Delete", new("Container", id.ToString()), [Permissions.Containers.Delete], cancellationToken);
         return await MutateAsync(async db =>
         {
             var container = await db.Containers.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
             if (container is null) return TrackingSaveResult.Invalid("Container no longer exists.");
             if (container.Version != version) return TrackingSaveResult.Conflict();
-            if (!ContainerEditPolicy.CanEditMetadata(container.EstimatedDepartureDate, Today, permissions.IsAdministrator))
-                return TrackingSaveResult.Invalid("Departed / Locked. Only an administrator can delete a departed container.");
+            if (ContainerEditPolicy.HasDeparted(container.EstimatedDepartureDate, Today))
+                operation.Require(operation.Purpose, operation.Scope, Permissions.Containers.DeleteDeparted);
             if (await db.ContainerReceiptAllocations.AnyAsync(
                     x => x.ContainerGroupPart.ContainerGroup.ContainerId == id,
                     cancellationToken))
@@ -225,7 +229,7 @@ public sealed class ContainerTrackingService(
 
     public async Task<TrackingSaveResult> SaveContentsAsync(ContainerContentsEditModel model, CancellationToken cancellationToken = default)
     {
-        await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("ContainerContents.Update", new("Container", model.ContainerId.ToString()), [Permissions.ContainerContents.Update], cancellationToken);
         if (HasRepeatedIds(model.Groups.Select(x => x.Id)) || HasRepeatedIds(model.Groups.SelectMany(x => x.Parts).Select(x => x.Id)))
             return TrackingSaveResult.Invalid("A group or part row was included more than once.");
         foreach (var group in model.Groups)
@@ -310,15 +314,15 @@ public sealed class ContainerTrackingService(
 
     public async Task<List<BillOfLadingChoice>> GetBillsAsync(CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("BillsOfLading.Read", new("BillsOfLading"), [Permissions.BillsOfLading.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.BillsOfLading.AsNoTracking().OrderBy(x => x.Number)
-            .Select(x => new BillOfLadingChoice(x.Id, x.SupplierId, x.Number, x.Supplier.Name, x.Duty)).ToListAsync(cancellationToken);
+            .Select(x => new BillOfLadingChoice(x.Id, x.SupplierId, x.Number, x.Supplier.Name, x.Duty, x.Groups.Any(g => g.Container.EstimatedDepartureDate < Today))).ToListAsync(cancellationToken);
     }
 
     public async Task<List<TrackingChoice>> GetPartsAsync(CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("ContainerContents.Choices", new("Containers"), [Permissions.ContainerContents.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Parts.AsNoTracking().OrderBy(x => x.PartNumber).ThenBy(x => x.Customer.Name)
             .Select(x => new TrackingChoice(x.Id, x.SupplierId, x.PartNumber, x.Customer.Name, x.IsActive))
@@ -327,7 +331,7 @@ public sealed class ContainerTrackingService(
 
     public async Task<BillOfLadingEditModel?> GetBillAsync(long id, CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("BillsOfLading.Read", new("BillOfLading", id.ToString()), [Permissions.BillsOfLading.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.BillsOfLading.AsNoTracking().Where(x => x.Id == id).Select(x => new BillOfLadingEditModel
         { Id = x.Id, Version = x.Version, Number = x.Number, SupplierId = x.SupplierId, Duty = x.Duty }).SingleOrDefaultAsync(cancellationToken);
@@ -335,7 +339,8 @@ public sealed class ContainerTrackingService(
 
     public async Task<TrackingSaveResult> SaveBillAsync(BillOfLadingEditModel model, CancellationToken cancellationToken = default)
     {
-        var permissions = await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("BillsOfLading.Save", new("BillOfLading", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.BillsOfLading.Create : Permissions.BillsOfLading.Update], cancellationToken);
         model.Number = model.Number?.Trim().ToUpperInvariant() ?? string.Empty;
         if (TrackingValidation.Validate(model) is { } error) return TrackingSaveResult.Invalid(error);
         if (!TrackingValidation.ValidMoney(model.Duty)) return TrackingSaveResult.Invalid("Duty must be a nonnegative amount with at most two decimal places.");
@@ -350,12 +355,12 @@ public sealed class ContainerTrackingService(
             var supplier = await db.Suppliers.FindAsync([model.SupplierId], cancellationToken);
             if (supplier is null || (!supplier.IsActive && bill.SupplierId != supplier.Id))
                 return TrackingSaveResult.Invalid("Select an active supplier. An existing inactive supplier may be retained.");
-            if (model.Id != 0 && !permissions.IsAdministrator)
+            if (model.Id != 0)
             {
                 var departures = await db.ContainerGroups.Where(x => x.BillOfLadingId == bill.Id)
                     .Select(x => x.Container.EstimatedDepartureDate).ToListAsync(cancellationToken);
                 if (departures.Any(x => ContainerEditPolicy.HasDeparted(x, Today)))
-                    return TrackingSaveResult.Invalid("This B/L is shared with a departed container. Only an administrator can correct it.");
+                    operation.Require(operation.Purpose, operation.Scope, Permissions.BillsOfLading.CorrectDeparted);
             }
             if (model.Id == 0) db.BillsOfLading.Add(bill);
             bill.Number = model.Number;
@@ -373,6 +378,41 @@ public sealed class ContainerTrackingService(
             if (existingId is not null) return new(false, "This B/L number already exists. Select the existing B/L.", ExistingBillOfLadingId: existingId);
         }
         return result;
+    }
+
+    public async Task<ShipmentEditModel?> GetContainerCreationShipmentAsync(long shipmentId, CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("Containers.CreationShipment", new("Shipment", shipmentId.ToString()), [Permissions.Containers.Create], cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Shipments.AsNoTracking().Where(x => x.Id == shipmentId).Select(x => new ShipmentEditModel
+        {
+            Id = x.Id, BillNumbers = x.BillNumbers.Select(b => new ShipmentBillEditModel { Number = b.Number }).ToList()
+        }).SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<ContainerReferenceChoices> GetContainerReferencesAsync(long containerId, CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("Containers.References", new("Container", containerId.ToString()), [Permissions.Containers.Read], cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var canChoose = PermissionCatalog.ExpandRequirements([Permissions.ContainerContents.Update]).All(operation.Snapshot.Has);
+        // Readers see references belonging to this aggregate. Contents editors also need choices.
+        var bills = await db.BillsOfLading.AsNoTracking()
+            .Where(x => canChoose || x.Groups.Any(g => g.ContainerId == containerId))
+            .OrderBy(x => x.Number).Select(x => new BillOfLadingChoice(x.Id, x.SupplierId, x.Number, x.Supplier.Name, x.Duty, x.Groups.Any(g => g.Container.EstimatedDepartureDate < Today))).ToListAsync(cancellationToken);
+        var parts = await db.Parts.AsNoTracking()
+            .Where(x => canChoose || db.ContainerGroupParts.Any(p => p.PartId == x.Id && p.ContainerGroup.ContainerId == containerId))
+            .OrderBy(x => x.PartNumber).ThenBy(x => x.Customer.Name)
+            .Select(x => new TrackingChoice(x.Id, x.SupplierId, x.PartNumber, x.Customer.Name, x.IsActive)).ToListAsync(cancellationToken);
+        return new(bills, parts);
+    }
+
+    public async Task<List<BillSupplierChoice>> GetBillSupplierOptionsAsync(long billId, CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("BillsOfLading.SupplierChoices", new("BillOfLading", billId.ToString()),
+            [billId == 0 ? Permissions.BillsOfLading.Create : Permissions.BillsOfLading.Update], cancellationToken);
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Suppliers.AsNoTracking().Where(x => x.IsActive || db.BillsOfLading.Any(b => b.Id == billId && b.SupplierId == x.Id))
+            .OrderBy(x => x.Name).Select(x => new BillSupplierChoice(x.Id, x.Name, x.IsActive)).ToListAsync(cancellationToken);
     }
 
     private async Task<TrackingSaveResult> MutateAsync(Func<AppDbContext, Task<TrackingSaveResult>> action, CancellationToken cancellationToken)

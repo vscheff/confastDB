@@ -1,13 +1,13 @@
+@inherits PermissionComponentBase
 @page "/container-tracking/containers/{Id:long}"
 @page "/container-tracking/shipments/{ShipmentId:long}/containers/create"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Containers.Read")]
 @using Confast.Web.Features.ContainerTracking
 @using Confast.Web.Features.ProductionScheduling
 @using Microsoft.AspNetCore.Components.Forms
 @using System.ComponentModel.DataAnnotations
 @inject ContainerTrackingService Tracking
 @inject ReceivedPartsService ReceivedParts
-@inject TrackingAccess Access
 @inject NavigationManager Navigation
 @inject ILogger<Detail> Logger
 @inject IJSRuntime Js
@@ -26,12 +26,12 @@ else
         <div><span class="tracking-eyebrow">Shipment</span><p>@string.Join(" · ", shipmentBills)</p>
             <h1>@(Id == 0 ? "Create container" : $"Container {metadata.ContainerNumber}")</h1></div>
         <div class="heading-actions">
-            @if (Id != 0 && permissions.CanEdit)
+            @if (Id != 0 && (CanReceipt || Can(Permissions.Containers.Unreceive)))
             {
-                <button type="button" class="button button-primary" @onclick="OpenReceiveDialog" disabled="@busy">
+                @if (CanReceipt) { <button type="button" class="button button-primary" @onclick="OpenReceiveDialog" disabled="@busy">
                     @(metadata.ReceivedDate is null ? "Receive container" : !metadata.ReceiptAuditRecorded ? "Reconcile received container" : "Correct received date")
-                </button>
-                @if (metadata.CanUnreceive)
+                </button> }
+                @if (metadata.CanUnreceive && Can(Permissions.Containers.Unreceive))
                 {
                     @if (confirmUnreceive)
                     {
@@ -77,7 +77,7 @@ else
                     <div class="form-field form-field-wide"><label for="receive-reason">@(!metadata.ReceiptAuditRecorded ? "Reconciliation reason" : "Correction reason")</label><InputTextArea id="receive-reason" @bind-Value="receiveReason" /></div>
                 }
                 <div class="form-actions">
-                    <button type="button" class="button button-primary" @onclick="ReceiveAsync" disabled="@busy">Confirm</button>
+                    <button type="button" class="button button-primary" @onclick="ReceiveAsync" disabled="@(busy || !CanReceipt)">Confirm</button>
                     <button type="button" class="button button-secondary" @onclick="() => showReceiveDialog = false" disabled="@busy">Cancel</button>
                 </div>
             </section>
@@ -91,10 +91,10 @@ else
     {
         <div class="alert alert-warning" role="status"><strong>Departed / Locked</strong> — groups, B/L assignments, and part lines are read-only.
             Receipt and production-schedule status can still be recorded.
-            @if (permissions.IsAdministrator) { <span>As an administrator, you can correct container metadata below.</span> }
+            @if (Can(Permissions.Containers.CorrectDepartedMetadata)) { <span>You can correct container metadata below.</span> }
         </div>
     }
-    @if (!permissions.CanEdit) { <p class="status-message">Read-only access.</p> }
+    @if (!CanEditMetadata && !CanEditContents) { <p class="status-message">Read-only access.</p> }
     <EditForm Model="metadata" OnValidSubmit="SaveMetadataAsync" FormName="container-metadata" class="record-form tracking-form">
         <DataAnnotationsValidator /><ValidationSummary />
         <div class="tracking-grid tracking-metadata-grid">
@@ -108,13 +108,13 @@ else
             </fieldset>
             @if (Id != 0)
             {
-                <fieldset class="tracking-fields" disabled="@(!permissions.CanEdit || busy)">
+                <fieldset class="tracking-fields" disabled="@(!CanEditMetadata && !CanEditContents || busy)">
                     <div class="form-field container-received-field"><label>Received date</label><output>@(metadata.ReceivedDate?.ToString("MMM d, yyyy") ?? "Not received")</output></div>
                     <div class="form-field container-schedule-field"><label>Production schedule</label><output>@(metadata.HasMissingScheduleEligibility ? "Missing Eligibility" : metadata.AddedToProductionSchedule ? "Yes" : "No")</output></div>
                 </fieldset>
             }
         </div>
-        @if (permissions.CanEdit)
+        @if (CanEditMetadata)
         { <div class="form-actions"><button class="button button-primary" disabled="@(busy || editingBill)">@(Id == 0 ? "Create container" : "Save container")</button></div> }
     </EditForm>
     @if (Id != 0)
@@ -184,6 +184,10 @@ else
                     {
                         <BillEditor @key="billEditorKey" BillId="editingBillId" Saved="BillSavedAsync" Cancelled="CloseBillEditor" />
                     }
+                    @if (bill is not null && Can(Permissions.BillsOfLading.Update) && (!bill.HasDeparted || Can(Permissions.BillsOfLading.CorrectDeparted)))
+                    {
+                        <button type="button" class="button button-secondary" disabled="@(busy || editingBill)" @onclick="() => OpenBillEditor(group, group.BillOfLadingId)">Edit B/L</button>
+                    }
                     <fieldset class="tracking-fields" disabled="@(!CanEditContents || busy || editingBill)">
                         <section class="tracking-group" @key="group">
                             <div class="section-heading">
@@ -203,8 +207,7 @@ else
                                     @if (CanEditContents)
                                     {
                                         <div class="heading-actions">
-                                            <button type="button" class="button button-secondary" @onclick="() => OpenBillEditor(group, 0)">New B/L</button>
-                                            <button type="button" class="button button-secondary" disabled="@(group.BillOfLadingId == 0)" @onclick="() => OpenBillEditor(group, group.BillOfLadingId)">Edit B/L</button>
+                                            @if (Can(Permissions.BillsOfLading.Create)) { <button type="button" class="button button-secondary" @onclick="() => OpenBillEditor(group, 0)">New B/L</button> }
                                         </div>
                                     }
                                 </div>
@@ -268,7 +271,6 @@ else
     private ContainerContentsEditModel contents = new();
     private EditContext contentsEditContext = default!;
     private ValidationMessageStore? contentsValidationMessages;
-    private TrackingPermissions permissions = new(false, false);
     private List<string> shipmentBills = [];
     private List<BillOfLadingChoice> bills = [];
     private List<TrackingChoice> parts = [];
@@ -289,9 +291,10 @@ else
     private IJSObjectReference? dateInputNavigationModule;
     private bool isDateInputNavigationConfigured;
     private bool Locked => Id != 0 && ContainerEditPolicy.HasDeparted(persistedEtd, Tracking.Today);
-    private bool CanEditContents => permissions.CanEdit && !Locked;
-    private bool CanEditMetadata => permissions.CanEdit && (!Locked || permissions.IsAdministrator);
-    private bool CanDelete => Id != 0 && CanEditMetadata;
+    private bool CanEditContents => Can(Permissions.ContainerContents.Update) && !Locked;
+    private bool CanEditMetadata => Can(Id == 0 ? Permissions.Containers.Create : Permissions.Containers.Update) && (!Locked || Can(Permissions.Containers.CorrectDepartedMetadata));
+    private bool CanDelete => Id != 0 && Can(Permissions.Containers.Delete) && (!Locked || Can(Permissions.Containers.DeleteDeparted));
+    private bool CanReceipt => Can(metadata.ReceivedDate is null ? Permissions.Containers.Receive : Permissions.Containers.CorrectReceipt);
     private void ToggleGroupsExpanded()
     {
         groupsExpanded = !groupsExpanded;
@@ -316,6 +319,7 @@ else
             message = "Container unreceived.";
             isError = false;
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to unreceive container {ContainerId}", Id); message = "Container could not be unreceived."; isError = true; }
         finally { busy = false; }
     }
@@ -332,6 +336,7 @@ else
             message = metadata.ReceivedDate == receiveDate ? "Container receipt saved." : message;
             isError = false;
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to receive container {ContainerId}", Id); message = "Container receipt could not be saved."; isError = true; }
         finally { busy = false; }
     }
@@ -377,10 +382,10 @@ else
         busy = true; loaded = false; message = null; editingBill = false; confirmDelete = false; confirmUnreceive = false; isDateInputNavigationConfigured = false;
         try
         {
-            permissions = await Access.GetAsync();
+            await RefreshPermissionsAsync();
             if (Id == 0)
             {
-                var shipment = await Tracking.GetShipmentAsync(ShipmentId);
+                var shipment = await Tracking.GetContainerCreationShipmentAsync(ShipmentId);
                 if (shipment is null) { message = "Shipment no longer exists."; isError = true; return; }
                 metadata = new() { ShipmentId = ShipmentId };
                 shipmentBills = shipment.BillNumbers.Select(x => x.Number).ToList();
@@ -390,12 +395,13 @@ else
                 var detail = await Tracking.GetContainerAsync(Id);
                 if (detail is null) { message = "Container no longer exists."; isError = true; return; }
                 metadata = detail.Metadata; contents = detail.Contents; ResetContentsValidation(); shipmentBills = detail.ShipmentBills;
-                bills = await Tracking.GetBillsAsync(); parts = await Tracking.GetPartsAsync();
+                var references = await Tracking.GetContainerReferencesAsync(Id); bills = references.Bills; parts = references.Parts;
             }
             persistedEtd = metadata.EstimatedDepartureDate;
             groupsExpanded = contents.Groups.Count == 0;
             loaded = true;
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load container {ContainerId}", Id); message = "Container could not be loaded."; isError = true; }
         finally { busy = false; }
     }
@@ -413,6 +419,7 @@ else
                 else { metadata.Version = result.Version!.Value; contents.Version = metadata.Version; persistedEtd = metadata.EstimatedDepartureDate; }
             }
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to save container {ContainerId}", Id); message = "Container could not be saved."; isError = true; }
         finally { busy = false; }
     }
@@ -432,6 +439,7 @@ else
             isError = true;
             confirmDelete = false;
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to delete container {ContainerId}", Id); message = "Container could not be deleted."; isError = true; }
         finally { busy = false; }
     }
@@ -466,6 +474,7 @@ else
                 }
             }
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to save container contents {ContainerId}", Id); contentsMessage = "Groups and part lines could not be saved."; contentsIsError = true; }
         finally { busy = false; }
     }
@@ -509,7 +518,8 @@ else
     private void CloseBillEditor() { editingBill = false; billTarget = null; }
     private async Task BillSavedAsync(long id)
     {
-        bills = await Tracking.GetBillsAsync();
+        try { bills = (await Tracking.GetContainerReferencesAsync(Id)).Bills; }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; return; }
         if (billTarget is not null) billTarget.BillOfLadingId = id;
         CloseBillEditor();
         message = "B/L selected. Save groups and part lines to save its assignment."; isError = false;

@@ -348,18 +348,83 @@ public sealed class AuthorizationFoundationTests(PostgresTestDatabase database) 
     }
 
     [Fact]
-    public async Task BaselineEnrollment_IsAutomaticIdempotentAndCannotBeRemoved()
+    public async Task ReadOnlyEnrollment_IsAnInitialDefaultThatCanBeRemoved()
     {
         var actor = await UserAsync(AppRoles.QualityId);
         await using var db = database.CreateDbContext();
         Assert.Equal(2, await db.UserRoles.CountAsync(x => x.UserId == actor.Id));
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO identity_user_roles (user_id, role_id) VALUES ({actor.Id}, {AppRoles.ReadOnlyId}) ON CONFLICT DO NOTHING");
         Assert.Equal(2, await db.UserRoles.CountAsync(x => x.UserId == actor.Id));
-        await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync(
-            $"DELETE FROM identity_user_roles WHERE user_id = {actor.Id} AND role_id = {AppRoles.ReadOnlyId}"));
-        Assert.Equal(2, await db.UserRoles.CountAsync(x => x.UserId == actor.Id));
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM identity_user_roles WHERE user_id = {actor.Id} AND role_id = {AppRoles.ReadOnlyId}");
+        Assert.Equal(1, await db.UserRoles.CountAsync(x => x.UserId == actor.Id));
         await db.Users.Where(x => x.Id == actor.Id).ExecuteDeleteAsync();
         Assert.False(await db.UserRoles.AnyAsync(x => x.UserId == actor.Id));
+    }
+
+    [Fact]
+    public async Task RemovingReadOnlyInvalidatesCachedPermissions_AndAnUnassignedUserHasNoPermissionFloor()
+    {
+        await ReadyAsync();
+        var actor = await UserAsync(); authentication.Principal = Principal(actor);
+        var evaluator = Evaluator();
+        var before = await evaluator.EvaluateCurrentAsync();
+        Assert.Equal(16, before.Permissions.Count);
+        await using var db = database.CreateDbContext();
+        await db.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+        var after = await evaluator.EvaluateCurrentAsync();
+        Assert.Empty(after.Permissions);
+        Assert.True(after.Version.Epoch > before.Version.Epoch);
+        Assert.Equal(2, evaluator.ComputationCount);
+
+        db.UserRoles.Add(new() { UserId = actor.Id, RoleId = AppRoles.QualityId }); await db.SaveChangesAsync();
+        var qualityOnly = await evaluator.EvaluateCurrentAsync();
+        Assert.Equal(69, qualityOnly.Permissions.Count);
+        Assert.False(qualityOnly.Has(Permissions.Customers.Read));
+        await using var services = IdentityServices();
+        var principal = await services.GetRequiredService<IUserClaimsPrincipalFactory<ApplicationUser>>().CreateAsync(actor);
+        Assert.False(principal.IsInRole(AppRoles.ReadOnly));
+    }
+
+    [Fact]
+    public async Task DesignatedRootRequiresNeitherReadOnlyNorAnOrdinaryRole()
+    {
+        var root = await ReadyAsync();
+        await using var db = database.CreateDbContext();
+        await db.UserRoles.Where(x => x.UserId == root.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+        authentication.Principal = Principal(root);
+        var snapshot = await Evaluator().EvaluateCurrentAsync();
+        Assert.True(snapshot.IsRoot); Assert.Equal(164, snapshot.Permissions.Count);
+        Assert.Equal([AppRoles.RootId], await db.UserRoles.Where(x => x.UserId == root.Id).Select(x => x.RoleId).ToListAsync());
+        await Assert.ThrowsAsync<PostgresException>(() => db.UserRoles.Where(x => x.UserId == root.Id && x.RoleId == AppRoles.RootId).ExecuteDeleteAsync());
+    }
+
+    [Fact]
+    public async Task OptionalReadOnlyMigrationPreservesAccountsAndRefusesADowngradeThatWouldRegrantPermissions()
+    {
+        await using var db = database.CreateDbContext(); var migrator = db.GetService<IMigrator>();
+        const string previous = "20261009194655_AddDelegatedAdministrationAndInspectorIdentity";
+        try
+        {
+            await migrator.MigrateAsync(previous);
+            var root = await ReadyAsync(); var actor = await UserAsync(AppRoles.QualityId);
+            var epoch = await db.AuthorizationState.Select(x => x.GlobalEpoch).SingleAsync();
+            await migrator.MigrateAsync(); db.ChangeTracker.Clear();
+            var persisted = await db.Users.SingleAsync(x => x.Id == root.Id);
+            Assert.Equal(root.PasswordHash, persisted.PasswordHash); Assert.Equal(root.SecurityStamp, persisted.SecurityStamp);
+            Assert.True(await db.AuthorizationState.AnyAsync(x => x.RootUserId == root.Id && x.Readiness == AuthorizationReadiness.Ready && x.GlobalEpoch > epoch));
+            Assert.Equal(2, await db.UserRoles.CountAsync(x => x.RoleId == AppRoles.ReadOnlyId));
+            await db.UserRoles.Where(x => x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+            await Assert.ThrowsAsync<PostgresException>(() => migrator.MigrateAsync(previous));
+            Assert.False(await db.UserRoles.AnyAsync(x => x.RoleId == AppRoles.ReadOnlyId));
+            db.UserRoles.AddRange(new IdentityUserRole<string> { UserId = root.Id, RoleId = AppRoles.ReadOnlyId },
+                new IdentityUserRole<string> { UserId = actor.Id, RoleId = AppRoles.ReadOnlyId });
+            await db.SaveChangesAsync(); await migrator.MigrateAsync(previous);
+            await Assert.ThrowsAsync<PostgresException>(() => db.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync());
+            await migrator.MigrateAsync();
+            await db.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+        }
+        finally { await migrator.MigrateAsync(); }
     }
 
     [Theory]
@@ -457,7 +522,7 @@ public sealed class AuthorizationFoundationTests(PostgresTestDatabase database) 
         Assert.Equal(AuthorizationDenial.WrongOperation,
             Assert.Throws<AuthorizationDeniedException>(() => operation.Require("Other", scope, Permissions.Parts.Read)).Denial);
         Assert.Throws<AuthorizationDeniedException>(() => operation.Require("Receive", new("Inspection", "456"), Permissions.Parts.Read));
-        var handler = new PermissionAuthorizationHandler(evaluator, Options.Create(new IdentityOptions()));
+        var handler = new PermissionAuthorizationHandler(evaluator, Options.Create(new IdentityOptions()), new Microsoft.AspNetCore.Http.HttpContextAccessor());
         var requirement = new PermissionRequirement(Permissions.Inspections.Create);
         var context = new AuthorizationHandlerContext([requirement], authentication.Principal, operation);
         await handler.HandleAsync(context);

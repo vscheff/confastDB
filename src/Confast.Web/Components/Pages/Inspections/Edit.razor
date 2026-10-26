@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Inspections.Read")]
 @page "/inspections/{InspectionId:long}"
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.ContainerTracking
@@ -30,7 +32,7 @@
             <h2 id="undo-lineage-title">Delete to-lot inspection?</h2>
             <p>Undoing this operation returns @(pendingUndo.QuantityMoved?.ToString("N0", CultureInfo.InvariantCulture) ?? "—") pieces to the from lot and will delete the to-lot inspection because no pieces will remain.</p>
             <div class="form-actions">
-                <button class="button button-danger" type="button" @onclick="ConfirmUndoAsync" disabled="@isUndoing">@(isUndoing ? "Undoing…" : "Delete inspection and undo")</button>
+                <button class="button button-danger" type="button" @onclick="ConfirmUndoAsync" disabled="@(!(Can(Permissions.Inspections.UndoLineage)) || (isUndoing))">@(isUndoing ? "Undoing…" : "Delete inspection and undo")</button>
                 <button class="button button-secondary" type="button" @onclick="CancelUndo" disabled="@isUndoing">Cancel</button>
             </div>
         </section>
@@ -49,7 +51,7 @@
                 <InputTextArea id="undo-bump-reason" @bind-Value="bumpUndoReason" />
             </div>
             <div class="form-actions">
-                <button class="button button-danger" type="button" @onclick="UndoBumpAsync" disabled="@isUndoingBump">@(isUndoingBump ? "Undoing…" : "Undo bump")</button>
+                <button class="button button-danger" type="button" @onclick="UndoBumpAsync" disabled="@(!(Can(Permissions.Receiving.ReverseAllocation)) || (isUndoingBump))">@(isUndoingBump ? "Undoing…" : "Undo bump")</button>
                 <button class="button button-secondary" type="button" @onclick="CancelBumpUndo" disabled="@isUndoingBump">Cancel</button>
             </div>
         </section>
@@ -75,7 +77,7 @@
                 <input id="additional-quantity" inputmode="numeric" value="@(additionalQuantity?.ToString("N0", CultureInfo.InvariantCulture))" @oninput="UpdateAdditionalQuantity" />
             </div>
             <div class="duplicate-inspection-actions">
-                <button class="button button-primary" type="button" @onclick="MoveAdditionalQuantityAsync" disabled="@isMovingQuantity">@(isMovingQuantity ? "Moving…" : "Move quantity")</button>
+                <button class="button button-primary" type="button" @onclick="MoveAdditionalQuantityAsync" disabled="@(!(Can(Permissions.Inspections.TransferQuantity)) || (isMovingQuantity))">@(isMovingQuantity ? "Moving…" : "Move quantity")</button>
                 <button class="button button-secondary" type="button" @onclick="CancelQuantityMove" disabled="@isMovingQuantity">Cancel</button>
             </div>
         </section>
@@ -119,19 +121,21 @@ else
             <button class="button button-secondary inspection-action-search" type="button" @onclick="BeginFind" disabled="@(isSaving || isCertificationWorking)">
                 Search
             </button>
-            <a class="button button-secondary inspection-action-new" href="/inspections/create">New</a>
+            @if (Can(Permissions.Inspections.Create)) { <a class="button button-secondary inspection-action-new" href="/inspections/create">New</a> }
             <button class="button button-secondary inspection-action-duplicate"
                     type="button"
                     @onclick="BeginDuplicate"
-                    disabled="@(isSaving || isCertificationWorking || isDuplicating)">
+                    disabled="@(!(Can(Permissions.Inspections.Duplicate)) || (isSaving || isCertificationWorking || isDuplicating))">
                 @(isDuplicating ? "Duplicating…" : "Duplicate")
             </button>
             @if (flipPreview?.Destinations.Any(x => x.IsCompatible) == true)
             {
-                <button class="button button-secondary inspection-action-flip" type="button" @onclick="BeginFlip" disabled="@(isSaving || isCertificationWorking || isFlipping)">@(isFlipping ? "Flipping…" : "Flip")</button>
+                <button class="button button-secondary inspection-action-flip" type="button" @onclick="BeginFlip" disabled="@(!(Can(Permissions.Inspections.Flip)) || (isSaving || isCertificationWorking || isFlipping))">@(isFlipping ? "Flipping…" : "Flip")</button>
             }
-            <a class="button button-danger-outline inspection-action-delete" href="@($"/inspections/{inspection.Id}/delete")">Delete</a>
-            <a class="button button-secondary inspection-action-preview" href="@($"/inspections/{inspection.Id}/print")">Preview</a>
+            @if (Can(Permissions.Inspections.Delete)) { <a class="button button-danger-outline inspection-action-delete" href="@($"/inspections/{inspection.Id}/delete")">Delete</a> }
+            @if (Can(Permissions.InspectionSheets.Export)) { <a class="button button-secondary inspection-action-preview" href="@($"/inspections/{inspection.Id}/print")">Preview</a> }
+            @if (Can(Permissions.InspectionSheets.Export))
+            {
             <details class="inspection-print-options inspection-action-download">
                 <summary class="button button-secondary">Download</summary>
                 <div class="inspection-print-options-menu">
@@ -139,6 +143,9 @@ else
                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print/download?notesPage=second")" download data-enhance-nav="false">Download (Show Extended Notes)</a>
                 </div>
             </details>
+            }
+            @if (Can(Permissions.InspectionSheets.Export))
+            {
             <details class="inspection-print-options inspection-action-print">
                 <summary class="button button-secondary">Print</summary>
                 <div class="inspection-print-options-menu">
@@ -146,13 +153,14 @@ else
                     <a class="button button-secondary" href="@($"/inspections/{inspection.Id}/print?notesPage=second&autoPrint=true")" target="_blank" rel="noopener">Print (Show Extended Notes)</a>
                 </div>
             </details>
-            <button class="button button-secondary certification-package-button inspection-action-email" type="button" @onclick="OpenCertificationPackageAsync" disabled="@(!inspection.InspectionAccepted)">
+            }
+            <button class="button button-secondary certification-package-button inspection-action-email" type="button" @onclick="OpenCertificationPackageAsync" disabled="@(!(Can(Permissions.Certifications.BuildPackage)) || (!inspection.InspectionAccepted))">
                 Email
             </button>
             <button class="button button-secondary inspection-action-archive"
                     type="button"
                     @onclick="DownloadInspectionSheetPdfAsync"
-                    disabled="@(isSaving || isCertificationWorking)">
+                    disabled="@(!(Can(Permissions.InspectionSheets.Export) && Can(Permissions.Certifications.Read)) || (isSaving || isCertificationWorking))">
                 Archive
             </button>
         </div>
@@ -265,7 +273,7 @@ else
                            @onkeydown="HandleDuplicateQuantityKeyDownAsync" />
                 </div>
                 <div class="duplicate-inspection-actions">
-                    <button class="button button-primary" type="button" @onclick="DuplicateInspectionAsync" disabled="@isDuplicating">@(isDuplicating ? "Duplicating…" : "Duplicate")</button>
+                    <button class="button button-primary" type="button" @onclick="DuplicateInspectionAsync" disabled="@(!(Can(Permissions.Inspections.Duplicate)) || (isDuplicating))">@(isDuplicating ? "Duplicating…" : "Duplicate")</button>
                     <button class="button button-secondary" type="button" @onclick="CancelDuplicate" disabled="@isDuplicating">Cancel</button>
                 </div>
             </section>
@@ -282,7 +290,7 @@ else
                 <div class="form-field"><label for="flip-target">Destination part</label><select id="flip-target" @bind="selectedFlipDefinitionId">@foreach (var destination in flipPreview.Destinations.Where(x => x.IsCompatible)) { <option value="@destination.DefinitionId">@destination.TargetPartNumber</option> }</select></div>
                 <div class="form-field"><label for="flip-lot-number">New lot number</label><input id="flip-lot-number" @bind="flipLotNumber" /></div>
                 <div class="form-field"><label for="flip-quantity">Quantity to move (1–@((inspection.QuantityReceived!.Value - 1).ToString("N0")))</label><input id="flip-quantity" inputmode="numeric" value="@(flipQuantity?.ToString("N0", CultureInfo.InvariantCulture))" @oninput="UpdateFlipQuantity" @onkeydown="HandleFlipQuantityKeyDownAsync" /></div>
-                <div class="duplicate-inspection-actions"><button class="button button-primary" type="button" @onclick="FlipInspectionAsync" disabled="@isFlipping">@(isFlipping ? "Flipping…" : "Confirm flip")</button><button class="button button-secondary" type="button" @onclick="CancelFlip" disabled="@isFlipping">Cancel</button></div>
+                <div class="duplicate-inspection-actions"><button class="button button-primary" type="button" @onclick="FlipInspectionAsync" disabled="@(!(Can(Permissions.Inspections.Flip)) || (isFlipping))">@(isFlipping ? "Flipping…" : "Confirm flip")</button><button class="button button-secondary" type="button" @onclick="CancelFlip" disabled="@isFlipping">Cancel</button></div>
                 @if (SelectedFlipDestination is not null)
                 {
                     <details class="flip-preview-details" open>
@@ -388,9 +396,9 @@ else
                     <div class="alert @(packageSucceeded ? "alert-success" : "alert-error")" role="alert">@packageMessage</div>
                 }
                 <div class="heading-actions">
-                    <button class="button button-secondary" type="button" @onclick="GenerateCertificationPackageAsync" disabled="@packageWorking">Generate / Validate</button>
-                    <button class="button button-primary" type="button" @onclick="DownloadCertificationPackageAsync" disabled="@(packageWorking || generatedPackage is null)">Download PDF</button>
-                    <button class="button button-primary" type="button" @onclick="ComposeCertificationEmailAsync" disabled="@(packageWorking || generatedPackage is null || generatedPackage.ToRecipients.Count == 0)">Email PDF</button>
+                    <button class="button button-secondary" type="button" @onclick="GenerateCertificationPackageAsync" disabled="@(!(Can(Permissions.Certifications.BuildPackage)) || (packageWorking))">Generate / Validate</button>
+                    <button class="button button-primary" type="button" @onclick="DownloadCertificationPackageAsync" disabled="@(!(Can(Permissions.Certifications.BuildPackage)) || (packageWorking || generatedPackage is null))">Download PDF</button>
+                    <button class="button button-primary" type="button" @onclick="ComposeCertificationEmailAsync" disabled="@(!(Can(Permissions.Certifications.SendEmail)) || (packageWorking || generatedPackage is null || generatedPackage.ToRecipients.Count == 0))">Email PDF</button>
                 </div>
             </section>
         </div>
@@ -407,7 +415,7 @@ else
                     </div>
                     <div class="heading-actions">
                         <button class="button button-secondary" type="button" disabled="@packageWorking" @onclick="CancelCertificationEmailCompose">Back</button>
-                        <button class="button button-primary" type="button" disabled="@packageWorking" @onclick="SendComposedCertificationEmailAsync">Send Email</button>
+                        <button class="button button-primary" type="button" disabled="@(!(Can(Permissions.Certifications.SendEmail)) || (packageWorking))" @onclick="SendComposedCertificationEmailAsync">Send Email</button>
                     </div>
                 </div>
                 @if (composeMessage is not null)
@@ -450,7 +458,7 @@ else
                 </ul>
                 <div class="heading-actions">
                     <button class="button button-secondary" type="button" @onclick="CancelIncompletePackageLotWarning">Cancel</button>
-                    <button class="button button-primary" type="button" @onclick="GenerateWithTemporaryCompletionAsync">Temporarily mark complete and generate</button>
+                    <button class="button button-primary" type="button" @onclick="GenerateWithTemporaryCompletionAsync" disabled="@(!(Can(Permissions.Certifications.TemporarilyCompletePackage)))">Temporarily mark complete and generate</button>
                 </div>
             </section>
         </div>
@@ -529,22 +537,22 @@ else
             <div class="inspection-header-group inspection-mutable-group" role="group" aria-label="Inspection details">
             <div class="form-field inspection-lot-field">
                 <label for="lot-number">Lot Number</label>
-                <InputText id="lot-number" @bind-Value="inspection.LotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputText id="lot-number" @bind-Value="inspection.LotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
             </div>
             <div class="form-field inspection-po-field">
                 <label for="conformance-po-number">Conformance PO#</label>
-                <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputText id="conformance-po-number" @bind-Value="inspection.ConformancePoNumber" @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
             </div>
             <div class="form-field inspection-manufacturer-lot-field">
                 <label for="manufacturer-lot-number">Manufacturer's Lot#</label>
-                <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputText id="manufacturer-lot-number" @bind-Value="inspection.ManufacturerLotNumber" @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
             </div>
             <div class="form-field inspection-received-date-field">
                 <label for="date-received">Date Received</label>
                 <InputDate id="date-received"
                            @bind-Value="inspection.DateReceived"
                            @bind-Value:after="SaveInspectionAfterEditAsync"
-                           max="@Today" />
+                           max="@Today" disabled="@(!(Can(Permissions.Inspections.Update)))" />
                 <ValidationMessage For="@(() => inspection.DateReceived)" />
             </div>
             <div class="form-field inspection-date-field">
@@ -553,24 +561,25 @@ else
                            @bind-Value="inspection.InspectionDate"
                            @bind-Value:after="SaveInspectionAfterEditAsync"
                            min="@DateReceived"
-                           max="@Today" />
+                           max="@Today" disabled="@(!(Can(Permissions.Inspections.Update)))" />
                 <ValidationMessage For="@(() => inspection.InspectionDate)" />
             </div>
             <div class="form-field inspection-quantity-received-field">
                 <label for="quantity-received">Quantity Received</label>
                 <ThousandsSeparatedIntegerInput id="quantity-received"
                                                 @bind-Value="inspection.QuantityReceived"
-                                                @bind-Value:after="UpdateQuantityInspectedAndSaveAsync" />
+                                                @bind-Value:after="UpdateQuantityInspectedAndSaveAsync"
+                                                disabled="@(!Can(Permissions.Inspections.Update))" />
                 <ValidationMessage For="@(() => inspection.QuantityReceived)" />
             </div>
             <div class="form-field inspection-quantity-inspected-field">
                 <label for="quantity-inspected">Quantity Inspected</label>
-                <InputNumber id="quantity-inspected" tabindex="-1" @bind-Value="inspection.QuantityInspected" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputNumber id="quantity-inspected" tabindex="-1" @bind-Value="inspection.QuantityInspected" @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
                 <ValidationMessage For="@(() => inspection.QuantityInspected)" />
             </div>
             <div class="form-field inspection-inspector-field">
                 <label for="inspector">Inspector</label>
-                <InputSelect id="inspector" tabindex="-1" disabled="@(!canChangeInspector)" @bind-Value="inspection.InspectorUserId" @bind-Value:after="SaveInspectionAfterEditAsync">
+                <InputSelect id="inspector" tabindex="-1" disabled="@(!(Can(Permissions.Inspections.Update)) || (!canChangeInspector))" @bind-Value="inspection.InspectorUserId" @bind-Value:after="SaveInspectionAfterEditAsync">
                     <option value="">Select an inspector</option>
                     @if (!string.IsNullOrEmpty(inspection.Inspector) && !inspectorCandidates.Any(x => x.UserId == inspection.InspectorUserId))
                     { <option value="@(inspection.InspectorUserId ?? "")">@inspection.Inspector (Historical)</option> }
@@ -622,7 +631,7 @@ else
                                         @bind="result.GageId"
                                         @bind:after="() => ApplyGageSelectionAndSaveAsync(result)"
                                         tabindex="@(result.GageId is not null || !isAvailableForDataEntry ? "-1" : "0")"
-                                        disabled="@(result.GageChoices.Count == 0 || !isAvailableForDataEntry)">
+                                        disabled="@(!(Can(Permissions.Inspections.Update)) || (result.GageChoices.Count == 0 || !isAvailableForDataEntry))">
                                     <option value="">@(result.GageChoices.Count == 0 ? "No gages available" : "Select gage")</option>
                                     @foreach (var gage in result.GageChoices)
                                     {
@@ -636,7 +645,7 @@ else
                                        @bind="result.ActualMax"
                                        @bind:event="oninput"
                                        @onchange="() => CommitRecordedMaximumAndSaveAsync(result)"
-                                       disabled="@(!isAvailableForDataEntry)" />
+                                       disabled="@(!(Can(Permissions.Inspections.Update)) || (!isAvailableForDataEntry))" />
                                 <ValidationMessage For="@(() => result.ActualMax)" />
                                 @if (recordedMaximumMessages.TryGetValue(result.Id, out var maximumMessage))
                                 {
@@ -650,7 +659,7 @@ else
                                        @bind:event="oninput"
                                        @onchange="() => CommitRecordedMinimumAndSaveAsync(result)"
                                        tabindex="@(ShouldSkipRecordedMinimum(result) || !isAvailableForDataEntry ? "-1" : "0")"
-                                       disabled="@(!isAvailableForDataEntry)" />
+                                       disabled="@(!(Can(Permissions.Inspections.Update)) || (!isAvailableForDataEntry))" />
                                 <ValidationMessage For="@(() => result.ActualMin)" />
                                 @if (recordedMinimumMessages.TryGetValue(result.Id, out var minimumMessage))
                                 {
@@ -664,7 +673,7 @@ else
                                        tabindex="-1"
                                        @bind="result.DeviationApproved"
                                        @bind:after="SaveInspectionAfterEditAsync"
-                                       disabled="@(!isAvailableForDataEntry)" />
+                                       disabled="@(!(Can(Permissions.Inspections.ApproveDeviation)) || (!isAvailableForDataEntry))" />
                             </td>
                             <td data-label="Result">
                                 <span class="status-pill @EvaluationClass(result.Evaluation)">@EvaluationText(result.Evaluation)</span>
@@ -704,7 +713,7 @@ else
                                         <InputText class="inspection-process-po-input"
                                                    aria-label="@($"PO number for {process.ProcessName}")"
                                                    @bind-Value="process.PurchaseOrderNumber"
-                                                   @bind-Value:after="SaveInspectionAfterEditAsync" />
+                                                   @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
                                     </td>
                                     <td data-label="Status">
                                         <fieldset class="inspection-process-status">
@@ -713,14 +722,14 @@ else
                                                 <input type="radio"
                                                        name="secondary-process-status-@process.Id"
                                                        checked="@process.IsComplete"
-                                                       @onchange="() => SetSecondaryProcessCompletionAndSaveAsync(process, true)" />
+                                                       @onchange="() => SetSecondaryProcessCompletionAndSaveAsync(process, true)" disabled="@(!(Can(Permissions.Inspections.Update)))" />
                                                 Complete
                                             </label>
                                             <label>
                                                 <input type="radio"
                                                        name="secondary-process-status-@process.Id"
                                                        checked="@(!process.IsComplete)"
-                                                       @onchange="() => SetSecondaryProcessCompletionAndSaveAsync(process, false)" />
+                                                       @onchange="() => SetSecondaryProcessCompletionAndSaveAsync(process, false)" disabled="@(!(Can(Permissions.Inspections.Update)))" />
                                                 Incomplete
                                             </label>
                                         </fieldset>
@@ -742,11 +751,11 @@ else
         <section class="inspection-notes-section">
             <div class="form-field">
                 <label for="inspector-notes">Inspector's Notes</label>
-                <InputTextArea id="inspector-notes" @bind-Value="inspection.InspectorNotes" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputTextArea id="inspector-notes" @bind-Value="inspection.InspectorNotes" @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
             </div>
             <div class="form-field">
                 <label for="in-house-notes">In House Notes</label>
-                <InputTextArea id="in-house-notes" @bind-Value="inspection.InHouseNotes" @bind-Value:after="SaveInspectionAfterEditAsync" />
+                <InputTextArea id="in-house-notes" @bind-Value="inspection.InHouseNotes" @bind-Value:after="SaveInspectionAfterEditAsync" disabled="@(!(Can(Permissions.Inspections.Update)))" />
             </div>
         </section>
 
@@ -758,7 +767,7 @@ else
             <div class="master-print-toolbar">
                 <div>
                     <h2>Master Print</h2>
-                    @if (inspection.HasMasterPrint)
+                    @if ((inspection.HasMasterPrint && Can(Permissions.MasterPrints.Read)))
                     {
                         <p>
                             <strong>@inspection.MasterPrintFileName</strong>
@@ -773,7 +782,7 @@ else
                         <p>No master print was uploaded for criteria revision @inspection.RevisionNumber.</p>
                     }
                 </div>
-                @if (inspection.HasMasterPrint)
+                @if ((inspection.HasMasterPrint && Can(Permissions.MasterPrints.Read)))
                 {
                     <div class="heading-actions">
                         <a class="button button-secondary" href="@MasterPrintViewerUrl" target="_blank" rel="noopener">Open in new tab</a>
@@ -781,7 +790,7 @@ else
                 }
             </div>
 
-            @if (inspection.HasMasterPrint)
+            @if ((inspection.HasMasterPrint && Can(Permissions.MasterPrints.Read)))
             {
                 <iframe class="master-print-viewer" src="@MasterPrintViewerUrl" title="Master print PDF"></iframe>
             }
@@ -835,13 +844,13 @@ else
                                     <td>
                                         @if (entry.LineageEntry is { } lineage)
                                         {
-                                            <button class="button button-secondary button-compact" type="button" @onclick="() => BeginQuantityMove(lineage)" disabled="@isMovingQuantity">Move</button>
+                                            <button class="button button-secondary button-compact" type="button" @onclick="() => BeginQuantityMove(lineage)" disabled="@(!(Can(Permissions.Inspections.TransferQuantity)) || (isMovingQuantity))">Move</button>
                                             @if (entry.IsMostRecent && lineage.QuantityMoved is not null)
-                                            { <button class="button button-secondary button-compact" type="button" @onclick="() => BeginUndoAsync(lineage)" disabled="@isUndoing">Undo</button> }
+                                            { <button class="button button-secondary button-compact" type="button" @onclick="() => BeginUndoAsync(lineage)" disabled="@(!(Can(Permissions.Inspections.UndoLineage)) || (isUndoing))">Undo</button> }
                                         }
                                         else if (entry.ReceiptAllocationId is not null && entry.IsMostRecent)
                                         {
-                                            <button class="button button-secondary button-compact" type="button" @onclick="() => BeginBumpUndo(entry)" disabled="@isUndoingBump">Undo</button>
+                                            <button class="button button-secondary button-compact" type="button" @onclick="() => BeginBumpUndo(entry)" disabled="@(!(Can(Permissions.Receiving.ReverseAllocation)) || (isUndoingBump))">Undo</button>
                                         }
                                     </td>
                                 </tr>
@@ -895,7 +904,7 @@ else
                                OnChange="UploadCertificationDocumentAsync"
                                accept="application/pdf,.pdf"
                                multiple
-                               disabled="@isCertificationWorking" />
+                               disabled="@(!(Can(Permissions.Certifications.Create)) || (isCertificationWorking))" />
 
                     @if (SelectedCertification.Documents.Count == 0)
                     {
@@ -921,12 +930,12 @@ else
                                         </a>
                                         @if (pendingCertificationDocumentDeleteId == document.Id)
                                         {
-                                            <button class="button button-danger button-compact" type="button" @onclick="() => DeleteCertificationDocumentAsync(document)" disabled="@isCertificationWorking">Confirm delete</button>
+                                            <button class="button button-danger button-compact" type="button" @onclick="() => DeleteCertificationDocumentAsync(document)" disabled="@(!(Can(Permissions.Certifications.Delete)) || (isCertificationWorking))">Confirm delete</button>
                                             <button class="button button-secondary button-compact" type="button" @onclick="() => pendingCertificationDocumentDeleteId = null" disabled="@isCertificationWorking">Cancel</button>
                                         }
                                         else
                                         {
-                                            <button class="button button-danger-outline button-compact" type="button" @onclick="() => pendingCertificationDocumentDeleteId = document.Id" disabled="@isCertificationWorking">Delete</button>
+                                            <button class="button button-danger-outline button-compact" type="button" @onclick="() => pendingCertificationDocumentDeleteId = document.Id" disabled="@(isCertificationWorking || !Can(Permissions.Certifications.Delete))">Delete</button>
                                         }
                                     </div>
                                 </article>
@@ -995,6 +1004,7 @@ else
     private long selectedPackagePlantId;
     private readonly HashSet<long> selectedPackageLotIds = [];
     private CertificationPackage? generatedPackage;
+    private CertificationPackageRequest? generatedPackageRequest;
     private bool showCertificationEmailCompose;
     private ComposedCertificationEmail? composedEmail;
     private string? composeMessage;
@@ -1085,9 +1095,10 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to find inspections");
             findResults = null;
-            findMessage = "The inspections could not be found. Please try again.";
+            findMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspections could not be found. Please try again.";
         }
         finally
         {
@@ -1181,8 +1192,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to create or download the PDF for inspection {InspectionId}", InspectionId);
-            saveMessage = "The inspection PDF could not be downloaded. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspection PDF could not be downloaded. Please try again.";
         }
         finally
         {
@@ -1247,8 +1259,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to undo inspection lineage operation {OperationId}", entry.Id);
-            saveMessage = "The operation could not be undone. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The operation could not be undone. Please try again.";
         }
         finally
         {
@@ -1271,8 +1284,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to confirm undo of inspection lineage operation {OperationId}", pendingUndo.Id);
-            saveMessage = "The operation could not be undone. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The operation could not be undone. Please try again.";
         }
         finally
         {
@@ -1355,8 +1369,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to undo receipt bump allocation {AllocationId}", allocationId);
-            bumpUndoMessage = "The receipt bump could not be undone. Please try again.";
+            bumpUndoMessage = exception is AuthorizationDeniedException ? exception.Message : "The receipt bump could not be undone. Please try again.";
         }
         finally
         {
@@ -1410,8 +1425,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to move additional inspection quantity");
-            quantityMoveMessage = "The quantity could not be moved. Please try again.";
+            quantityMoveMessage = exception is AuthorizationDeniedException ? exception.Message : "The quantity could not be moved. Please try again.";
         }
         finally
         {
@@ -1580,8 +1596,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to duplicate inspection {InspectionId}", InspectionId);
-            saveMessage = "The inspection could not be duplicated. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspection could not be duplicated. Please try again.";
         }
         finally
         {
@@ -1592,19 +1609,29 @@ else
     private async Task OpenCertificationPackageAsync()
     {
         if (inspection is null) return;
-        packagePlants = await InspectionService.GetCertificationPackagePlantOptionsAsync(inspection.Id);
-        selectedPackagePlantId = packagePlants.Count == 1 ? packagePlants[0].Id : 0;
-        selectedPackageLotIds.Clear();
-        await RefreshPackageLotsAsync();
-        if (packageLots.Any(lot => lot.InspectionId == inspection.Id))
+        try
         {
-            selectedPackageLotIds.Add(inspection.Id);
+            packagePlants = await InspectionService.GetCertificationPackagePlantOptionsAsync(inspection.Id);
+            selectedPackagePlantId = packagePlants.Count == 1 ? packagePlants[0].Id : 0;
+            selectedPackageLotIds.Clear();
+            packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(
+                inspection.Id, selectedPackagePlantId == 0 ? null : selectedPackagePlantId);
+            if (packageLots.Any(lot => lot.InspectionId == inspection.Id))
+                selectedPackageLotIds.Add(inspection.Id);
+            packageShipDate = ShipDateCalculator.NextWorkDay(TodayDate);
+            generatedPackage = null;
+            packageMessage = null;
+            packageSucceeded = false;
+            showIncompletePackageLotWarning = false;
+            showCertificationPackage = true;
         }
-        packageShipDate = ShipDateCalculator.NextWorkDay(TodayDate);
-        generatedPackage = null;
-        packageMessage = null;
-        packageSucceeded = false;
-        showCertificationPackage = true;
+        catch (AuthorizationDeniedException exception)
+        {
+            generatedPackage = null;
+            showCertificationPackage = false;
+            saveMessage = exception.Message; saveSucceeded = false;
+            await RefreshPermissionsAsync();
+        }
     }
 
     private void CloseCertificationPackage() => showCertificationPackage = false;
@@ -1612,13 +1639,21 @@ else
     private async Task RefreshPackageLotsAsync()
     {
         if (inspection is null) return;
-        packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(
-            inspection.Id,
-            selectedPackagePlantId == 0 ? null : selectedPackagePlantId);
-        selectedPackageLotIds.IntersectWith(packageLots.Select(lot => lot.InspectionId));
         generatedPackage = null;
         packageMessage = null;
         showIncompletePackageLotWarning = false;
+        try
+        {
+            packageLots = await InspectionService.GetCertificationPackageLotOptionsAsync(
+                inspection.Id, selectedPackagePlantId == 0 ? null : selectedPackagePlantId);
+            selectedPackageLotIds.IntersectWith(packageLots.Select(lot => lot.InspectionId));
+        }
+        catch (AuthorizationDeniedException exception)
+        {
+            packageLots = []; selectedPackageLotIds.Clear();
+            packageMessage = exception.Message; packageSucceeded = false;
+            await RefreshPermissionsAsync();
+        }
     }
 
     private void SetPackageLotSelected(long inspectionId, bool selected)
@@ -1701,9 +1736,8 @@ else
                 packageMessage = "Select a destination plant.";
                 return;
             }
-            generatedPackage = await CertificationPackageService.BuildAsync(
-                new CertificationPackageRequest(inspection!.Id, inspection.CustomerId, selectedPackageLotIds, packageShipDate, selectedPackagePlantId, temporarilyCompleteIncompleteLots),
-                Navigation.BaseUri);
+            generatedPackageRequest = new CertificationPackageRequest(inspection!.Id, inspection.CustomerId, selectedPackageLotIds.ToArray(), packageShipDate, selectedPackagePlantId, temporarilyCompleteIncompleteLots);
+            generatedPackage = await CertificationPackageService.BuildAsync(generatedPackageRequest, Navigation.BaseUri);
             packageSucceeded = true;
             packageMessage = "Certification package generated and validated.";
         }
@@ -1713,18 +1747,37 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to generate certification package for inspection {InspectionId}", InspectionId);
-            packageMessage = "The certification package could not be generated.";
+            packageMessage = exception is AuthorizationDeniedException ? exception.Message : "The certification package could not be generated.";
         }
         finally { packageWorking = false; }
     }
 
     private async Task DownloadCertificationPackageAsync()
     {
-        if (generatedPackage is null) return;
-        await JS.InvokeVoidAsync("confast.downloadBytes", generatedPackage.FileName, generatedPackage.Content);
-        packageMessage = "Certification package download started.";
-        packageSucceeded = true;
+        if (generatedPackage is null || generatedPackageRequest is null) return;
+        packageWorking = true;
+        try
+        {
+            // A later download event cannot reuse the generation event's authorization.
+            generatedPackage = await CertificationPackageService.BuildAsync(generatedPackageRequest, Navigation.BaseUri);
+            await JS.InvokeVoidAsync("confast.downloadBytes", generatedPackage.FileName, generatedPackage.Content);
+            packageMessage = "Certification package download started.";
+            packageSucceeded = true;
+        }
+        catch (AuthorizationDeniedException exception)
+        {
+            generatedPackage = null; packageSucceeded = false; packageMessage = exception.Message;
+            await RefreshPermissionsAsync();
+        }
+        catch (CertificationPackageException exception) { packageSucceeded = false; packageMessage = exception.Message; }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to export certification package for inspection {InspectionId}", InspectionId);
+            packageSucceeded = false; packageMessage = "The certification package could not be downloaded.";
+        }
+        finally { packageWorking = false; }
     }
 
     private async Task ComposeCertificationEmailAsync()
@@ -1749,8 +1802,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to compose certification package email for inspection {InspectionId}", InspectionId);
-            packageMessage = "The certification email could not be prepared.";
+            packageMessage = exception is AuthorizationDeniedException ? exception.Message : "The certification email could not be prepared.";
         }
         finally { packageWorking = false; }
     }
@@ -1782,9 +1836,10 @@ else
         catch (EmailDeliveryException exception) { composeSucceeded = false; composeMessage = exception.Message; }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to email certification package for inspection {InspectionId}", InspectionId);
             composeSucceeded = false;
-            composeMessage = "The certification package could not be emailed.";
+            composeMessage = exception is AuthorizationDeniedException ? exception.Message : "The certification package could not be emailed.";
         }
         finally { packageWorking = false; }
     }
@@ -1827,7 +1882,7 @@ else
                 _ => "The inspection could not be saved. Please try again."
             };
         }
-        catch (AuthorizationDeniedException exception) { saveMessage = exception.Message; }
+        catch (AuthorizationDeniedException exception) { saveMessage = exception.Message; await RefreshPermissionsAsync(); }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to automatically save inspection {InspectionId}", InspectionId);
@@ -1875,14 +1930,8 @@ else
         {
             var inspectionTask = InspectionService.GetInspectionAsync(InspectionId);
             inspectorCandidates = [];
-            canChangeInspector = false;
-            try
-            {
-                var snapshot = await PermissionsService.EvaluateCurrentAsync();
-                canChangeInspector = PermissionCatalog.ExpandRequirements([Permissions.Inspections.Update]).All(snapshot.Has);
-                if (canChangeInspector) inspectorCandidates = await Inspectors.GetCandidatesAsync();
-            }
-            catch (AuthorizationDeniedException) { /* The remaining measurement workflow is intentionally still legacy. */ }
+            canChangeInspector = Can(Permissions.Inspections.Update);
+            if (canChangeInspector) inspectorCandidates = await Inspectors.GetCandidatesAsync();
             inspection = await inspectionTask;
             if (inspection is null)
             {
@@ -1894,7 +1943,7 @@ else
                     return;
                 }
             }
-            flipPreview = inspection is null ? null : await InspectionService.GetFlipPreviewAsync(InspectionId);
+            flipPreview = inspection is null || !Can(Permissions.Inspections.Flip) ? null : await InspectionService.GetFlipPreviewAsync(InspectionId);
             if (inspection is not null
                 && (selectedCertificationTypeId is null
                     || inspection.Certifications.All(x => x.CertificationTypeId != selectedCertificationTypeId)))
@@ -1919,8 +1968,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load inspection {InspectionId}", InspectionId);
-            loadError = "The inspection could not be loaded. Please try again.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The inspection could not be loaded. Please try again.";
         }
         finally
         {
@@ -1962,8 +2012,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save inspection {InspectionId}", InspectionId);
-            saveMessage = "The inspection could not be saved. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The inspection could not be saved. Please try again.";
         }
         finally
         {
@@ -2157,8 +2208,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to upload certification document for inspection {InspectionId}", InspectionId);
-            saveMessage = "The certification document could not be uploaded. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The certification document could not be uploaded. Please try again.";
         }
         finally
         {
@@ -2210,8 +2262,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to delete certification document {DocumentId}", document.Id);
-            saveMessage = "The certification document could not be deleted. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The certification document could not be deleted. Please try again.";
         }
         finally
         {

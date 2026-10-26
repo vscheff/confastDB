@@ -1,7 +1,7 @@
+@inherits PermissionComponentBase
 @using Confast.Web.Features.ContainerTracking
 @using Confast.Web.Features.Suppliers
 @inject ContainerTrackingService Tracking
-@inject SupplierService Suppliers
 @inject ILogger<BillEditor> Logger
 
 <section class="tracking-bill-editor">
@@ -15,7 +15,7 @@
     }
     <EditForm Model="model" OnValidSubmit="SaveAsync" FormName="bill-of-lading" class="tracking-form">
         <DataAnnotationsValidator /><ValidationSummary />
-        <fieldset disabled="@(busy || !loaded)" class="tracking-fields tracking-grid">
+        <fieldset disabled="@(busy || !loaded || !Can(model.Id == 0 ? Permissions.BillsOfLading.Create : Permissions.BillsOfLading.Update))" class="tracking-fields tracking-grid">
             <div class="form-field"><label for="bl-number">B/L number</label><InputText id="bl-number" @bind-Value="model.Number" maxlength="100" /></div>
             <div class="form-field"><label for="bl-supplier">Supplier</label><InputSelect id="bl-supplier" @bind-Value="model.SupplierId">
                 <option value="0">Select supplier</option>
@@ -25,9 +25,9 @@
             <div class="form-field"><label for="bl-duty">Duty ($)</label><ThousandsSeparatedMoneyInput id="bl-duty" @bind-Value="model.Duty" min="0" step="0.01" /></div>
         </fieldset>
         <div class="form-actions">
-            <button class="button button-primary" disabled="@(busy || !loaded)">Save B/L</button>
+            <button class="button button-primary" disabled="@(busy || !loaded || !Can(model.Id == 0 ? Permissions.BillsOfLading.Create : Permissions.BillsOfLading.Update))">Save B/L</button>
             <button type="button" class="button button-secondary" @onclick="() => Cancelled.InvokeAsync()" disabled="@busy">Cancel</button>
-            <a href="/suppliers" target="_blank" rel="noopener">Manage suppliers</a>
+            @if (Can(Permissions.Suppliers.Read)) { <a href="/suppliers" target="_blank" rel="noopener">Manage suppliers</a> }
             <button type="button" class="button button-secondary" @onclick="ReloadSuppliersAsync" disabled="@busy">Refresh suppliers</button>
         </div>
     </EditForm>
@@ -38,7 +38,7 @@
     [Parameter] public EventCallback<long> Saved { get; set; }
     [Parameter] public EventCallback Cancelled { get; set; }
     private BillOfLadingEditModel model = new();
-    private List<SupplierEditModel> suppliers = [];
+    private List<BillSupplierChoice> suppliers = [];
     private string? message;
     private long? existingId;
     private bool busy, loaded;
@@ -48,20 +48,22 @@
         try
         {
             if (BillId != 0) model = await Tracking.GetBillAsync(BillId) ?? throw new InvalidOperationException("B/L no longer exists.");
-            suppliers = await Suppliers.SearchAsync();
+            suppliers = await Tracking.GetBillSupplierOptionsAsync(BillId);
             loaded = true;
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load B/L editor"); message = "B/L editor could not be loaded. Close and reopen it."; }
         finally { busy = false; }
     }
     private async Task ReloadSuppliersAsync()
     {
-        try { suppliers = await Suppliers.SearchAsync(); }
+        try { suppliers = await Tracking.GetBillSupplierOptionsAsync(BillId); }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to refresh supplier choices"); message = "Suppliers could not be refreshed."; }
     }
     private async Task SaveAsync()
     {
-        if (busy || !loaded) return;
+        if (busy || !loaded || !Can(model.Id == 0 ? Permissions.BillsOfLading.Create : Permissions.BillsOfLading.Update)) return;
         busy = true; existingId = null;
         try
         {
@@ -69,6 +71,7 @@
             message = result.Message; existingId = result.ExistingBillOfLadingId;
             if (result.Succeeded) await Saved.InvokeAsync(result.Id!.Value);
         }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to save B/L"); message = "B/L could not be saved."; }
         finally { busy = false; }
     }

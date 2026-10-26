@@ -1,5 +1,5 @@
 using Confast.Web.Data;
-using Confast.Web.Features.Identity;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.ProductionScheduling;
 using Confast.Web.Features.ProductionTracking;
 using Confast.Web.Time;
@@ -9,7 +9,7 @@ namespace Confast.Web.Features.MorningProductionReview;
 
 public sealed class MorningProductionReviewService(
     IDbContextFactory<AppDbContext> factory,
-    ICurrentUser currentUser,
+    ApplicationAuthorization authorization,
     TimeProvider clock,
     ProductionService productionService,
     BusinessDateProvider? businessDate = null)
@@ -23,12 +23,12 @@ public sealed class MorningProductionReviewService(
 
     public async Task<MorningProductionReview> GetAsync(DateOnly? productionDate = null)
     {
-        var schedule = await productionService.GetReadOnlyAsync();
+        using var operation = await authorization.BeginAsync("ProductionReports.Read", new("ProductionReports"), [Permissions.ProductionReports.Read]);
+        var schedule = await productionService.GetReportScheduleAsync(operation);
         var forecasts = ProductionScheduler.Forecast(schedule);
         var forecastBySegmentId = forecasts.ToDictionary(x => x.SegmentId);
 
         await using var db = await factory.CreateDbContextAsync();
-        await RequireAccessAsync(db);
 
         var latestPriorProductionDate = await db.Set<SortLog>().AsNoTracking()
             .Where(x => x.ProductionDate < Today)
@@ -316,19 +316,6 @@ public sealed class MorningProductionReviewService(
     private static string LotLabel(SortLog log) => string.IsNullOrWhiteSpace(log.Inspection.LotNumber)
         ? $"Inspection {log.Inspection.Id}"
         : log.Inspection.LotNumber;
-
-    private async Task RequireAccessAsync(AppDbContext db)
-    {
-        var userId = await currentUser.GetUserIdAsync();
-        if (userId is null || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive))
-            throw new UnauthorizedAccessException("Sign in with an active account to use Production Review.");
-        var allowed = await (from userRole in db.UserRoles
-            join role in db.Roles on userRole.RoleId equals role.Id
-            where userRole.UserId == userId
-            select role.Name).AnyAsync(x => x == AppRoles.Production || x == AppRoles.Administrator);
-        if (!allowed)
-            throw new UnauthorizedAccessException("Production or Administrator access is required to use Production Review.");
-    }
 
     private sealed record RunData(SortLog Log, ProductionJob? Job, SortLogMetrics Metrics,
         ProductionRunSummary Summary);

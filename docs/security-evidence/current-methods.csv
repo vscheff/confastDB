@@ -1,0 +1,455 @@
+source,line,method,visibility,guards,calls
+Features/Authorization/AdministrationProjection.cs,23,Matrix,internal,Permissions.Roles.ManagePermissions,
+Features/Authorization/AdministrationProjection.cs,91,Compare,internal,,
+Features/Authorization/AdministrationProjection.cs,100,Compare,internal,,
+Features/Authorization/AdministrativeAuthority.cs,13,CanAssign,internal,,
+Features/Authorization/AdministrativeAuthority.cs,19,CanEdit,internal,,
+Features/Authorization/AdministrativeAuthority.cs,23,RequireTarget,internal,,
+Features/Authorization/AdministrativeAuthority.cs,34,RequireAssignment,internal,,
+Features/Authorization/AdministrativeAuthority.cs,45,ValidateResult,internal,,
+Features/Authorization/AdministrativeAuthority.cs,65,Require,internal,,
+Features/Authorization/ApplicationAuthorization.cs,7,BeginAsync,public,permissions.EvaluateCurrentAsync,EvaluateCurrentAsync
+Features/Authorization/ApplicationAuthorization.cs,15,BeginHttpAsync,public,permissions.EvaluateAsync,EvaluateAsync
+Features/Authorization/ApplicationAuthorization.cs,110,AddConfastAuthorization,public,,
+Features/Authorization/ApplicationAuthorization.cs,130,PolicyName,public,,
+Features/Authorization/AuthorizationAudit.cs,10,RecordAsync,internal,operation.Require,SaveChangesAsync; SingleAsync
+Features/Authorization/AuthorizationChangeNotifications.cs,7,Publish,public,,
+Features/Authorization/AuthorizationContext.cs,38,Has,public,,
+Features/Authorization/AuthorizationContext.cs,57,Require,public,,
+Features/Authorization/AuthorizationContext.cs,63,Dispose,public,,
+Features/Authorization/AuthorizationMapping.cs,8,Configure,public,,
+Features/Authorization/AuthorizationMutationLock.cs,8,AcquireAsync,internal,,AcquireCurrentAsync
+Features/Authorization/AuthorizationMutationLock.cs,18,AcquireCurrentAsync,internal,,SingleAsync
+Features/Authorization/BusinessHttpAuthorization.cs,10,Frame,internal,,
+Features/Authorization/BusinessHttpAuthorization.cs,12,Require,internal,operation.Require,
+Features/Authorization/BusinessHttpAuthorization.cs,19,UseBusinessAuthorization,internal,,BeginHttpAsync; WriteAsync
+Features/Authorization/EffectivePermissionService.cs,28,EvaluateCurrentAsync,public,,EvaluateAsync; GetAuthenticationStateAsync
+Features/Authorization/EffectivePermissionService.cs,32,EvaluateAsync,internal,,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCoreAsync
+Features/Authorization/EffectivePermissionService.cs,66,EvaluateCurrentInTransactionAsync,internal,,EvaluateCoreAsync; GetAuthenticationStateAsync
+Features/Authorization/EffectivePermissionService.cs,81,EvaluateResetIssuerAsync,internal,,EvaluateCoreAsync
+Features/Authorization/EffectivePermissionService.cs,87,EvaluateScheduledChatSenderAsync,internal,,EvaluateCoreAsync; SingleOrDefaultAsync
+Features/Authorization/EffectivePermissionService.cs,100,GraphForOperationAsync,internal,operation.Require,SingleAsync; ToListAsync
+Features/Authorization/EffectivePermissionService.cs,199,Begin,internal,,
+Features/Authorization/InspectorEligibilityService.cs,14,GetCandidatesAsync,public,Permissions.Inspections.Create; Permissions.Inspections.Update; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync; SingleAsync; ToListAsync
+Features/Authorization/InspectorEligibilityService.cs,33,ResolveSelectionAsync,internal,Permissions.Inspections.Create,SingleAsync; SingleOrDefaultAsync; ToListAsync
+Features/Authorization/PermissionCache.cs,9,GetGraph,public,,
+Features/Authorization/PermissionCache.cs,10,GetActor,public,,
+Features/Authorization/PermissionCache.cs,12,PutGraph,public,,
+Features/Authorization/PermissionCache.cs,14,PutActor,public,,
+Features/Authorization/PermissionCache.cs,18,Dispose,public,,
+Features/Authorization/PermissionCatalog.cs,195,ExpandRequirements,public,,
+Features/Authorization/RoleAdministrationService.cs,21,GetRolesAsync,public,Permissions.Roles.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; EvaluateCurrentInTransactionAsync; ToDictionaryAsync; ToListAsync
+Features/Authorization/RoleAdministrationService.cs,42,CreateAsync,public,AuthorizationMutationLock.AcquireAsync; Permissions.Roles.Create; permissions.EvaluateCurrentInTransactionAsync,AcquireAsync; BeginTransactionAsync; CommitAsync; EvaluateCurrentInTransactionAsync; RecordAsync; SaveChangesAsync
+Features/Authorization/RoleAdministrationService.cs,79,UpdateAsync,public,Permissions.Roles.ManagePermissions; Permissions.Roles.Update,BeginTransactionAsync; CommitAsync; RecordAsync
+Features/Authorization/RoleAdministrationService.cs,103,SetGrantsAsync,public,,SetSecurityAsync
+Features/Authorization/RoleAdministrationService.cs,106,SetParentsAsync,public,,SetSecurityAsync
+Features/Authorization/RoleAdministrationService.cs,150,DeleteAsync,public,Permissions.Roles.Delete,AnyAsync; BeginTransactionAsync; CommitAsync; RecordAsync; SaveChangesAsync; ToListAsync
+Features/Authorization/RoleAdministrationService.cs,184,Grants,internal,,
+Features/Authorization/RoleAdministrationService.cs,185,Edges,internal,,
+Features/Authorization/RoleAdministrationService.Editor.cs,22,GetEditorAsync,public,Permissions.Roles.ManageInheritance; Permissions.Roles.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CountAsync; EvaluateCurrentInTransactionAsync; SingleOrDefaultAsync; ToDictionaryAsync
+Features/Authorization/RoleAdministrationService.Editor.cs,57,PreviewAsync,public,Permissions.Roles.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CountAsync; EvaluateCurrentInTransactionAsync; SingleAsync; ToDictionaryAsync; ToHashSetAsync; ToListAsync
+Features/Authorization/RoleAdministrationService.Editor.cs,182,SaveEditorAsync,public,Permissions.Roles.Read,BeginTransactionAsync; CommitAsync; CountAsync; DeleteAsync; RecordAsync; SaveChangesAsync; ToListAsync; UpdateAsync
+Features/Authorization/RoleEditDraft.cs,14,Input,public,,
+Features/Authorization/RoleEditDraft.cs,16,Reapply,public,,
+Features/Authorization/RoleGraph.cs,74,DirectParents,public,,
+Features/Authorization/RoleGraph.cs,75,DirectGrants,public,,
+Features/Authorization/RoleGraph.cs,76,Ancestors,public,,
+Features/Authorization/RoleGraph.cs,77,AffectedDescendants,public,,
+Features/Authorization/RoleGraph.cs,80,Position,public,,
+Features/Authorization/RoleGraph.cs,90,StoredEnvelope,public,,
+Features/Authorization/RoleGraph.cs,92,StoredUserEnvelope,public,,
+Features/Authorization/RoleGraph.cs,95,EvaluateOrdinary,public,,
+Features/Chat/ChatAttachmentTypes.cs,20,IsSupportedTextFileName,public,,
+Features/Chat/ChatAttachmentTypes.cs,22,Classify,public,,
+Features/Chat/ChatAttachmentTypes.cs,58,DecodeText,public,,
+Features/Chat/ChatEmojiCatalog.cs,28,FindFamily,public,,
+Features/Chat/ChatEmojiCatalog.cs,31,FindFamilyForEmoji,public,,
+Features/Chat/ChatEmojiCatalog.cs,34,IsToneOf,public,,
+Features/Chat/ChatEmojiCatalog.cs,58,Subgroups,public,,
+Features/Chat/ChatGifCategoryBackgrounds.cs,16,GetAsync,public,,WaitAsync; WriteAllTextAsync
+Features/Chat/ChatGifs.cs,52,Configure,public,,
+Features/Chat/ChatMapping.cs,7,Configure,public,,
+Features/Chat/ChatMarkdown.cs,15,ToPreviewHtml,public,,
+Features/Chat/ChatMarkdown.cs,24,ToSafeHtml,public,,
+Features/Chat/ChatMentionParser.cs,12,TagForMember,public,,
+Features/Chat/ChatMentionParser.cs,22,Find,public,,
+Features/Chat/ChatMentionParser.cs,45,NormalizeTags,public,,
+Features/Chat/ChatMentionParser.cs,68,GetParts,public,,
+Features/Chat/ChatMentionParser.cs,83,FindTokens,public,,
+Features/Chat/ChatModeration.cs,22,Configure,internal,,
+Features/Chat/ChatNotificationSettings.cs,20,AllowsPopup,public,,
+Features/Chat/ChatNotificationSettings.cs,22,AllowsToast,public,,
+Features/Chat/ChatNotificationSettings.cs,32,Configure,public,,
+Features/Chat/ChatPoll.cs,44,Configure,public,,
+Features/Chat/ChatScheduledMessage.cs,45,Configure,public,,
+Features/Chat/ChatService.ChannelActions.cs,8,SetChannelPinnedToTopAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; RequireChannelMemberAsync
+Features/Chat/ChatService.ChannelActions.cs,21,DuplicateChannelAsync,public,Permissions.Chat.CreateChannels; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LockChannelLayoutAsync; NextSiblingOrderAsync; PrepareChatAsync; RequireChannelMemberAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.ChannelActions.cs,55,MoveChannelToCategoryEdgeAsync,public,Permissions.Chat.ReorderChannels; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LockChannelLayoutAsync; PrepareChatAsync; PublishLayoutChangedAsync; RequireChannelMemberAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.ChannelActions.cs,77,DeleteChannelAsync,public,Permissions.Chat.AdministerChannels; Permissions.Chat.DeleteChannels; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LockChannelLayoutAsync; PrepareChatAsync; SaveChangesAsync; SingleOrDefaultAsync; ToArrayAsync
+Features/Chat/ChatService.cs,45,Subscribe,public,,
+Features/Chat/ChatService.cs,47,Subscribe,public,,
+Features/Chat/ChatService.cs,54,Publish,public,,
+Features/Chat/ChatService.cs,100,EnsurePublicChannelMembershipsAsync,internal,,ExecuteSqlInterpolatedAsync
+Features/Chat/ChatService.cs,118,GetCurrentUserIdAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,125,CanAdministerChannelsAsync,public,Permissions.Chat.Access; Permissions.Chat.AdministerChannels; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,133,GetLastReactionEmojiAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; SingleAsync
+Features/Chat/ChatService.cs,143,GetEmojiTonePreferencesAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToDictionaryAsync
+Features/Chat/ChatService.cs,154,SetEmojiTonePreferenceAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteSqlInterpolatedAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,186,GetActiveUsersAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.cs,196,OpenDirectAsync,public,Permissions.Chat.CreateConversations; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; SaveChangesAsync; SingleAsync; SingleOrDefaultAsync
+Features/Chat/ChatService.cs,245,CreateChannelAsync,public,Permissions.Chat.CreateChannels; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CountAsync; CreateDbContextAsync; LoadGroupAccessAsync; LockChannelLayoutAsync; NextSiblingOrderAsync; PrepareChatAsync; SaveChangesAsync; ToArrayAsync
+Features/Chat/ChatService.cs,298,GetConversationsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ReadConversationsAsync
+Features/Chat/ChatService.cs,370,GetChannelGroupsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; LoadGroupAccessAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.cs,386,CreateChannelGroupAsync,public,Permissions.Chat.CreateCategories; Permissions.Chat.ReorderChannels; authorization.BeginAsync; operation.Require,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LoadGroupAccessAsync; LockChannelLayoutAsync; NextSiblingOrderAsync; PrepareChatAsync; PublishLayoutChangedAsync; RequireChannelMemberAsync; SaveChangesAsync
+Features/Chat/ChatService.cs,424,RenameChannelGroupAsync,public,Permissions.Chat.ManageCategories; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LoadGroupAccessAsync; LockChannelLayoutAsync; PrepareChatAsync; PublishLayoutChangedAsync; RequireManageableGroupAsync; SaveChangesAsync
+Features/Chat/ChatService.cs,445,DeleteChannelGroupAsync,public,Permissions.Chat.ManageCategories; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LockChannelLayoutAsync; NextSiblingOrderAsync; PrepareChatAsync; PublishLayoutChangedAsync; RequireManageableGroupAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.cs,464,MoveChannelAsync,public,,MoveLayoutItemAsync
+Features/Chat/ChatService.cs,469,MoveChannelGroupAsync,public,,MoveLayoutItemAsync
+Features/Chat/ChatService.cs,474,MoveLayoutItemAsync,public,Permissions.Chat.ManageCategories; Permissions.Chat.ReorderChannels; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LoadGroupAccessAsync; LockChannelLayoutAsync; PrepareChatAsync; PublishLayoutChangedAsync; RequireChannelMemberAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.cs,649,GetTotalUnreadCountAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CountAsync; CreateDbContextAsync; LongCountAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,675,HasUnreadMentionAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,690,HasUnreadAlertAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,720,AddPrivateMemberAsync,public,Permissions.Chat.ManagePrivateChannelMembers; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; MaxAsync; PrepareChatAsync; RequirePrivateOwnerAsync; SaveChangesAsync
+Features/Chat/ChatService.cs,741,SetChannelTopicAsync,public,Permissions.Chat.AdministerChannels; Permissions.Chat.UpdateChannels; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; SaveChangesAsync; SingleOrDefaultAsync; ToArrayAsync
+Features/Chat/ChatService.cs,766,RenameChannelAsync,public,Permissions.Chat.AdministerChannels; Permissions.Chat.UpdateChannels; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; SaveChangesAsync; SingleOrDefaultAsync; ToArrayAsync
+Features/Chat/ChatService.cs,792,GetChannelMembersAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.cs,808,RemovePrivateMemberAsync,public,Permissions.Chat.ManagePrivateChannelMembers; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; RequirePrivateOwnerAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Chat/ChatService.cs,832,CreateChannelThreadAsync,public,Permissions.Chat.CreateThreads; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; ResolveMentionsAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.cs,902,GetChannelThreadsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; PrepareChatAsync; ReadChannelThreadsAsync
+Features/Chat/ChatService.cs,934,GetActiveChannelThreadsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.cs,958,GetThreadAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; PrepareChatAsync; ReadChannelThreadsAsync; ReadConversationsAsync; ReadPollsAsync; ToListAsync
+Features/Chat/ChatService.cs,1109,SendAsync,public,,SendWithAttachmentsAsync
+Features/Chat/ChatService.cs,1122,SendWithAttachmentsAsync,public,Permissions.Chat.ScheduleMessages; Permissions.Chat.SendMessages; authorization.BeginAsync; operation.Require,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; PrepareChatAsync; SaveOutgoingMessageAsync; ToArrayAsync
+Features/Chat/ChatService.cs,1251,GetAttachmentAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; FindAttachmentAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,1261,GetAttachmentForHttpAsync,internal,BusinessHttpAuthorization.Require; Permissions.Chat.Access,CreateDbContextAsync; FindAttachmentAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,1321,AddReactionAsync,public,,SaveReactionAsync
+Features/Chat/ChatService.cs,1324,ToggleReactionAsync,public,,SaveReactionAsync
+Features/Chat/ChatService.cs,1400,MarkReadAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteUpdateAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,1423,MarkUnreadAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteUpdateAsync; MaxAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,1454,MarkConversationReadAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteUpdateAsync; MaxAsync; PrepareChatAsync
+Features/Chat/ChatService.cs,1482,DeleteOwnMessageAsync,public,Permissions.Chat.DeleteOwnMessages; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; SingleOrDefaultAsync; ToListAsync
+Features/Chat/ChatService.cs,1505,SetMessagePinnedAsync,public,Permissions.Chat.PinMessages; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/Chat/ChatService.cs,1560,EditOwnMessageAsync,public,Permissions.Chat.EditOwnMessages; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteUpdateAsync; PrepareChatAsync; ResolveMentionsAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/Chat/ChatService.GifCache.cs,17,RecordGifRequestAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ReserveGifRequestAsync
+Features/Chat/ChatService.GifCache.cs,44,ResolveGifSearchAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; PrepareChatAsync; ReserveGifRequestAsync; SaveGifMetadataAsync; SingleOrDefaultAsync; ToArrayAsync; WaitAsync
+Features/Chat/ChatService.GifCache.cs,98,ResolveGifsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ReserveGifRequestAsync; SaveGifMetadataAsync; ToArrayAsync
+Features/Chat/ChatService.Gifs.cs,14,GetGifFavoritesAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToArrayAsync
+Features/Chat/ChatService.Gifs.cs,24,SetGifFavoriteAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteSqlInterpolatedAsync; PrepareChatAsync
+Features/Chat/ChatService.Gifs.cs,41,SendGifAsync,public,Permissions.Chat.SendMessages; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; PrepareChatAsync; SaveOutgoingMessageAsync; ToArrayAsync
+Features/Chat/ChatService.Groups.cs,12,HideDirectConversationAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; ExecuteUpdateAsync; PrepareChatAsync
+Features/Chat/ChatService.Groups.cs,35,SetConversationPinnedToTopAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync
+Features/Chat/ChatService.Groups.cs,50,SetConversationMutedAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync
+Features/Chat/ChatService.Groups.cs,65,LeaveGroupAsync,public,authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Chat/ChatService.Groups.cs,92,AddConversationMembersAsync,public,Permissions.Chat.CreateConversations; Permissions.Chat.ManageGroupConversations; authorization.BeginAsync; operation.Require,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; PrepareChatAsync; SaveChangesAsync; SingleOrDefaultAsync; ToArrayAsync
+Features/Chat/ChatService.Groups.cs,155,CreateGroupAsync,public,,StartGroupAsync
+Features/Chat/ChatService.Groups.cs,159,StartGroupAsync,public,Permissions.Chat.CreateConversations; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CountAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; PrepareChatAsync; ReadConversationsAsync; SaveChangesAsync; ToArrayAsync
+Features/Chat/ChatService.Groups.cs,229,GetGroupIconForHttpAsync,internal,BusinessHttpAuthorization.Require; Permissions.Chat.Access,CreateDbContextAsync; FindGroupIconAsync
+Features/Chat/ChatService.Groups.cs,238,GetGroupIconAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; FindGroupIconAsync
+Features/Chat/ChatService.Groups.cs,259,RenameGroupAsync,public,,UpdateGroupAsync
+Features/Chat/ChatService.Groups.cs,262,UpdateGroupAsync,public,Permissions.Chat.ManageGroupConversations; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.Inbox.cs,12,GetIncomingMessagePreviewAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; LoadNotificationSettingsAsync; PrepareChatAsync; SingleAsync; SingleOrDefaultAsync
+Features/Chat/ChatService.Inbox.cs,48,GetInboxMessagesAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.Inbox.cs,78,MarkMessageReadAsync,public,Permissions.Chat.Access; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; PrepareChatAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.Inbox.cs,106,MarkAllUnreadReadAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; PrepareChatAsync; SaveChangesAsync; ToDictionaryAsync; ToListAsync
+Features/Chat/ChatService.Inbox.cs,139,GetScheduledMessagesAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.Moderation.cs,8,DeleteOthersMessageAsync,public,Permissions.Chat.DeleteOthersMessages; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; PrepareChatAsync; SaveChangesAsync; ToArrayAsync; ToListAsync
+Features/Chat/ChatService.Moderation.cs,52,GetModerationHistoryAsync,public,Permissions.Chat.DeleteOthersMessages; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; PrepareChatAsync; RequireChannelMemberAsync; ToArrayAsync
+Features/Chat/ChatService.Notifications.cs,11,GetNotificationSettingsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; LoadNotificationSettingsAsync; PrepareChatAsync
+Features/Chat/ChatService.Notifications.cs,47,SetChannelNotificationModeAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; RequireNotificationChannelAsync
+Features/Chat/ChatService.Notifications.cs,60,SetChannelMutedAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; RequireNotificationChannelAsync
+Features/Chat/ChatService.Notifications.cs,89,SetCategoryNotificationModeAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; LockChannelLayoutAsync; PrepareChatAsync; RequireVisibleNotificationCategoryAsync
+Features/Chat/ChatService.Notifications.cs,110,SetCategoryMutedAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; ExecuteUpdateAsync; LockChannelLayoutAsync; PrepareChatAsync; RequireVisibleNotificationCategoryAsync; ToListAsync
+Features/Chat/ChatService.Notifications.cs,141,GetNotificationUnreadCountsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; LoadNotificationSettingsAsync; PrepareChatAsync; ToListAsync
+Features/Chat/ChatService.Notifications.cs,172,GetNotificationUnreadSummaryAsync,public,,GetNotificationUnreadCountsAsync
+Features/Chat/ChatService.Polls.cs,11,CreatePollAsync,public,Permissions.Chat.CreatePolls; Permissions.Chat.ScheduleMessages; authorization.BeginAsync; operation.Require,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteUpdateAsync; PrepareChatAsync; RestoreDirectVisibilityAsync; SaveChangesAsync; ToArrayAsync
+Features/Chat/ChatService.Polls.cs,69,TogglePollVoteAsync,public,Permissions.Chat.VotePolls; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; PrepareChatAsync; SaveChangesAsync; SingleOrDefaultAsync; ToArrayAsync; ToListAsync
+Features/Chat/ChatService.Scheduling.cs,11,CancelScheduledMessageAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; SaveChangesAsync; ToListAsync
+Features/Chat/ChatService.Scheduling.cs,32,DeliverDueMessagesAsync,internal,Permissions.Chat.ScheduleMessages; operation.Require,AnyAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; CreateSavepointAsync; EvaluateScheduledChatSenderAsync; LoadAsync; RecordTransientDeliveryFailureAsync; RollbackToSavepointAsync; SaveChangesAsync; SaveOutgoingMessageAsync; SingleAsync; ToArrayAsync; ToListAsync
+Features/Chat/ChatTextHighlighter.cs,13,readonly,public,,
+Features/Chat/ChatTextHighlighter.cs,33,GuessLanguage,public,,
+Features/Chat/ChatTextHighlighter.cs,50,Label,public,,
+Features/Chat/ChatTextHighlighter.cs,53,ToSafeHtml,public,,
+Features/Chat/UserPresenceService.cs,18,GetVisibleAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ReadVisibleAsync
+Features/Chat/UserPresenceService.cs,54,GetCurrentAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ReadVisibleAsync
+Features/Chat/UserPresenceService.cs,62,ResolveState,public,,
+Features/Chat/UserPresenceService.cs,77,EffectivePreference,public,,
+Features/Chat/UserPresenceService.cs,81,SetPreferenceAsync,public,,
+Features/Chat/UserPresenceService.cs,84,SetPreferenceAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; NotifyUsersAsync
+Features/Chat/UserPresenceService.cs,102,SetCustomStatusAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteUpdateAsync; NotifyUsersAsync
+Features/Chat/UserPresenceService.cs,121,HeartbeatAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteDeleteAsync; ExecuteSqlInterpolatedAsync
+Features/Chat/UserPresenceService.cs,143,EndSessionAsync,public,,CreateDbContextAsync; ExecuteDeleteAsync; GetUserIdAsync
+Features/ContainerTracking/ContainerTrackingEntities.cs,138,HasDeparted,public,,
+Features/ContainerTracking/ContainerTrackingEntities.cs,141,CanEditContents,public,,
+Features/ContainerTracking/ContainerTrackingEntities.cs,144,CanEditMetadata,public,,
+Features/ContainerTracking/ContainerTrackingService.cs,20,SearchAsync,public,Permissions.Containers.Read; Permissions.Shipments.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/ContainerTracking/ContainerTrackingService.cs,52,GetShipmentAsync,public,Permissions.Shipments.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,67,SaveShipmentAsync,public,Permissions.Shipments.Create; Permissions.Shipments.Update; authorization.BeginAsync,BeginAsync; MutateAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,105,DeleteShipmentAsync,public,Permissions.Shipments.Delete; authorization.BeginAsync,AnyAsync; BeginAsync; MutateAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,123,GetContainerAsync,public,Permissions.Containers.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,164,SaveContainerAsync,public,Permissions.Containers.CorrectDepartedMetadata; Permissions.Containers.Create; Permissions.Containers.Update; authorization.BeginAsync; operation.Require,AnyAsync; BeginAsync; MutateAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/ContainerTracking/ContainerTrackingService.cs,208,DeleteContainerAsync,public,Permissions.Containers.Delete; Permissions.Containers.DeleteDeparted; authorization.BeginAsync; operation.Require,AnyAsync; BeginAsync; MutateAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,230,SaveContentsAsync,public,Permissions.ContainerContents.Update; authorization.BeginAsync,BeginAsync; MutateAsync; SaveChangesAsync; SingleOrDefaultAsync; ToDictionaryAsync
+Features/ContainerTracking/ContainerTrackingService.cs,315,GetBillsAsync,public,Permissions.BillsOfLading.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/ContainerTracking/ContainerTrackingService.cs,323,GetPartsAsync,public,Permissions.ContainerContents.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/ContainerTracking/ContainerTrackingService.cs,332,GetBillAsync,public,Permissions.BillsOfLading.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,340,SaveBillAsync,public,Permissions.BillsOfLading.CorrectDeparted; Permissions.BillsOfLading.Create; Permissions.BillsOfLading.Update; authorization.BeginAsync; operation.Require,BeginAsync; CreateDbContextAsync; FindAsync; MutateAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/ContainerTracking/ContainerTrackingService.cs,383,GetContainerCreationShipmentAsync,public,Permissions.Containers.Create; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ContainerTrackingService.cs,393,GetContainerReferencesAsync,public,Permissions.ContainerContents.Update; Permissions.Containers.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/ContainerTracking/ContainerTrackingService.cs,409,GetBillSupplierOptionsAsync,public,Permissions.BillsOfLading.Create; Permissions.BillsOfLading.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/ContainerTracking/ReceivedPartsService.cs,22,ReceiveContainerAsync,public,Permissions.Containers.CorrectReceipt; Permissions.Containers.Read; Permissions.Containers.Receive; authorization.BeginAsync; operation.Require,BeginAsync; BeginTransactionAsync; CreateDbContextAsync; ExecuteUpdateAsync; SaveAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ReceivedPartsService.cs,72,UnreceiveContainerAsync,public,Permissions.Containers.Unreceive; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CreateDbContextAsync; ExecuteUpdateAsync; SaveAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ReceivedPartsService.cs,113,CorrectActualReceivedQuantityAsync,public,Permissions.Containers.CorrectReceivedQuantities; authorization.BeginAsync,ActiveAllocatedQuantityAsync; BeginAsync; BeginTransactionAsync; CreateDbContextAsync; GetContainerAsync; LockLineAsync; SaveAsync
+Features/ContainerTracking/ReceivedPartsService.cs,150,GetReceivedPartsAsync,public,Permissions.Receiving.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; GetReceivingInspectionStatusesAsync; ToListAsync
+Features/ContainerTracking/ReceivedPartsService.cs,227,GetCandidatesAsync,public,Permissions.Receiving.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; GetReceivingInspectionStatusesAsync; SingleOrDefaultAsync; ToListAsync
+Features/ContainerTracking/ReceivedPartsService.cs,250,BeginInspectionAsync,public,Permissions.Inspections.Create; Permissions.Receiving.BeginInspection; authorization.BeginAsync,ActiveAllocatedQuantityAsync; BeginAsync; CreateDbContextAsync; CreateInspectionWithCallbackAsync; GetContainerAsync; LockLineAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ReceivedPartsService.cs,322,BumpUpAsync,public,Permissions.Receiving.BumpQuantity; authorization.BeginAsync,ActiveAllocatedQuantityAsync; BeginAsync; BeginTransactionAsync; CreateDbContextAsync; GetContainerAsync; LockLineAsync; SaveAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/ContainerTracking/ReceivedPartsService.cs,396,ReverseAllocationAsync,public,Permissions.Receiving.ReverseAllocation; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CreateDbContextAsync; ExecuteDeleteAsync; GetContainerAsync; LockLineAsync; SaveAsync; SingleOrDefaultAsync
+Features/ContainerTracking/TrackingModels.cs,10,Invalid,public,,
+Features/ContainerTracking/TrackingModels.cs,11,Conflict,public,,
+Features/ContainerTracking/TrackingModels.cs,173,Invalid,public,,
+Features/ContainerTracking/TrackingModels.cs,174,Conflict,public,,
+Features/ContainerTracking/TrackingModels.cs,204,Validate,public,,
+Features/ContainerTracking/TrackingModels.cs,211,ValidMoney,public,,
+Features/Customers/CertificationPackageFilenameFormatter.cs,46,Format,public,,
+Features/Customers/CertificationPackageFilenameFormatter.cs,67,FormatSinglePartMultiLot,public,,
+Features/Customers/CertificationPackageFilenameFormatter.cs,85,FormatMultiPart,public,,
+Features/Customers/CertificationTemplateTokens.cs,8,Render,public,,
+Features/Customers/CustomerService.cs,10,CreateCustomerAsync,public,Permissions.Customers.Create; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; GetInspectionSheetTypeIdAsync; SaveChangesAsync
+Features/Customers/CustomerService.cs,26,GetCustomersAsync,public,Permissions.Customers.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Customers/CustomerService.cs,34,GetCustomerAsync,public,Permissions.Customers.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Customers/CustomerService.cs,42,SaveCustomerAsync,public,Permissions.Customers.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Customers/CustomerService.cs,56,GetPlantsAsync,public,Permissions.Plants.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Customers/CustomerService.cs,69,SavePlantAsync,public,Permissions.Plants.Create; Permissions.Plants.Update; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; GetInspectionSheetTypeIdAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Customers/CustomerService.cs,103,DeletePlantAsync,public,Permissions.Plants.Delete; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/Customers/CustomerService.cs,122,GetPlantCertificationDeliveryAsync,public,Permissions.PlantCertificationRecipients.Read; Permissions.PlantCertificationSettings.Read; authorization.BeginAsync; operation.Require,AnyAsync; BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync; ToHashSetAsync; ToListAsync
+Features/Customers/CustomerService.cs,151,SavePlantCertificationRecipientAsync,public,Permissions.PlantCertificationRecipients.Create; Permissions.PlantCertificationRecipients.Update; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Customers/CustomerService.cs,174,DeletePlantCertificationRecipientAsync,public,Permissions.PlantCertificationRecipients.Delete; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Customers/CustomerService.cs,185,SavePlantCertificationConfigurationAsync,public,Permissions.PlantCertificationSettings.Update; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync; ToHashSetAsync; ToListAsync
+Features/Gages/GageService.cs,10,GetCriteriaMethodChoicesAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; GetMethodChoicesCoreAsync
+Features/Gages/GageService.cs,18,GetGageMethodChoicesAsync,public,Permissions.Gages.Read; authorization.BeginAsync,BeginAsync; GetMethodChoicesCoreAsync
+Features/Gages/GageService.cs,31,GetGageTypesAsync,public,Permissions.GageTypes.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Gages/GageService.cs,43,GetGageTypeChoicesAsync,public,Permissions.GageTypes.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Gages/GageService.cs,58,GetGagesAsync,public,Permissions.Gages.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Gages/GageService.cs,76,SaveGageTypeAsync,public,Permissions.GageTypes.Create; Permissions.GageTypes.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveAsync; SingleOrDefaultAsync
+Features/Gages/GageService.cs,113,SaveGageAsync,public,Permissions.Gages.Create; Permissions.Gages.Update; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; SaveAsync; SingleOrDefaultAsync
+Features/Identity/ApplicationRole.cs,10,base,public,,
+Features/Identity/ApplicationSignInManager.cs,24,CanSignInAsync,public,,
+Features/Identity/CurrentEmailSender.cs,15,GetAsync,public,,FindByIdAsync; GetUserIdAsync
+Features/Identity/CurrentUser.cs,15,GetUserIdAsync,public,,GetAuthenticationStateAsync
+Features/Identity/DevelopmentUtilities.cs,14,SetDateAsync,internal,Permissions.Authorization.ManageSecurity; authorization.BeginAsync,BeginAsync
+Features/Identity/DevelopmentUtilities.cs,22,PrepareEmailAsync,internal,BusinessHttpAuthorization.Require; Permissions.Certifications.SendEmail,CreateDbContextAsync; SingleAsync; WriteToAsync
+Features/Identity/HostSecurityConfiguration.cs,10,AddConfastHostSecurity,internal,,
+Features/Identity/IdentityBootstrapper.cs,11,EnsureBrowserTestUserAsync,public,,AddToRolesAsync; BeginTransactionAsync; CommitAsync; CreateAsync; FindByNameAsync; LockInstallationAsync
+Features/Identity/IdentityBootstrapper.cs,39,CreateInitialAdministratorAsync,public,,AddToRoleAsync; AnyAsync; BeginTransactionAsync; CommitAsync; CreateAsync; LockInstallationAsync; SingleAsync
+Features/Identity/IdentityEndpoints.cs,10,MapIdentityEndpoints,public,,FindByNameAsync; PasswordSignInAsync; RedeemPasswordResetAsync; SignOutAsync
+Features/Identity/UserAdministrationService.Access.cs,14,GetEffectiveAccessAsync,public,Permissions.Users.ManageRoles; Permissions.Users.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync; SingleAsync; SingleOrDefaultAsync; ToArrayAsync; ToDictionaryAsync
+Features/Identity/UserAdministrationService.cs,82,Success,public,,
+Features/Identity/UserAdministrationService.cs,85,Failure,public,,
+Features/Identity/UserAdministrationService.cs,93,GetAdministrationStateAsync,public,Permissions.Users.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync
+Features/Identity/UserAdministrationService.cs,104,GetUsersAsync,public,Permissions.Users.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync; SingleAsync; ToListAsync
+Features/Identity/UserAdministrationService.cs,120,GetUserForEditAsync,public,Permissions.Users.Read; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync; SingleAsync; SingleOrDefaultAsync; ToListAsync
+Features/Identity/UserAdministrationService.cs,145,GetDigitalCaliperChoicesAsync,public,Permissions.Users.Read; permissions.EvaluateCurrentAsync,CreateDbContextAsync; EvaluateCurrentAsync; ToListAsync
+Features/Identity/UserAdministrationService.cs,157,CreateUserAsync,public,Permissions.Users.Create; Permissions.Users.ManageRoles,AddToRolesAsync; BeginTransactionAsync; CommitAsync; CreateAsync; EnsurePublicChannelMembershipsAsync; RecordAsync; RemoveFromRoleAsync; ToListAsync
+Features/Identity/UserAdministrationService.cs,199,UpdateUserAsync,public,Permissions.Users.ManageRoles; Permissions.Users.Read; Permissions.Users.Update,AddToRolesAsync; BeginTransactionAsync; CommitAsync; EnsurePublicChannelMembershipsAsync; RecordAsync; RemoveFromRolesAsync; SingleAsync; ToDictionaryAsync; ToListAsync; UpdateAsync; UpdateSecurityStampAsync
+Features/Identity/UserAdministrationService.cs,268,GeneratePasswordResetTokenAsync,public,Permissions.Users.ResetPasswords,BeginTransactionAsync; CommitAsync; RecordAsync; SaveChangesAsync; SingleAsync; ToListAsync
+Features/Identity/UserAdministrationService.cs,291,RedeemPasswordResetAsync,public,AuthorizationMutationLock.AcquireCurrentAsync; Permissions.Users.ResetPasswords; permissions.EvaluateResetIssuerAsync,AcquireCurrentAsync; BeginTransactionAsync; CommitAsync; EvaluateResetIssuerAsync; RecordAsync; ResetPasswordAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync; VerifyUserTokenAsync
+Features/Identity/UserAdministrationService.cs,329,DeleteUserAsync,public,Permissions.Users.Delete,BeginTransactionAsync; CommitAsync; DeleteAsync; RecordAsync; SingleAsync; ToListAsync
+Features/Identity/UserEditRecovery.cs,5,Copy,public,,
+Features/Identity/UserEditRecovery.cs,12,Reapply,public,,
+Features/Identity/UserProfilePicture.cs,26,GetVersionsAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToDictionaryAsync
+Features/Identity/UserProfilePicture.cs,35,GetCurrentUserDisplayNameAsync,public,authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleAsync
+Features/Identity/UserProfilePicture.cs,44,GetAsync,public,Permissions.Chat.Access; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; FindPictureAsync
+Features/Identity/UserProfilePicture.cs,52,GetForHttpAsync,internal,BusinessHttpAuthorization.Require; Permissions.Chat.Access,CreateDbContextAsync; FindPictureAsync
+Features/Identity/UserProfilePicture.cs,69,SaveAsync,public,authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteSqlInterpolatedAsync; NotifyUsersAsync
+Features/Identity/UserProfilePicture.cs,91,RemoveAsync,public,authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ExecuteDeleteAsync; NotifyUsersAsync
+Features/Identity/UserProfilePicture.cs,104,DetectContentType,internal,,
+Features/InspectionCriteria/InspectionCriteriaModels.cs,175,HasInvalidNumericOrder,public,,
+Features/InspectionCriteria/InspectionCriteriaModels.cs,180,AlignDecimalPlaces,public,,
+Features/InspectionCriteria/InspectionCriteriaService.cs,41,GetUnitChoicesAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,66,GetSecondaryProcessTypeChoicesAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,78,GetCertificationTypeChoicesAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,91,GetPartSummaryAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,123,GetRevisionHistoryAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,138,GetRevisionAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,242,GetCriterionAsync,public,Permissions.InspectionCriteria.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,273,CreateDraftRevisionAsync,public,Permissions.InspectionCriteria.Create; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LockPartAsync; MaxAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,413,PublishRevisionAsync,public,Permissions.InspectionCriteria.Publish; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LockPartAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,491,DeleteRevisionAsync,public,Permissions.InspectionCriteria.Delete; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,545,SaveRevisionHeaderAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,582,GetMasterPrintAsync,public,Permissions.MasterPrints.Read; authorization.BeginAsync,BeginAsync; GetMasterPrintCoreAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,591,GetMasterPrintForHttpAsync,internal,Permissions.MasterPrints.Read; operation.Require,GetMasterPrintCoreAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,617,UploadMasterPrintAsync,public,Permissions.MasterPrints.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,664,DeleteMasterPrintAsync,public,Permissions.MasterPrints.Delete; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,701,AddCriterionAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; IsValidSecondaryProcessRequirementAsync; LockRevisionAsync; MaxAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,775,SaveCriterionAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; IsValidSecondaryProcessRequirementAsync; LockRevisionAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,852,DeleteCriterionAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,896,MoveCriterionAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,957,MoveCriterionBeforeAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,1027,AlignCriterionDecimalPlacesAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; ToListAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,1071,AddSecondaryProcessRequirementAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,1128,SaveSecondaryProcessRequirementAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,1193,DeleteSecondaryProcessRequirementAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/InspectionCriteria/InspectionCriteriaService.cs,1237,SaveCertificationRequirementsAsync,public,Permissions.InspectionCriteria.Update; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsRevisionProtectedAsync; LockRevisionAsync; SaveChangesAsync; ToDictionaryAsync
+Features/Inspections/CertificationEmailService.cs,21,SendAsync,public,Permissions.Certifications.SendEmail; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleAsync; SingleOrDefaultAsync
+Features/Inspections/CertificationEmailTemplates.cs,56,ResolveEmailTemplateAsync,public,Permissions.Certifications.SendEmail; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Inspections/CertificationEmailTemplates.cs,67,ToModel,internal,,GetAllAsync; GetSettingsAsync; SaveAsync; SaveSettingsAsync
+Features/Inspections/CertificationEmailTemplates.cs,85,GetAllAsync,public,Permissions.CertificationEmailTemplates.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Inspections/CertificationEmailTemplates.cs,94,SaveAsync,public,Permissions.CertificationEmailTemplates.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/CertificationEmailTemplates.cs,113,GetSettingsAsync,public,Permissions.CertificationEmailSettings.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Inspections/CertificationEmailTemplates.cs,122,SaveSettingsAsync,public,Permissions.CertificationEmailSettings.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/CertificationEmailTemplates.cs,137,NormalizeImplicitCcAddress,internal,,
+Features/Inspections/CertificationEmailTemplates.cs,155,Sanitize,public,,
+Features/Inspections/CertificationEmailTemplates.cs,162,SanitizeForEmail,public,,
+Features/Inspections/CertificationEmailTemplates.cs,237,SubjectTokensFor,public,,
+Features/Inspections/CertificationEmailTemplates.cs,244,BodyTokensFor,public,,
+Features/Inspections/CertificationEmailTemplates.cs,248,TokensFor,public,,
+Features/Inspections/CertificationEmailTemplates.cs,250,GetTemplateType,public,,
+Features/Inspections/CertificationEmailTemplates.cs,257,ValidateTemplate,public,,
+Features/Inspections/CertificationEmailTemplates.cs,270,Render,public,,
+Features/Inspections/CertificationPackageService.cs,11,NextWorkDay,public,,BuildAsync
+Features/Inspections/CertificationPackageService.cs,71,BuildAsync,public,Permissions.Certifications.BuildPackage; Permissions.Certifications.TemporarilyCompletePackage; authorization.BeginAsync; operation.Require,BeginAsync; CreateDbContextAsync; GetPackageStatusesAsync; RenderAsync; SingleOrDefaultAsync; ToListAsync
+Features/Inspections/CertificationPreviewRenderer.cs,23,RenderAsync,public,,ReadAllBytesAsync; ReadToEndAsync; WaitForExitAsync; WriteAllBytesAsync
+Features/Inspections/CertificationPreviewRenderer.cs,174,Build,public,,
+Features/Inspections/CertificationPreviewRenderer.cs,266,Read,public,,
+Features/Inspections/EmailService.cs,43,Validate,public,,SendAsync
+Features/Inspections/EmailService.cs,86,SendAsync,public,,AuthenticateAsync; ConnectAsync; DisconnectAsync
+Features/Inspections/EmailService.cs,140,CreateMimeMessage,public,,
+Features/Inspections/InspectionModels.cs,52,Clone,public,,
+Features/Inspections/InspectionModels.cs,113,Validate,public,,
+Features/Inspections/InspectionModels.cs,122,Validate,public,,
+Features/Inspections/InspectionModels.cs,154,GetError,public,,
+Features/Inspections/InspectionModels.cs,225,Validate,public,,
+Features/Inspections/InspectionModels.cs,260,ApplyGageSelection,public,,
+Features/Inspections/InspectionModels.cs,371,IsMissingRequired,public,,
+Features/Inspections/InspectionModels.cs,379,IsAccepted,public,,
+Features/Inspections/InspectionModels.cs,382,IsAccepted,public,,
+Features/Inspections/InspectionModels.cs,403,IsCompleted,public,,
+Features/Inspections/InspectionModels.cs,484,Validate,public,,
+Features/Inspections/InspectionPdfRenderer.cs,20,RenderAsync,public,,RenderCoreAsync
+Features/Inspections/InspectionPdfRenderer.cs,133,DisposeAsync,public,,CloseAsync
+Features/Inspections/InspectionPrintRenderAuthenticationHandler.cs,18,CanAuthenticate,public,,
+Features/Inspections/InspectionPrintRenderAuthenticationHandler.cs,22,CanAuthorizePrint,internal,,
+Features/Inspections/InspectionPrintRenderTokenService.cs,19,CreateForExport,internal,Permissions.InspectionSheets.Export; operation.Require,
+Features/Inspections/InspectionPrintRenderTokenService.cs,25,CreateForPackage,internal,Permissions.Certifications.BuildPackage; Permissions.Certifications.TemporarilyCompletePackage; operation.Require,
+Features/Inspections/InspectionPrintRenderTokenService.cs,46,IsValid,public,,
+Features/Inspections/InspectionPrintRenderTokenService.cs,49,TryGetOptions,public,,
+Features/Inspections/InspectionRenderRequestPolicy.cs,5,IsAllowed,internal,,
+Features/Inspections/InspectionResultEvaluator.cs,34,Evaluate,public,,
+Features/Inspections/InspectionResultEvaluator.cs,134,IsPassingEntry,public,,
+Features/Inspections/InspectionResultEvaluator.cs,137,TryNormalizePassingEntry,public,,
+Features/Inspections/InspectionResultEvaluator.cs,155,IsValidMeasurementEntry,public,,
+Features/Inspections/InspectionResultEvaluator.cs,164,HasInvalidRecordedOrder,public,,
+Features/Inspections/InspectionResultEvaluator.cs,169,EnsureRecordedDecimalPlaces,public,,
+Features/Inspections/InspectionResultEvaluator.cs,199,TryParseNumber,public,,
+Features/Inspections/InspectionSamplingPlan.cs,5,GetQuantityInspected,public,,
+Features/Inspections/InspectionSearchNavigationContext.cs,23,Replace,public,,
+Features/Inspections/InspectionSearchNavigationContext.cs,33,SetCurrentInspection,public,,
+Features/Inspections/InspectionSearchNavigationContext.cs,44,RemoveUnavailableInspection,public,,
+Features/Inspections/InspectionSearchNavigationContext.cs,62,Clear,public,,
+Features/Inspections/InspectionSearchNavigationContext.cs,72,Describe,public,,
+Features/Inspections/InspectionService.cs,42,GetReceivingInspectionStatusesAsync,internal,Permissions.Receiving.Read; operation.Require,
+Features/Inspections/InspectionService.cs,50,GetInspectionsAsync,public,Permissions.Inspections.Read; authorization.BeginAsync,BeginAsync
+Features/Inspections/InspectionService.cs,57,GetInspectionsAsync,public,Permissions.Inspections.Read; authorization.BeginAsync,BeginAsync
+Features/Inspections/InspectionService.cs,66,FindInspectionsAsync,public,Permissions.Inspections.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToArrayAsync
+Features/Inspections/InspectionService.cs,270,GetPartOptionsAsync,public,Permissions.Inspections.Create,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync; ToListAsync
+Features/Inspections/InspectionService.cs,291,GetCertificationPackageLotOptionsAsync,public,Permissions.Certifications.BuildPackage; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync; ToArrayAsync; ToListAsync
+Features/Inspections/InspectionService.cs,355,GetCertificationPackagePlantOptionsAsync,public,Permissions.Certifications.BuildPackage; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Inspections/InspectionService.cs,370,GetInspectionForDeleteAsync,public,Permissions.Inspections.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,389,CreateInspectionAsync,public,,CreateInspectionCoreAsync
+Features/Inspections/InspectionService.cs,394,CreateInspectionWithCallbackAsync,internal,,CreateInspectionCoreAsync
+Features/Inspections/InspectionService.cs,593,DuplicateInspectionAsync,public,Permissions.Inspections.Duplicate; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; FindInspectionIdByLotNumberAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,757,GetFlipPreviewAsync,public,Permissions.Inspections.Flip; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; CurrentCriteriaAsync; SingleOrDefaultAsync; ToListAsync
+Features/Inspections/InspectionService.cs,792,FlipInspectionAsync,public,Permissions.Inspections.Flip; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; FindInspectionIdByLotNumberAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,911,UndoLineageOperationAsync,public,Permissions.Inspections.UndoLineage; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,1044,MoveAdditionalLineageQuantityAsync,public,Permissions.Inspections.TransferQuantity; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,1109,GetDocumentsForExportAsync,internal,Permissions.Certifications.Read; Permissions.InspectionSheets.Export; operation.Require,GetCertificationDocumentsForPdfCoreAsync
+Features/Inspections/InspectionService.cs,1116,GetInspectionAsync,public,Permissions.Certifications.Read; Permissions.Inspections.Read; authorization.BeginAsync,BeginAsync; GetInspectionCoreAsync
+Features/Inspections/InspectionService.cs,1122,GetInspectionForExportAsync,internal,Permissions.InspectionSheets.Export; operation.Require,GetInspectionCoreAsync
+Features/Inspections/InspectionService.cs,1128,GetPackageStatusesAsync,internal,Permissions.Certifications.BuildPackage; operation.Require,
+Features/Inspections/InspectionService.cs,1135,GetPrintableInspectionAsync,public,Permissions.InspectionSheets.Export; authorization.BeginAsync,BeginAsync; GetInspectionCoreAsync
+Features/Inspections/InspectionService.cs,1447,UploadCertificationDocumentAsync,public,Permissions.Certifications.Create; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,1524,GetCertificationDocumentAsync,public,Permissions.Certifications.Read; authorization.BeginAsync,BeginAsync; GetCertificationDocumentCoreAsync
+Features/Inspections/InspectionService.cs,1533,GetCertificationDocumentForHttpAsync,internal,Permissions.Certifications.Read; operation.Require,GetCertificationDocumentCoreAsync
+Features/Inspections/InspectionService.cs,1559,GetCertificationDocumentsForPdfAsync,public,Permissions.Certifications.Read; authorization.BeginAsync,BeginAsync; GetCertificationDocumentsForPdfCoreAsync
+Features/Inspections/InspectionService.cs,1567,GetCertificationDocumentsForPdfForHttpAsync,internal,Permissions.Certifications.Read; operation.Require,GetCertificationDocumentsForPdfCoreAsync
+Features/Inspections/InspectionService.cs,1593,GetCertificationDocumentPreviewAsync,public,Permissions.Certifications.Read; authorization.BeginAsync,BeginAsync; GetCertificationDocumentPreviewCoreAsync
+Features/Inspections/InspectionService.cs,1602,GetCertificationDocumentPreviewForHttpAsync,internal,Permissions.Certifications.Read; operation.Require,GetCertificationDocumentPreviewCoreAsync
+Features/Inspections/InspectionService.cs,1675,DeleteCertificationDocumentAsync,public,Permissions.Certifications.Delete; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/InspectionService.cs,1705,SaveInspectionAsync,public,Permissions.Inspections.ApproveDeviation; Permissions.Inspections.Update; operation.Require; permissions.EvaluateCurrentInTransactionAsync,BeginTransactionAsync; CommitAsync; CreateDbContextAsync; EvaluateCurrentInTransactionAsync; FindInspectionIdByLotNumberAsync; ResolveSelectionAsync; SaveChangesAsync; SingleOrDefaultAsync; ToDictionaryAsync
+Features/Inspections/InspectionService.cs,1957,DeleteInspectionAsync,public,Permissions.Inspections.Delete; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; ExecuteDeleteAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/NominalToleranceSettings.cs,34,GetAsync,public,Permissions.NominalToleranceSettings.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Inspections/NominalToleranceSettings.cs,50,SaveAsync,public,Permissions.NominalToleranceSettings.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Inspections/PdfDocumentMerger.cs,8,Merge,public,,
+Features/MorningProductionReview/MorningProductionReviewService.cs,24,GetAsync,public,Permissions.ProductionReports.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; GetReportScheduleAsync; MaxAsync; MinAsync; ToDictionaryAsync; ToListAsync
+Features/Parts/PartFlipService.cs,12,GetConfigurationAsync,public,Permissions.PartFlipDefinitions.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; CurrentCriteriaAsync; SingleOrDefaultAsync; ToListAsync
+Features/Parts/PartFlipService.cs,36,GetCurrentCriterionOptionsAsync,public,Permissions.PartFlipDefinitions.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; CurrentCriteriaAsync
+Features/Parts/PartFlipService.cs,43,SaveDefinitionAsync,public,Permissions.PartFlipDefinitions.Create; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; CurrentCriteriaAsync; SaveChangesAsync
+Features/Parts/PartFlipService.cs,83,ReplaceMappingsAsync,public,Permissions.PartFlipDefinitions.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; CurrentCriteriaAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Parts/PartFlipService.cs,97,DeleteDefinitionAsync,public,Permissions.PartFlipDefinitions.Delete; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/Parts/PartFlipService.cs,108,InferMappings,internal,,
+Features/Parts/PartFlipService.cs,112,ValidateMappings,internal,,
+Features/Parts/PartFlipService.cs,121,UnitsMatch,internal,,
+Features/Parts/PartFlipService.cs,124,CurrentCriteriaAsync,internal,,ToListAsync
+Features/Parts/PartService.cs,13,GetPartsAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Parts/PartService.cs,26,GetPartsForCustomerAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Parts/PartService.cs,40,GetCustomerOptionsAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Parts/PartService.cs,53,GetPlantOptionsAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Parts/PartService.cs,63,GetSupplierOptionsAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Parts/PartService.cs,78,GetPartAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Parts/PartService.cs,105,HasEligibleMachineAsync,public,Permissions.Parts.Read; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync
+Features/Parts/PartService.cs,117,GetPartForDeleteAsync,public,Permissions.Parts.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SingleOrDefaultAsync
+Features/Parts/PartService.cs,135,CreatePartAsync,public,Permissions.Parts.Create; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; IsSupplierAvailableAsync; SaveChangesAsync; ToListAsync
+Features/Parts/PartService.cs,203,SavePartAsync,public,Permissions.Parts.Update; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; IsSupplierAvailableAsync; SaveChangesAsync; SingleOrDefaultAsync; ToListAsync
+Features/Parts/PartService.cs,288,DeletePartAsync,public,Permissions.Parts.Delete; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveChangesAsync; SingleOrDefaultAsync
+Features/ProductionScheduling/ProductionMapping.cs,8,Configure,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,7,EffectivePph,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,14,Boxes,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,17,Capacity,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,21,Forecast,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,108,Elapsed,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,119,Requirements,public,,
+Features/ProductionScheduling/ProductionScheduler.cs,157,Optimize,public,,
+Features/ProductionScheduling/ProductionService.cs,21,GetAsync,public,Permissions.ProductionSchedules.Read; authorization.BeginAsync,BeginAsync; ReadScheduleAsync
+Features/ProductionScheduling/ProductionService.cs,82,GetReadOnlyAsync,public,Permissions.ProductionSchedules.Read; authorization.BeginAsync,BeginAsync; ReadScheduleAsync
+Features/ProductionScheduling/ProductionService.cs,88,GetReportScheduleAsync,internal,Permissions.ProductionReports.Read; operation.Require,BeginTransactionAsync; CommitAsync; CreateDbContextAsync
+Features/ProductionScheduling/ProductionService.cs,98,GetConfigurationAsync,public,Permissions.ProductionCalendars.Read; Permissions.ProductionDowntimeReasons.Read; Permissions.ProductionHolidays.Read; Permissions.ProductionSettings.Read; Permissions.SortingMachines.Read; authorization.BeginAsync; operation.Require,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; SingleAsync; ToListAsync
+Features/ProductionScheduling/ProductionService.cs,121,GetPartConfigurationAsync,public,Permissions.PartMachineEligibility.Read; Permissions.Parts.Read; authorization.BeginAsync; operation.Require,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; SingleAsync; ToListAsync
+Features/ProductionScheduling/ProductionService.cs,193,AppendContainerPartAsync,public,Permissions.ProductionSchedules.AppendContainerPart; authorization.BeginAsync,AppendDepartedContainerPartsAsync; BeginAsync; ReadScheduleAsync; WriteAuthorizedAsync
+Features/ProductionScheduling/ProductionService.cs,470,SaveJobAsync,public,Permissions.ProductionJobs.Create; Permissions.ProductionJobs.Update,
+Features/ProductionScheduling/ProductionService.cs,495,DeleteJobAsync,public,Permissions.ProductionJobs.Delete,ExecuteSqlRawAsync
+Features/ProductionScheduling/ProductionService.cs,521,SaveRequirementAsync,public,Permissions.ProductionJobs.Update,
+Features/ProductionScheduling/ProductionService.cs,545,StartAsync,public,Permissions.ProductionSchedules.StartWork,
+Features/ProductionScheduling/ProductionService.cs,569,ProgressAsync,public,Permissions.ProductionSchedules.CompleteWork; Permissions.ProductionSchedules.RecordProgress,
+Features/ProductionScheduling/ProductionService.cs,582,CompleteSegmentAsync,public,Permissions.ProductionSchedules.CompleteWork,
+Features/ProductionScheduling/ProductionService.cs,629,CorrectProgressAsync,public,Permissions.ProductionSchedules.CorrectProgress,
+Features/ProductionScheduling/ProductionService.cs,654,SetConstraintAsync,public,Permissions.ProductionSchedules.Arrange,
+Features/ProductionScheduling/ProductionService.cs,668,MoveAsync,public,Permissions.ProductionSchedules.Arrange,
+Features/ProductionScheduling/ProductionService.cs,678,ReassignAsync,public,Permissions.ProductionSchedules.Arrange,
+Features/ProductionScheduling/ProductionService.cs,706,CutInAsync,public,Permissions.ProductionSchedules.Arrange,SaveChangesAsync
+Features/ProductionScheduling/ProductionService.cs,735,ApplyOptimizationAsync,public,Permissions.ProductionSchedules.Optimize,
+Features/ProductionScheduling/ProductionService.cs,750,SaveMachineAsync,public,Permissions.SortingMachines.Create; Permissions.SortingMachines.Update,
+Features/ProductionScheduling/ProductionService.cs,764,SaveDefaultWorkingDaysAsync,public,Permissions.ProductionCalendars.Update,
+Features/ProductionScheduling/ProductionService.cs,797,SaveRateAsync,public,Permissions.PartMachineEligibility.Create; Permissions.PartMachineEligibility.Read; Permissions.PartMachineEligibility.Update,
+Features/ProductionScheduling/ProductionService.cs,820,SetPreferredMachineAsync,public,Permissions.PartMachineEligibility.Update,SaveChangesAsync
+Features/ProductionScheduling/ProductionService.cs,839,RemoveRateAsync,public,Permissions.PartMachineEligibility.Delete,
+Features/ProductionScheduling/ProductionService.cs,862,SaveEfficiencyAsync,public,Permissions.ProductionSettings.Update,
+Features/ProductionScheduling/ProductionService.cs,870,SaveHolidayAsync,public,Permissions.ProductionHolidays.Create; Permissions.ProductionHolidays.Delete; Permissions.ProductionHolidays.Read; Permissions.ProductionHolidays.Update,
+Features/ProductionScheduling/ProductionService.cs,883,UpdateHolidayAsync,public,Permissions.ProductionHolidays.Update,
+Features/ProductionScheduling/ProductionService.cs,902,SaveReasonAsync,public,Permissions.ProductionDowntimeReasons.Create; Permissions.ProductionDowntimeReasons.Update,
+Features/ProductionScheduling/ProductionService.cs,914,DeleteReasonAsync,public,Permissions.ProductionDowntimeReasons.Delete,
+Features/ProductionScheduling/ProductionService.cs,923,SaveDowntimeAsync,public,Permissions.MachineDowntime.Create; Permissions.MachineDowntime.Delete; Permissions.MachineDowntime.Update,
+Features/ProductionTracking/ProductionTrackingMapping.cs,8,Configure,public,,
+Features/ProductionTracking/ProductionTrackingService.cs,20,GetDashboardAsync,public,Permissions.ProductionLogs.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; LoadDetailAsync; MaxAsync; MinAsync; ToListAsync
+Features/ProductionTracking/ProductionTrackingService.cs,95,GetDowntimeCausesAsync,public,Permissions.SortLogDowntimeCauses.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/ProductionTracking/ProductionTrackingService.cs,102,SaveDowntimeCauseAsync,public,Permissions.SortLogDowntimeCauses.Create; Permissions.SortLogDowntimeCauses.Update; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; SaveAsync; SingleOrDefaultAsync
+Features/ProductionTracking/ProductionTrackingService.cs,124,DeleteDowntimeCauseAsync,public,Permissions.SortLogDowntimeCauses.Delete; authorization.BeginAsync,AnyAsync; BeginAsync; CreateDbContextAsync; SaveAsync; SingleOrDefaultAsync
+Features/ProductionTracking/ProductionTrackingService.cs,136,OpenOrCreateSortLogAsync,public,Permissions.ProductionLogs.Create; authorization.BeginAsync,AnyAsync; BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; RollbackAsync; SaveChangesAsync; SingleAsync; SingleOrDefaultAsync
+Features/ProductionTracking/ProductionTrackingService.cs,200,SaveCommentsAsync,public,Permissions.ProductionLogs.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; SaveAsync; SingleOrDefaultAsync
+Features/ProductionTracking/ProductionTrackingService.cs,210,StartRunAsync,public,Permissions.ProductionLogs.StartRun; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LoadLockedLogAsync; SaveAsync
+Features/ProductionTracking/ProductionTrackingService.cs,255,StopRunAsync,public,Permissions.ProductionLogs.StopRun; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LoadLockedLogAsync; SaveAsync
+Features/ProductionTracking/ProductionTrackingService.cs,272,ResumeRunAsync,public,Permissions.ProductionLogs.ResumeRun; authorization.BeginAsync,BeginAsync; BeginTransactionAsync; CommitAsync; CreateDbContextAsync; LoadLockedLogAsync; SaveAsync
+Features/ProductionTracking/ProductionTrackingService.cs,288,UpdateLineAsync,public,Permissions.ProductionLogs.CorrectLine; authorization.BeginAsync,BeginAsync; SaveLineAsync
+Features/ProductionTracking/ProductionTrackingService.cs,294,SaveStopDetailsAsync,public,Permissions.ProductionLogs.StopRun; authorization.BeginAsync,BeginAsync; SaveLineAsync
+Features/ProductionTracking/SortLogMetricsCalculator.cs,9,Calculate,public,,
+Features/Suppliers/SupplierService.cs,20,SearchAsync,public,Permissions.Suppliers.Read; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; ToListAsync
+Features/Suppliers/SupplierService.cs,34,SaveAsync,public,Permissions.Suppliers.Create; Permissions.Suppliers.Update; authorization.BeginAsync,BeginAsync; CreateDbContextAsync; FindAsync; SaveChangesAsync

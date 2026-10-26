@@ -1,3 +1,4 @@
+@using Confast.Web.Features.Authorization
 @using Confast.Web.Features.Chat
 @implements IDisposable
 @inject ChatService Chat
@@ -55,6 +56,7 @@
 </div>
 
 @code {
+    [Parameter] public EventCallback AuthorizationChanged { get; set; }
     [Parameter] public EventCallback<string> Selected { get; set; }
     [Parameter] public string SelectionVerb { get; set; } = "Send";
     private static readonly IReadOnlyList<string> Categories = ChatGifCategoryBackgrounds.Categories;
@@ -180,7 +182,7 @@
         if (!append) gifs.Clear();
         ChatGifResult result;
         if (favoritesView)
-            result = await Chat.ResolveGifsAsync(favoriteIds.Skip(offset).Take(24).ToArray(), ids => JS.InvokeAsync<ChatGifResult>("confastChatGifs.byIds", ApiKey, ids, requestBudget).AsTask());
+            result = await Chat.ResolveGifsAsync(favoriteIds.Skip(offset).Take(24).ToArray(), ids => JS.InvokeAsync<ChatGifResult>("confastChatGifs.byIds", ApiKey, ids, null).AsTask());
         else
             result = await Chat.ResolveGifSearchAsync(resultsQuery, offset, 24, () => JS.InvokeAsync<ChatGifResult>("confastChatGifs.search", ApiKey, resultsQuery, offset, 24).AsTask());
         gifs.AddRange(result.Gifs);
@@ -220,6 +222,7 @@
         try { await action(); }
         catch (JSDisconnectedException) { }
         catch (JSException ex) { Logger.LogWarning(ex, "GIF picker browser request failed."); error = "Could not load GIFs. Try again."; }
+        catch (AuthorizationDeniedException) { error = "Chat access is no longer available."; await AuthorizationChanged.InvokeAsync(); }
         catch (UnauthorizedAccessException) { error = "Sign in to use GIFs."; }
         catch (InvalidOperationException ex) { error = ex.Message; }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException)

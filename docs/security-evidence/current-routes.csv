@@ -1,0 +1,44 @@
+source,route,authorization
+Components/Pages/Account/AccessDenied.razor,/access-denied,
+Components/Pages/Account/Login.razor,/login,[Microsoft.AspNetCore.Authorization.AllowAnonymous]; [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+Components/Pages/Account/Logout.razor,/logout,[Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+Components/Pages/Account/ResetPassword.razor,/reset-password,[Microsoft.AspNetCore.Authorization.AllowAnonymous]; [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+Components/Pages/Administration/CertificationEmailSettings.razor,/admin/certification-email-settings,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:CertificationEmailSettings.Read"")]"
+Components/Pages/Administration/CertificationEmailTemplates.razor,/admin/certification-email-templates,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:CertificationEmailTemplates.Read"")]"
+Components/Pages/Administration/NominalTolerance.razor,/admin/nominal-tolerance,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:NominalToleranceSettings.Read"")]"
+Components/Pages/ContainerTracking/Detail.razor,/container-tracking/containers/{Id:long},"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Containers.Read"")]"
+Components/Pages/ContainerTracking/Detail.razor,/container-tracking/shipments/{ShipmentId:long}/containers/create,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Containers.Read"")]"
+Components/Pages/ContainerTracking/Index.razor,/container-tracking,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Shipments.Read"")]"
+Components/Pages/Customers/Create.razor,/customers/create,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Customers.Create"")]"
+Components/Pages/Customers/Edit.razor,/customers/{Id:long}/edit,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Customers.Read"")]"
+Components/Pages/Customers/Index.razor,/,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Customers.Read"")]"
+Components/Pages/Customers/Index.razor,/customers,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Customers.Read"")]"
+Components/Pages/Error.razor,/Error,
+Components/Pages/Gages/Index.razor,/gages,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Gages.Read"")]"
+Components/Pages/Gages/Types.razor,/gage-types,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:GageTypes.Read"")]"
+Components/Pages/InspectionCriteria/CreateRevision.razor,/parts/{PartId:long}/inspection-criteria/create,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionCriteria.Create"")]"
+Components/Pages/InspectionCriteria/Criterion.razor,/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/new,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionCriteria.Update"")]"
+Components/Pages/InspectionCriteria/Criterion.razor,/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/{CriterionId:long}/edit,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionCriteria.Update"")]"
+Components/Pages/InspectionCriteria/DeleteCriterion.razor,/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/{CriterionId:long}/delete,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionCriteria.Update"")]"
+Components/Pages/InspectionCriteria/History.razor,/parts/{PartId:long}/inspection-criteria,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionCriteria.Read"")]"
+Components/Pages/InspectionCriteria/Revision.razor,/parts/{PartId:long}/inspection-criteria/{RevisionId:long},"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionCriteria.Read"")]"
+Components/Pages/Inspections/Create.razor,/inspections/create,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Inspections.Create"")]"
+Components/Pages/Inspections/Delete.razor,/inspections/{InspectionId:long}/delete,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Inspections.Delete"")]"
+Components/Pages/Inspections/Edit.razor,/inspections/{InspectionId:long},"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Inspections.Read"")]"
+Components/Pages/Inspections/Index.razor,/inspections,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Inspections.Read"")]"
+Components/Pages/Inspections/Print.razor,/inspections/{InspectionId:long}/print,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:InspectionSheets.Export"")]"
+Components/Pages/MorningProductionReview/Index.razor,/morning-production-review,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:ProductionReports.Read"")]"
+Components/Pages/NotFound.razor,/not-found,
+Components/Pages/Parts/Create.razor,/parts/create,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Parts.Create"")]"
+Components/Pages/Parts/Delete.razor,/parts/{Id:long}/delete,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Parts.Delete"")]"
+Components/Pages/Parts/Edit.razor,/parts/{Id:long}/edit,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Parts.Read"")]"
+Components/Pages/Parts/Flips.razor,/parts/{PartId:long}/flips,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:PartFlipDefinitions.Read"")]"
+Components/Pages/Parts/Index.razor,/parts,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Parts.Read"")]"
+Components/Pages/ProductionScheduling/Index.razor,/production-scheduling,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:ProductionSchedules.Read"")]"
+Components/Pages/ProductionScheduling/Settings.razor,/production-scheduling/settings,[Microsoft.AspNetCore.Authorization.Authorize(Policy = PermissionPolicies.ProductionConfigurationRead)]
+Components/Pages/ProductionTracking/Index.razor,/production-tracking,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:ProductionLogs.Read"")]"
+Components/Pages/ProductionTracking/Settings.razor,/production-tracking/settings,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:SortLogDowntimeCauses.Read"")]"
+Components/Pages/ReceivedParts/Index.razor,/received-parts,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Receiving.Read"")]"
+Components/Pages/Suppliers/Index.razor,/suppliers,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Suppliers.Read"")]"
+Components/Pages/Users/Index.razor,/admin/users,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Users.Read"")]"
+Components/Pages/Users/Roles.razor,/admin/roles,"[Microsoft.AspNetCore.Authorization.Authorize(Policy = ""Permission:Roles.Read"")]"

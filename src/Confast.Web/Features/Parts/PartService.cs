@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Confast.Web.Features.ProductionScheduling;
 using Microsoft.EntityFrameworkCore;
@@ -5,13 +6,14 @@ using Npgsql;
 
 namespace Confast.Web.Features.Parts;
 
-public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
     private const string UniquePartNumberConstraint = "UX_parts_customer_id_part_number";
 
     public async Task<IReadOnlyList<PartListItem>> GetPartsAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("Parts"), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await ProjectPartList(db.Parts
@@ -25,6 +27,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         long customerId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("Customer", customerId.ToString()), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await ProjectPartList(db.Parts
@@ -37,6 +40,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
     public async Task<IReadOnlyList<CustomerOption>> GetCustomerOptionsAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("PartReferences"), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.Customers
@@ -48,6 +52,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
 
     public async Task<IReadOnlyList<PlantOption>> GetPlantOptionsAsync(long customerId, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("Customer", customerId.ToString()), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Plants.AsNoTracking().Where(x => x.CustomerId == customerId)
             .OrderBy(x => x.Name)
@@ -59,6 +64,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         long? includedSupplierId = null,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("PartReferences"), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.Suppliers
@@ -73,6 +79,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         long id,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("Part", id.ToString()), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.Parts
@@ -99,6 +106,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         long partId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("Part", partId.ToString()), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.Set<PartMachine>()
@@ -110,6 +118,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         long id,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Read", new("Part", id.ToString()), [Permissions.Parts.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.Parts
@@ -127,6 +136,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         PartEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Create", new("Parts"), [Permissions.Parts.Create], cancellationToken);
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -194,6 +204,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         PartEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Update", new("Part", model.Id.ToString()), [Permissions.Parts.Update], cancellationToken);
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -279,6 +290,7 @@ public sealed class PartService(IDbContextFactory<AppDbContext> contextFactory)
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Parts.Delete", new("Part", id.ToString()), [Permissions.Parts.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var part = await db.Parts.SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
 

@@ -1,5 +1,6 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:NominalToleranceSettings.Read")]
 @page "/admin/nominal-tolerance"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
 @using Confast.Web.Features.Inspections
 @inject NominalToleranceSettingsService SettingsService
 
@@ -23,17 +24,17 @@ else
         <ValidationSummary />
         <div class="form-field">
             <label for="tolerance-floor">Tolerance floor</label>
-            <InputNumber id="tolerance-floor" @bind-Value="model.ToleranceFloor" step="0.01" />
+            <InputNumber id="tolerance-floor" @bind-Value="model.ToleranceFloor" step="0.01" disabled="@(!(Can(Permissions.NominalToleranceSettings.Update)))" />
             <div class="field-hint">The minimum plus-or-minus tolerance, regardless of dimension size.</div>
         </div>
         <div class="form-field">
             <label for="large-dimension-divisor">Large-dimension divisor</label>
-            <InputNumber id="large-dimension-divisor" @bind-Value="model.LargeDimensionDivisor" step="0.01" />
+            <InputNumber id="large-dimension-divisor" @bind-Value="model.LargeDimensionDivisor" step="0.01" disabled="@(!(Can(Permissions.NominalToleranceSettings.Update)))" />
             <div class="field-hint">For larger dimensions, tolerance is the nominal dimension divided by this value.</div>
         </div>
         <p class="field-hint">Formula: max(nominal ÷ large-dimension divisor, tolerance floor).</p>
         <div class="form-actions">
-            <button class="button button-primary" type="submit" disabled="@saving">@(saving ? "Saving…" : "Save settings")</button>
+            <button class="button button-primary" type="submit" disabled="@(!(Can(Permissions.NominalToleranceSettings.Update)) || (saving))">@(saving ? "Saving…" : "Save settings")</button>
             @if (message is not null)
             {
                 <div class="alert @(succeeded ? "alert-success" : "alert-error")" role="alert">@message</div>
@@ -60,7 +61,7 @@ else
             message = "Nominal tolerance settings saved.";
             succeeded = true;
         }
-        catch (NominalToleranceSettingsException exception)
+        catch (Exception exception) when (exception is NominalToleranceSettingsException or AuthorizationDeniedException)
         {
             message = exception.Message;
             succeeded = false;

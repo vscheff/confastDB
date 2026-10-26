@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Builder;
 using System.Text.RegularExpressions;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
@@ -116,15 +117,17 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
             AllowAutoRedirect = false,
             BaseAddress = new Uri("https://localhost")
         });
+        using var operation = PrintTestCapability.Operation("InspectionSheets.Export", 1, Permissions.InspectionSheets.Export);
         var token = factory.Services
             .GetRequiredService<InspectionPrintRenderTokenService>()
-            .Create(1);
+            .CreateForExport(operation, 1);
 
         var response = await client.GetAsync($"/inspections/1/print?renderToken={Uri.EscapeDataString(token)}");
         var content = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("inspection-print-page", content);
+        Assert.DoesNotContain("Open chat", content);
     }
 
     [Fact]
@@ -210,7 +213,11 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
         ApplicationUser actor;
         await using (var db = database.CreateDbContext())
         {
-            if (root) actor = await db.Users.SingleAsync(x => x.Id == rootId);
+            if (root)
+            {
+                actor = await db.Users.SingleAsync(x => x.Id == rootId);
+                await db.UserRoles.Where(x => x.UserId == rootId && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+            }
             else
             {
                 actor = new() { UserName = "actual.admin", NormalizedUserName = "ACTUAL.ADMIN", DisplayName = "Actual Admin",
@@ -219,7 +226,7 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
                 db.UserRoles.Add(new() { UserId = actor.Id, RoleId = AppRoles.AdministratorId }); await db.SaveChangesAsync();
             }
         }
-        await using var factory = CreateAuthenticatedFactory(root ? AppRoles.ReadOnly : AppRoles.Administrator, actor.Id, actor.SecurityStamp!);
+        await using var factory = CreateAuthenticatedFactory(root ? AppRoles.Root : AppRoles.Administrator, actor.Id, actor.SecurityStamp!);
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new Uri("https://localhost") });
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/admin/users")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/admin/roles")).StatusCode);
@@ -227,7 +234,7 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
         {
             await using var verify = database.CreateDbContext();
             Assert.False(await verify.UserRoles.AnyAsync(x => x.UserId == actor.Id && x.RoleId == AppRoles.AdministratorId));
-            Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/admin/nominal-tolerance")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/admin/nominal-tolerance")).StatusCode);
         }
     }
 
@@ -261,8 +268,119 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
         await using var verify = database.CreateDbContext(); Assert.NotNull((await verify.PasswordResetDelegations.SingleAsync()).ConsumedAtUtc);
     }
 
-    private WebApplicationFactory<Program> CreateAuthenticatedFactory(string role, string actorId = "test-user", string stamp = "untrusted-stamp") =>
-        CreateFactory().WithWebHostBuilder(builder =>
+    [Fact]
+    public async Task PrintCapabilityCannotAuthenticateInteractiveChatAdminOrNestedDownloads_AndOptionsAreBound()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient(new() { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        var service = factory.Services.GetRequiredService<InspectionPrintRenderTokenService>();
+        using var operation = PrintTestCapability.Operation("InspectionSheets.Export", 1, Permissions.InspectionSheets.Export);
+        var token = Uri.EscapeDataString(service.CreateForExport(operation, 1));
+        foreach (var path in new[] { "/customers", "/admin/users", "/chat/attachments/1", "/inspections/1/print/download", "/inspections/2/print" })
+        {
+            var response = await client.GetAsync($"{path}?renderToken={token}");
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/login", response.Headers.Location?.AbsolutePath);
+            Assert.Contains("no-store", response.Headers.CacheControl!.ToString());
+        }
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync($"/account/session?renderToken={token}")).StatusCode);
+        var changedOptions = await client.GetAsync($"/inspections/1/print?renderToken={token}&notesPage=second");
+        Assert.Equal(HttpStatusCode.Redirect, changedOptions.StatusCode);
+        Assert.Equal("/access-denied", changedOptions.Headers.Location?.AbsolutePath);
+        var valid = await client.GetAsync($"/inspections/1/print?renderToken={token}");
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        Assert.Equal("no-referrer", valid.Headers.GetValues("Referrer-Policy").Single());
+    }
+
+    [Fact]
+    public async Task IssuedPrintCapabilitySurvivesGrantRevocationOnlyUntilItsOriginalExpiry()
+    {
+        await database.ResetAsync(); using var session = new AuthorizationTestSession(database);
+        await session.ProvisionRootAsync();
+        ApplicationUser actor;
+        await using (var db = database.CreateDbContext())
+        {
+            actor = new() { UserName = "inflight.fixture", DisplayName = "Fixture", SecurityStamp = Guid.NewGuid().ToString() };
+            var role = new ApplicationRole { Name = "Export fixture", NormalizedName = "EXPORT FIXTURE" };
+            db.Users.Add(actor); db.Roles.Add(role);
+            db.RolePermissions.AddRange(PermissionCatalog.ExpandRequirements([Permissions.InspectionSheets.Export])
+                .Select(key => new RolePermission { RoleId = role.Id, PermissionKey = key }));
+            db.UserRoles.Add(new IdentityUserRole<string> { UserId = actor.Id, RoleId = role.Id }); await db.SaveChangesAsync();
+        }
+        await session.SignInAsync(actor.Id);
+        var clock = new CapabilityTestClock();
+        await using var factory = CreateFactory().WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<TimeProvider>(clock)));
+        using var client = factory.CreateClient(new() { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        using var operation = await session.Guard.BeginAsync("InspectionSheets.Export", new("Inspection", "1"), [Permissions.InspectionSheets.Export]);
+        var token = factory.Services.GetRequiredService<InspectionPrintRenderTokenService>().CreateForExport(operation, 1);
+        await using (var db = database.CreateDbContext()) await db.UserRoles.Where(x => x.UserId == actor.Id).ExecuteDeleteAsync();
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => session.Guard.BeginAsync("InspectionSheets.Export", new("Inspection", "1"), [Permissions.InspectionSheets.Export]));
+        var url = $"/inspections/1/print?renderToken={Uri.EscapeDataString(token)}";
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(url)).StatusCode);
+        clock.Now += TimeSpan.FromMinutes(2);
+        Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync(url)).StatusCode);
+    }
+
+    private sealed class CapabilityTestClock : TimeProvider
+    {
+        internal DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
+    public async Task DevelopmentEmailDiagnostic_IsExcludedFromProduction_RequiresCurrentPermissionAndAntiforgery()
+    {
+        await database.ResetAsync(); using var session = new AuthorizationTestSession(database);
+        await session.ProvisionRootAsync();
+        ApplicationUser actor;
+        await using (var db = database.CreateDbContext())
+        {
+            actor = new() { UserName = "diagnostic.fixture", DisplayName = "Fixture", Email = "sender@fixture.invalid", SecurityStamp = Guid.NewGuid().ToString() };
+            db.Users.Add(actor); await db.SaveChangesAsync();
+            await db.UserRoles.Where(x => x.UserId == actor.Id).ExecuteDeleteAsync();
+        }
+        await using (var production = CreateAuthenticatedFactory(AppRoles.Administrator, actor.Id, actor.SecurityStamp!))
+        {
+            using var client = production.CreateClient(new() { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/development/smtp-test")).StatusCode);
+            var endpoints = production.Services.GetServices<Microsoft.AspNetCore.Routing.EndpointDataSource>().SelectMany(x => x.Endpoints);
+            Assert.DoesNotContain(endpoints, x => x is Microsoft.AspNetCore.Routing.RouteEndpoint route && route.RoutePattern.RawText == "/development/smtp-test");
+            Assert.Null(production.Services.GetService<DevelopmentUtilities>());
+        }
+        await using var development = CreateAuthenticatedFactory(AppRoles.Administrator, actor.Id, actor.SecurityStamp!, "Development")
+            .WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton<IStartupFilter, LoopbackTestFilter>()));
+        using var devClient = development.CreateClient(new() { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        Assert.Equal(HttpStatusCode.Forbidden, (await devClient.PostAsync("/development/smtp-test", new StringContent(""))).StatusCode);
+        await using (var db = database.CreateDbContext())
+        {
+            var role = new ApplicationRole { Name = "Development diagnostic fixture", NormalizedName = "DEVELOPMENT DIAGNOSTIC FIXTURE" };
+            db.Roles.Add(role);
+            db.RolePermissions.AddRange(PermissionCatalog.ExpandRequirements([Permissions.Certifications.SendEmail])
+                .Select(key => new RolePermission { RoleId = role.Id, PermissionKey = key }));
+            db.UserRoles.Add(new IdentityUserRole<string> { UserId = actor.Id, RoleId = role.Id }); await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.BadRequest, (await devClient.PostAsync("/development/smtp-test", new StringContent(""))).StatusCode);
+        var login = await devClient.GetStringAsync("/login");
+        var antiforgery = WebUtility.HtmlDecode(Regex.Match(login, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value);
+        var response = await devClient.PostAsync("/development/smtp-test", new FormUrlEncodedContent(new Dictionary<string,string> { ["__RequestVerificationToken"] = antiforgery }));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("fixture@browser-test.invalid", body); Assert.Contains("No SMTP connection", body);
+        await using var verify = database.CreateDbContext();
+        Assert.Null((await verify.AuthorizationState.SingleAsync()).RootUserId == actor.Id ? actor.Id : null);
+    }
+
+    private sealed class LoopbackTestFilter : IStartupFilter
+    {
+        public Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> Configure(Action<Microsoft.AspNetCore.Builder.IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, proceed) => { context.Connection.RemoteIpAddress = IPAddress.Loopback; await proceed(); });
+            next(app);
+        };
+    }
+
+    private WebApplicationFactory<Program> CreateAuthenticatedFactory(string role, string actorId = "test-user", string stamp = "untrusted-stamp", string environment = "Production") =>
+        CreateFactory(environment).WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
             {
@@ -279,17 +397,19 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
             });
         });
 
-    private WebApplicationFactory<Program> CreateFactory() =>
+    private WebApplicationFactory<Program> CreateFactory(string environment = "Production") =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment("Production");
+            builder.UseEnvironment(environment);
             builder.ConfigureAppConfiguration((_, configuration) =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Confast"] = database.ConnectionString,
                     ["BootstrapAdmin:Username"] = null,
                     ["BootstrapAdmin:Email"] = null,
-                    ["BootstrapAdmin:Password"] = null
+                    ["BootstrapAdmin:Password"] = null,
+                    ["BrowserTestUser:Username"] = null,
+                    ["BrowserTestUser:Password"] = null
                 }));
             builder.ConfigureTestServices(services =>
             {
@@ -313,6 +433,146 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
                 services.AddSingleton<IDataProtectionProvider, EphemeralDataProtectionProvider>();
             });
         });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BusinessDocumentAndExportUrlsRejectLegacyClaimsWithoutEffectiveGrants(bool authenticated)
+    {
+        await database.ResetAsync();
+        using var session = new AuthorizationTestSession(database); await session.ProvisionRootAsync();
+        ApplicationUser actor;
+        await using (var db = database.CreateDbContext())
+        {
+            actor = new() { UserName = "http.no.roles", NormalizedUserName = "HTTP.NO.ROLES", DisplayName = "No Roles", SecurityStamp = Guid.NewGuid().ToString(), ConcurrencyStamp = Guid.NewGuid().ToString() };
+            db.Users.Add(actor); await db.SaveChangesAsync();
+            await db.UserRoles.Where(x => x.UserId == actor.Id).ExecuteDeleteAsync();
+        }
+        await using var factory = authenticated ? CreateAuthenticatedFactory(AppRoles.Administrator, actor.Id, actor.SecurityStamp!) : CreateFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        foreach (var path in new[] { "/parts/1/inspection-criteria/1/master-print", "/inspections/1/certifications/documents/1",
+            "/inspections/1/certifications/documents/1/preview", "/inspections/1/certifications/documents/1/download",
+            "/inspections/1/print/download", "/inspections/1/inspection-sheet/download" })
+        {
+            var response = await client.GetAsync(path);
+            Assert.Equal(authenticated ? HttpStatusCode.Forbidden : HttpStatusCode.Redirect, response.StatusCode);
+            Assert.NotEqual("application/pdf", response.Content.Headers.ContentType?.MediaType);
+            if (authenticated) Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
+        }
+        foreach (var path in new[] { "/customers", "/parts", "/gages", "/gage-types", "/inspections", "/suppliers", "/admin/certification-email-templates", "/admin/certification-email-settings", "/admin/nominal-tolerance" })
+            Assert.Equal(authenticated ? HttpStatusCode.Forbidden : HttpStatusCode.Redirect, (await client.GetAsync(path)).StatusCode);
+    }
+
+    [Fact]
+    public async Task DirectCertificationDownloadUsesCurrentHttpActor_AndRevocationStopsTheNextRequest()
+    {
+        await database.ResetAsync(); using var session = new AuthorizationTestSession(database);
+        await session.SignInAsync(await session.ProvisionRootAsync());
+        var customers = new Confast.Web.Features.Customers.CustomerService(database, session.Guard);
+        var parts = new Confast.Web.Features.Parts.PartService(database, session.Guard);
+        var criteria = new Confast.Web.Features.InspectionCriteria.InspectionCriteriaService(database, session.Guard);
+        var inspections = session.Inspections();
+        var customerId = await customers.CreateCustomerAsync(new() { Name = "HTTP Fixture" });
+        var partId = (await parts.CreatePartAsync(new() { CustomerId = customerId, PartNumber = "HTTP" })).Id!.Value;
+        var revisionId = (await criteria.CreateDraftRevisionAsync(partId, null)).RevisionId!.Value;
+        var gages = new Confast.Web.Features.Gages.GageService(database, session.Guard);
+        await gages.SaveGageTypeAsync(new() { Name = "HTTP Caliper" });
+        var gageTypeId = Assert.Single(await gages.GetGageTypesAsync()).Id;
+        await criteria.AddCriterionAsync(partId, revisionId, new() { Name = "Length", GageTypeId = gageTypeId, Minimum = "1", MaximumOrTolerance = "2" });
+        var revision = (await criteria.GetRevisionAsync(partId, revisionId))!;
+        await criteria.PublishRevisionAsync(partId, revisionId, revision.Version);
+        var inspectionId = (await inspections.CreateInspectionAsync(new() { PartId = partId, LotNumber = "HTTP", InspectionDate = new(2026,10,14) })).InspectionId!.Value;
+        ApplicationUser actor; long documentId;
+        var pdf = "%PDF-1.4\nHTTP authorization fixture\n%%EOF"u8.ToArray();
+        await using (var db = database.CreateDbContext())
+        {
+            var typeId = await db.CertificationTypes.Where(x => x.Name != "Inspection Sheet").Select(x => x.Id).FirstAsync();
+            await inspections.UploadCertificationDocumentAsync(inspectionId, typeId, "protected.pdf", pdf);
+            documentId = await db.CertificationDocuments.Select(x => x.Id).SingleAsync();
+            actor = new() { UserName = "http.documents", NormalizedUserName = "HTTP.DOCUMENTS", SecurityStamp = Guid.NewGuid().ToString(), ConcurrencyStamp = Guid.NewGuid().ToString() };
+            var role = new ApplicationRole { Name = "Document Reader", NormalizedName = "DOCUMENT READER" };
+            db.Users.Add(actor); db.Roles.Add(role); db.RolePermissions.Add(new() { RoleId = role.Id, PermissionKey = Permissions.Certifications.Read });
+            db.UserRoles.Add(new() { UserId = actor.Id, RoleId = role.Id }); await db.SaveChangesAsync();
+            await db.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
+        }
+        await using var factory = CreateAuthenticatedFactory("forged-role", actor.Id, actor.SecurityStamp!);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        var url = $"/inspections/{inspectionId}/certifications/documents/{documentId}/download";
+        var response = await client.GetAsync(url); Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(pdf, await response.Content.ReadAsByteArrayAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/inspections/{inspectionId + 1}/certifications/documents/{documentId}/download")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/inspections/{inspectionId}/print/download")).StatusCode);
+        await using (var db = database.CreateDbContext()) await db.UserRoles.Where(x => x.UserId == actor.Id).ExecuteDeleteAsync();
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(url)).StatusCode);
+    }
+
+    [Fact]
+    public async Task ChatMedia_UsesTheHttpActorAndCurrentAccess_AndNeverBypassesMembership()
+    {
+        await database.ResetAsync();
+        using var rootSession = new AuthorizationTestSession(database);
+        var rootId = await rootSession.ProvisionRootAsync();
+        ApplicationUser member, owner, third;
+        await using (var db = database.CreateDbContext())
+        {
+            ApplicationUser User(string name) => new() { UserName = name, NormalizedUserName = name.ToUpperInvariant(),
+                DisplayName = name, SecurityStamp = Guid.NewGuid().ToString(), IsActive = true };
+            owner = User("chat.http.owner"); member = User("chat.http.member"); third = User("chat.http.third");
+            member.PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(member, "Disposable-Chat-Http-9!");
+            db.Users.AddRange(owner, member, third); await db.SaveChangesAsync();
+        }
+        using var ownerSession = ChatTestAuthorization.Session(database, owner.Id);
+        using var memberSession = ChatTestAuthorization.Session(database, member.Id);
+        var chat = new Confast.Web.Features.Chat.ChatService(database, ownerSession.Guard, ownerSession.Evaluator,
+            new Microsoft.AspNetCore.Http.HttpContextAccessor(), new(Microsoft.Extensions.Logging.Abstractions.NullLogger<Confast.Web.Features.Chat.ChatNotifications>.Instance), TimeProvider.System);
+        var channelId = await chat.CreateChannelAsync("HTTP private", Confast.Web.Features.Chat.ChannelVisibility.Private, [member.Id]);
+        var png = new byte[] { 137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4 };
+        await chat.SendAsync(channelId, "Private image", attachmentFileName: "private.png", attachmentContent: png);
+        var groupId = await chat.CreateGroupAsync([member.Id, third.Id]);
+        await chat.UpdateGroupAsync(groupId, "Private icon", new(png));
+        await new UserProfilePictureService(database, ownerSession.Guard, new Microsoft.AspNetCore.Http.HttpContextAccessor(),
+            new(Microsoft.Extensions.Logging.Abstractions.NullLogger<Confast.Web.Features.Chat.ChatNotifications>.Instance)).SaveAsync(png);
+        long attachmentId;
+        await using (var db = database.CreateDbContext()) attachmentId = await db.ChatAttachments.Select(x => x.Id).SingleAsync();
+        string[] paths = [$"/chat/attachments/{attachmentId}", $"/chat/attachments/{attachmentId}/download", $"/chat/group-icons/{groupId}", $"/profile-pictures/{owner.Id}"];
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        async Task Login(HttpClient target, string username, string password)
+        {
+            var page = await target.GetStringAsync("/login");
+            var token = WebUtility.HtmlDecode(Regex.Match(page, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value);
+            var response = await target.PostAsync("/account/login", new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["Username"] = username, ["Password"] = password, ["__RequestVerificationToken"] = token, ["ReturnUrl"] = "/"
+            }));
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.DoesNotContain("/login", response.Headers.Location!.OriginalString);
+        }
+        await Login(client, member.UserName!, "Disposable-Chat-Http-9!");
+        foreach (var path in paths)
+        {
+            var response = await client.GetAsync(path);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(png, await response.Content.ReadAsByteArrayAsync());
+            Assert.True(response.Headers.CacheControl?.NoStore);
+            Assert.Contains("nosniff", response.Headers.GetValues("X-Content-Type-Options"));
+        }
+        // Designated Root has all keys and still cannot read these private resources.
+        await using var rootFactory = CreateFactory();
+        using var rootClient = rootFactory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        await Login(rootClient, "offline.test.root", "Disposable-Test-Root-9!");
+        Assert.Equal(HttpStatusCode.NotFound, (await rootClient.GetAsync(paths[0])).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await rootClient.GetAsync(paths[2])).StatusCode);
+        await using (var db = database.CreateDbContext()) await db.UserRoles.Where(x => x.UserId == member.Id).ExecuteDeleteAsync();
+        foreach (var path in paths) Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path)).StatusCode);
+        await using (var db = database.CreateDbContext())
+        {
+            var roleId = await db.Roles.Where(x => x.Name == AppRoles.Quality).Select(x => x.Id).SingleAsync();
+            db.UserRoles.Add(new() { UserId = member.Id, RoleId = roleId }); await db.SaveChangesAsync();
+            await db.ChatConversationMembers.Where(x => x.UserId == member.Id && x.ConversationId == channelId).ExecuteDeleteAsync();
+        }
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(paths[0])).StatusCode);
+    }
 
     private sealed record TestUserRole(string Role, string UserId, string SecurityStamp);
 

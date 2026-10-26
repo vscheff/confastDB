@@ -1,0 +1,52 @@
+@using Confast.Web.Features.Chat
+@inherits Confast.Web.Components.PermissionComponentBase
+@inject ChatService Chat
+
+<section class="moderation-history" role="dialog" aria-labelledby="moderation-history-title" @onkeydown="HandleKeyAsync">
+    <div class="section-heading"><h3 id="moderation-history-title">Moderation History</h3>
+        <button class="button button-secondary" type="button" @ref="closeButton" @onclick="Close">Close</button></div>
+    <p>Latest 200 Entries In This Channel. Read Only; Deleted Message Content Is Withheld.</p>
+    @if (error is not null) { <p role="alert">@error</p> }
+    <button class="button button-secondary" type="button" disabled="@busy" @onclick="LoadAsync">Refresh History</button>
+    @if (rows is not null)
+    {
+        @if (rows.Count == 0) { <p>No Moderation History.</p> }
+        else
+        {
+            <div class="history-scroll" tabindex="0" aria-label="Moderation Entries"><table class="data-table">
+                <thead><tr><th>Deleted At (UTC)</th><th>Moderator</th><th>Original Sender</th><th>Reason</th></tr></thead>
+                <tbody>@foreach (var row in rows) { <tr><td>@row.DeletedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@Name(row.ModeratorUserId)</td><td>@Name(row.OriginalSenderUserId)</td><td>@row.Reason</td></tr> }</tbody>
+            </table></div>
+        }
+    }
+</section>
+@code {
+    [Parameter] public long ConversationId { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, string> Names { get; set; } = new Dictionary<string, string>();
+    [Parameter] public EventCallback Close { get; set; }
+    [Parameter] public EventCallback AuthorizationChanged { get; set; }
+    private IReadOnlyList<ChatModerationHistory>? rows;
+    private bool busy;
+    private string? error;
+    private long loadedId;
+    private ElementReference closeButton;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    { if (firstRender) await closeButton.FocusAsync(); }
+    private Task HandleKeyAsync(KeyboardEventArgs args) => args.Key == "Escape" ? Close.InvokeAsync() : Task.CompletedTask;
+    private string Name(string id) => Names.GetValueOrDefault(id, id);
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Can(Permissions.Chat.DeleteOthersMessages)) { rows = null; return; }
+        if (loadedId != ConversationId) { rows = null; loadedId = ConversationId; await LoadAsync(); }
+    }
+    private async Task LoadAsync()
+    {
+        if (busy) return;
+        busy = true; error = null;
+        try { rows = await Chat.GetModerationHistoryAsync(ConversationId); }
+        catch (Exception ex) when (ex is AuthorizationDeniedException or UnauthorizedAccessException)
+        { rows = null; error = "Moderation History Requires Current Channel Membership And Moderation Authority."; await AuthorizationChanged.InvokeAsync(); }
+        finally { busy = false; }
+    }
+}

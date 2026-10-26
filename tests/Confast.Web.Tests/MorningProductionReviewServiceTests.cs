@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.InspectionCriteria;
@@ -21,9 +22,11 @@ public sealed class MorningProductionReviewServiceTests(PostgresTestDatabase dat
     private long partId;
     private long inspectionId;
 
+    private readonly AuthorizationTestSession session = new(database);
     public async Task InitializeAsync()
     {
         await database.ResetAsync();
+        await session.ProvisionRootAsync();
         await using var db = database.CreateDbContext();
         await db.Database.ExecuteSqlRawAsync("TRUNCATE sort_log_lines, sort_logs, production_progress, production_requirements, production_segments, production_jobs, part_machines, machine_working_days, machine_downtime, sorting_machines, production_holidays, downtime_reasons, production_audit RESTART IDENTITY CASCADE");
         await db.Database.ExecuteSqlRawAsync("DELETE FROM sort_log_downtime_causes WHERE id <> -1");
@@ -44,11 +47,12 @@ public sealed class MorningProductionReviewServiceTests(PostgresTestDatabase dat
         db.Add(new PartMachine { MachineId = machineId, PartId = partId, TargetPph = 1000, IsPreferred = true });
         await db.SaveChangesAsync();
 
-        var productionService = new ProductionService(database, user, clock);
-        service = new(database, user, clock, productionService);
+        await session.SignInAsync(user.Id);
+        var productionService = new ProductionService(database, session.Guard, clock);
+        service = new(database, session.Guard, clock, productionService);
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { session.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task DefaultsToLatestPriorProductionDateAndNavigatesOnlyDatesWithProduction()

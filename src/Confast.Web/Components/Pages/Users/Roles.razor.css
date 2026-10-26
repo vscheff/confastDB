@@ -1,0 +1,17 @@
+.roles-workspace { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.role-list { display: grid; gap: .5rem; }
+.role-list input, .role-list select { min-height: 2.5rem; }
+.role-card { display: grid; gap: .3rem; text-align: left; padding: .75rem; border: 1px solid var(--border-color, #bbb); border-radius: .35rem; background: var(--surface, #fff); color: inherit; cursor: pointer; }
+.role-card.selected { border: 2px solid var(--primary, #305a7a); }
+.role-card small { font-size: .78rem; }
+.role-editor { min-width: 0; }
+.role-metadata { display: grid; gap: .75rem; }
+.role-save-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
+.inheritance-editor { margin: 1rem 0; padding: .75rem; border: 1px solid var(--border-color, #bbb); border-radius: .35rem; }
+.inheritance-editor summary { cursor: pointer; min-height: 2rem; }
+.inheritance-editor .checkbox-field { min-height: 2.5rem; flex-wrap: wrap; }
+.confirmation-card { padding: 1rem; margin: 1rem 0; }
+.role-selection-dialog { width: min(32rem, calc(100vw - 2rem)); margin: auto; overflow-wrap: anywhere; }
+.role-selection-dialog::backdrop { background: rgb(25 45 60 / 45%); }
+.role-selection-dialog h2 { margin-top: 0; }
+@media (max-width: 900px) { .roles-workspace { grid-template-columns: 1fr; } .role-list { max-height: 26rem; overflow-y: auto; } }

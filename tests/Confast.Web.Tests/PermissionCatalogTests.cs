@@ -48,9 +48,9 @@ public sealed class PermissionCatalogTests
 
     [Theory]
     [InlineData(AppRoles.ReadOnlyId, 16, 16)]
-    [InlineData(AppRoles.QualityId, 69, 85)]
-    [InlineData(AppRoles.ProductionId, 61, 77)]
-    [InlineData(AppRoles.AdministratorId, 57, 163)]
+    [InlineData(AppRoles.QualityId, 69, 69)]
+    [InlineData(AppRoles.ProductionId, 61, 61)]
+    [InlineData(AppRoles.AdministratorId, 57, 147)]
     public void SeedCounts_AreExplicitDirectAndEffective(string roleId, int direct, int effective)
     {
         var graph = SeedGraph();

@@ -11,13 +11,18 @@ internal sealed class AdministrativeAuthority(AuthorizationEvaluation current)
     internal IEnumerable<string> Anchors => Held.Where(id => Graph.Roles[id].IsEnabled);
 
     internal bool CanAssign(string roleId, bool adding) => Graph.Roles.TryGetValue(roleId, out var role)
-        && role.Kind == SystemRoleKind.Ordinary && (!adding || role.IsEnabled)
-        && (Actor.IsRoot || Anchors.Any(a => Graph.Position(a, roleId) is RolePosition.Same or RolePosition.Lower)
+        && role.Kind != SystemRoleKind.Root && (!adding || role.IsEnabled)
+        && (Actor.IsRoot || (role.Kind == SystemRoleKind.Baseline
+                || Anchors.Any(a => Graph.Position(a, roleId) is RolePosition.Same or RolePosition.Lower))
             && Graph.StoredEnvelope(roleId).IsSubsetOf(Actor.Permissions));
 
     internal bool CanEdit(string roleId) => Graph.Roles.TryGetValue(roleId, out var role)
         && role.Kind == SystemRoleKind.Ordinary
         && (Actor.IsRoot || !Held.Contains(roleId) && Anchors.Any(a => Graph.Position(a, roleId) == RolePosition.Lower));
+
+    internal bool CanUseAsParent(string roleId) => Graph.Roles.TryGetValue(roleId, out var role)
+        && (role.Kind == SystemRoleKind.Baseline || CanEdit(roleId))
+        && (Actor.IsRoot || Graph.StoredEnvelope(roleId).IsSubsetOf(Actor.Permissions));
 
     internal void RequireTarget(string targetId, IEnumerable<string> assigned, string? rootId)
     {
@@ -36,7 +41,6 @@ internal sealed class AdministrativeAuthority(AuthorizationEvaluation current)
             "You cannot change your own administrative roles or the protected Root account's roles.");
         var old = before.ToHashSet(StringComparer.Ordinal);
         var next = after.ToHashSet(StringComparer.Ordinal);
-        Require(next.Contains(AppRoles.ReadOnlyId), "ReadOnly is permanent and cannot be removed.");
         Require(!next.Contains(AppRoles.RootId) && !old.Contains(AppRoles.RootId), "Root cannot be assigned or removed here.");
         foreach (var id in old.Except(next)) Require(CanAssign(id, false), "You cannot remove a higher or unrelated role, or its dormant grants.");
         foreach (var id in next.Except(old)) Require(CanAssign(id, true), "Select an enabled peer or lower role within your current permissions.");
@@ -57,8 +61,10 @@ internal sealed class AdministrativeAuthority(AuthorizationEvaluation current)
         Require(after.EvaluateOrdinary(current.DirectRoleIds).Keys.All(Actor.Has), "The edit would increase your own permissions.");
         // Check each anchor independently, including disabled directly held roles.
         // Restricting to old IDs permits only the fresh empty subordinate created by Roles.Create.
+        // ReadOnly supplies grants but its protected definition never becomes editable management reach.
         foreach (var id in Held)
-            Require(after.Ancestors(id).Where(Graph.Roles.ContainsKey).All(Graph.Ancestors(id).Contains),
+            Require(after.Ancestors(id).Where(parent => Graph.Roles.TryGetValue(parent, out var role)
+                && role.Kind == SystemRoleKind.Ordinary).All(Graph.Ancestors(id).Contains),
                 "The edit would expand a directly held role's management reach over existing roles.");
     }
 

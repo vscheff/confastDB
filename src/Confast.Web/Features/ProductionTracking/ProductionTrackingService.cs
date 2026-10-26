@@ -1,6 +1,6 @@
 using System.Data;
 using Confast.Web.Data;
-using Confast.Web.Features.Identity;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.ProductionScheduling;
 using Confast.Web.Time;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +10,7 @@ namespace Confast.Web.Features.ProductionTracking;
 
 public sealed class ProductionTrackingService(
     IDbContextFactory<AppDbContext> factory,
-    ICurrentUser currentUser,
+    ApplicationAuthorization authorization,
     TimeProvider clock,
     BusinessDateProvider? businessDate = null)
 {
@@ -20,8 +20,8 @@ public sealed class ProductionTrackingService(
     public async Task<ProductionTrackingDashboard> GetDashboardAsync(long? machineId = null, long? sortLogId = null,
         DateOnly? productionDate = null)
     {
+        using var operation = await authorization.BeginAsync("GetDashboardAsync", new("ProductionTracking"), [Permissions.ProductionLogs.Read]);
         await using var db = await factory.CreateDbContextAsync();
-        await RequireAccessAsync(db);
         var selectedDate = productionDate ?? Today;
         if (selectedDate > Today)
             throw new ProductionTrackingException("Production Tracking cannot open future Sort Logs.");
@@ -94,17 +94,17 @@ public sealed class ProductionTrackingService(
 
     public async Task<IReadOnlyList<SortLogDowntimeCause>> GetDowntimeCausesAsync()
     {
+        using var operation = await authorization.BeginAsync("GetDowntimeCausesAsync", new("ProductionTracking"), [Permissions.SortLogDowntimeCauses.Read]);
         await using var db = await factory.CreateDbContextAsync();
-        await RequireAdministratorAsync(db);
         return await OrderedDowntimeCauses(db).ToListAsync();
     }
 
     public async Task SaveDowntimeCauseAsync(long id, string name, bool isActive)
     {
+        using var operation = await authorization.BeginAsync("SaveDowntimeCauseAsync", new("ProductionTracking"), [id == 0 ? Permissions.SortLogDowntimeCauses.Create : Permissions.SortLogDowntimeCauses.Update]);
         var cleanName = Clean(name, 150)
             ?? throw new ProductionTrackingException("Enter a downtime cause name.");
         await using var db = await factory.CreateDbContextAsync();
-        await RequireAdministratorAsync(db);
         var normalizedName = cleanName.ToUpperInvariant();
         if (await db.Set<SortLogDowntimeCause>().AnyAsync(x => x.Id != id && x.NormalizedName == normalizedName))
             throw new ProductionTrackingException("A Sort Log downtime cause with that name already exists.");
@@ -123,8 +123,8 @@ public sealed class ProductionTrackingService(
 
     public async Task DeleteDowntimeCauseAsync(long id)
     {
+        using var operation = await authorization.BeginAsync("DeleteDowntimeCauseAsync", new("ProductionTracking"), [Permissions.SortLogDowntimeCauses.Delete]);
         await using var db = await factory.CreateDbContextAsync();
-        await RequireAdministratorAsync(db);
         var cause = await db.Set<SortLogDowntimeCause>().SingleOrDefaultAsync(x => x.Id == id)
             ?? throw new ProductionTrackingException("This downtime cause no longer exists.");
         if (await db.Set<SortLogLine>().AnyAsync(x => x.DowntimeCauseId == id))
@@ -135,9 +135,10 @@ public sealed class ProductionTrackingService(
 
     public async Task<long> OpenOrCreateSortLogAsync(long machineId, long inspectionId, long? productionSegmentId)
     {
+        using var operation = await authorization.BeginAsync("OpenOrCreateSortLogAsync", new("ProductionTracking"), [Permissions.ProductionLogs.Create]);
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-        var userId = await RequireAccessAsync(db);
+        var userId = operation.ActorUserId;
         var inspection = await db.Inspections.AsNoTracking().SingleOrDefaultAsync(x => x.Id == inspectionId)
             ?? throw new ProductionTrackingException("Select an existing lot.");
         var rate = await db.Set<PartMachine>().AsNoTracking()
@@ -198,8 +199,8 @@ public sealed class ProductionTrackingService(
 
     public async Task SaveCommentsAsync(long sortLogId, string? comments)
     {
+        using var operation = await authorization.BeginAsync("SaveCommentsAsync", new("ProductionTracking"), [Permissions.ProductionLogs.Update]);
         await using var db = await factory.CreateDbContextAsync();
-        await RequireAccessAsync(db);
         var log = await db.Set<SortLog>().SingleOrDefaultAsync(x => x.Id == sortLogId)
             ?? throw new ProductionTrackingException("This Sort Log no longer exists.");
         log.Comments = Clean(comments, 4000);
@@ -208,11 +209,11 @@ public sealed class ProductionTrackingService(
 
     public async Task<long> StartRunAsync(long sortLogId, StartSortLogLineInput input)
     {
+        using var operation = await authorization.BeginAsync("StartRunAsync", new("ProductionTracking"), [Permissions.ProductionLogs.StartRun]);
         ValidateSamples(input.BoundarySamplesRanQuantity, input.BoundarySamplesPassedQuantity);
         ValidateOptionalNonnegative(input.StartBoxCount, "Start Box Count");
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        await RequireAccessAsync(db);
         var log = await LoadLockedLogAsync(db, sortLogId);
         if (log.ProductionDate != Today)
             throw new ProductionTrackingException("Runs can only be started on today's Sort Logs.");
@@ -253,9 +254,9 @@ public sealed class ProductionTrackingService(
 
     public async Task<long> StopRunAsync(long sortLogId)
     {
+        using var operation = await authorization.BeginAsync("StopRunAsync", new("ProductionTracking"), [Permissions.ProductionLogs.StopRun]);
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        await RequireAccessAsync(db);
         var log = await LoadLockedLogAsync(db, sortLogId);
         var line = log.Lines.SingleOrDefault(x => x.StopTimeUtc == null)
             ?? throw new ProductionTrackingException("This Sort Log has no running interval.");
@@ -270,9 +271,9 @@ public sealed class ProductionTrackingService(
 
     public async Task ResumeRunAsync(long sortLogId)
     {
+        using var operation = await authorization.BeginAsync("ResumeRunAsync", new("ProductionTracking"), [Permissions.ProductionLogs.ResumeRun]);
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        await RequireAccessAsync(db);
         var log = await LoadLockedLogAsync(db, sortLogId);
         if (log.Lines.Any(x => x.StopTimeUtc is null))
             throw new ProductionTrackingException("This Sort Log already has a running interval.");
@@ -286,13 +287,33 @@ public sealed class ProductionTrackingService(
 
     public async Task UpdateLineAsync(long lineId, UpdateSortLogLineInput input)
     {
+        using var operation = await authorization.BeginAsync("ProductionLogs.CorrectLine", new("SortLogLine", lineId.ToString()), [Permissions.ProductionLogs.CorrectLine]);
+        await SaveLineAsync(lineId, input, operation, initialStopDetails: false);
+    }
+
+    public async Task SaveStopDetailsAsync(long lineId, UpdateSortLogLineInput input)
+    {
+        using var operation = await authorization.BeginAsync("ProductionLogs.StopDetails", new("SortLogLine", lineId.ToString()), [Permissions.ProductionLogs.StopRun]);
+        await SaveLineAsync(lineId, input, operation, initialStopDetails: true);
+    }
+
+    private async Task SaveLineAsync(long lineId, UpdateSortLogLineInput input, AuthorizedOperation operation, bool initialStopDetails)
+    {
+        operation.Require(initialStopDetails ? "ProductionLogs.StopDetails" : "ProductionLogs.CorrectLine",
+            new("SortLogLine", lineId.ToString()), initialStopDetails ? Permissions.ProductionLogs.StopRun : Permissions.ProductionLogs.CorrectLine);
         ValidateLine(input);
         await using var db = await factory.CreateDbContextAsync();
         await using var transaction = await db.Database.BeginTransactionAsync();
-        await RequireAccessAsync(db);
         var line = await db.Set<SortLogLine>().FromSqlInterpolated(
             $"SELECT *, xmin FROM sort_log_lines WHERE id = {lineId} FOR UPDATE").SingleOrDefaultAsync()
             ?? throw new ProductionTrackingException("This run interval no longer exists.");
+        if (initialStopDetails && (line.StopTimeUtc is null || line.DowntimeCauseId is not null))
+            throw new ProductionTrackingException("This run is not awaiting stop details. Use line correction to change recorded details.");
+        if (initialStopDetails && (line.StartTimeUtc != input.StartTimeUtc
+            || line.BoundarySamplesRanQuantity != input.BoundarySamplesRanQuantity
+            || line.BoundarySamplesPassedQuantity != input.BoundarySamplesPassedQuantity
+            || line.StartBoxCount != input.StartBoxCount))
+            throw new ProductionTrackingException("Start details are already recorded. Use line correction to change them.");
         var reason = await db.Set<SortLogDowntimeCause>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.DowntimeCauseId);
         if (reason is null || !reason.IsActive && line.DowntimeCauseId != reason.Id)
             throw new ProductionTrackingException("Select an active downtime cause.");
@@ -321,34 +342,6 @@ public sealed class ProductionTrackingService(
         line.Notes = Clean(input.Notes, 4000);
         await SaveAsync(db);
         await transaction.CommitAsync();
-    }
-
-    private async Task<string> RequireAccessAsync(AppDbContext db)
-    {
-        var userId = await currentUser.GetUserIdAsync();
-        if (userId is null || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive))
-            throw new UnauthorizedAccessException("Sign in with an active account to use Production Tracking.");
-        var allowed = await (from userRole in db.UserRoles
-            join role in db.Roles on userRole.RoleId equals role.Id
-            where userRole.UserId == userId
-            select role.Name).AnyAsync(x => x == AppRoles.Production || x == AppRoles.Administrator);
-        if (!allowed)
-            throw new UnauthorizedAccessException("Production or Administrator access is required to use Production Tracking.");
-        return userId;
-    }
-
-    private async Task<string> RequireAdministratorAsync(AppDbContext db)
-    {
-        var userId = await currentUser.GetUserIdAsync();
-        if (userId is null || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive))
-            throw new UnauthorizedAccessException("Sign in with an active account to configure Production Tracking.");
-        var administrator = await (from userRole in db.UserRoles
-            join role in db.Roles on userRole.RoleId equals role.Id
-            where userRole.UserId == userId
-            select role.Name).AnyAsync(x => x == AppRoles.Administrator);
-        if (!administrator)
-            throw new UnauthorizedAccessException("Administrator access is required for Production Tracking settings.");
-        return userId;
     }
 
     private static IQueryable<SortLogDowntimeCause> OrderedDowntimeCauses(AppDbContext db) =>

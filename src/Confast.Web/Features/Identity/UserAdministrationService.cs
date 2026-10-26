@@ -42,7 +42,7 @@ public sealed class CreateUserInput
     public string Email { get; set; } = string.Empty;
 
     public AuthorizationVersion Version { get; set; }
-    public HashSet<string> Roles { get; set; } = [];
+    public HashSet<string> Roles { get; set; } = [AppRoles.ReadOnly];
 }
 
 public sealed class EditUserInput
@@ -86,8 +86,9 @@ public sealed record UserAdministrationResult(
         new(false, null, errors);
 }
 
-public sealed class UserAdministrationService(UserManager<ApplicationUser> userManager, AppDbContext db,
-    IDbContextFactory<AppDbContext> factory, TimeProvider clock, EffectivePermissionService permissions)
+public sealed partial class UserAdministrationService(UserManager<ApplicationUser> userManager, AppDbContext db,
+    IDbContextFactory<AppDbContext> factory, TimeProvider clock, EffectivePermissionService permissions,
+    AuthorizationChangeNotifications? notifications = null)
 {
     public async Task<UserAdministrationState> GetAdministrationStateAsync(CancellationToken ct = default)
     {
@@ -162,7 +163,7 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
         var authority = new AdministrativeAuthority(current);
         var errors = ValidateInput(input);
         if (errors.Length > 0) return UserAdministrationResult.Failure(errors);
-        var requested = await ResolveRoles(input.Roles.Append(AppRoles.ReadOnly));
+        var requested = await ResolveRoles(input.Roles);
         if (requested.Any(id => id != AppRoles.ReadOnlyId))
         {
             op.Require(op.Purpose, op.Scope, Permissions.Users.ManageRoles);
@@ -175,7 +176,13 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
             DisplayName = input.DisplayName.Trim(), JobTitle = NullIfBlank(input.JobTitle), CaliperId = caliper, IsActive = true };
         var create = await userManager.CreateAsync(user);
         if (!create.Succeeded) return FromIdentity(create);
-        // The baseline trigger enrolled ReadOnly. Use this same Identity store/transaction for extras.
+        // New accounts default to ReadOnly at the database boundary. An explicit initial
+        // selection may replace that default within this same Identity transaction.
+        if (!requested.Contains(AppRoles.ReadOnlyId))
+        {
+            var removed = await userManager.RemoveFromRoleAsync(user, AppRoles.ReadOnly);
+            if (!removed.Succeeded) return FromIdentity(removed);
+        }
         var extras = await db.Roles.Where(x => requested.Contains(x.Id) && x.Id != AppRoles.ReadOnlyId).Select(x => x.Name!).ToListAsync();
         if (extras.Count > 0)
         { var added = await userManager.AddToRolesAsync(user, extras); if (!added.Succeeded) return FromIdentity(added); }
@@ -185,6 +192,7 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
         details.Add(new() { Kind = AuthorizationChangeKind.Account, UserId = user.Id, WasPresent = false, IsPresent = true, ResultingName = user.UserName });
         await AuthorizationAudit.RecordAsync(db, op, input.Version.Epoch, "Create ordinary account", details, clock, CancellationToken.None);
         await tx.CommitAsync();
+        notifications?.Publish();
         return UserAdministrationResult.Success(user.Id);
     }
 
@@ -243,12 +251,17 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
             var added = await userManager.AddToRolesAsync(user, requested.Except(assigned).Select(id => names[id]));
             if (!added.Succeeded) return FromIdentity(added);
         }
-        // Administrative edits invalidate old sessions/delegations, including metadata-only edits.
-        var stamp = await userManager.UpdateSecurityStampAsync(user);
-        if (!stamp.Succeeded) return FromIdentity(stamp);
+        // Assignment-only changes use the epoch for immediate revocation without ending the user's session.
+        // Account/security edits retain the existing session/delegation invalidation policy.
+        if (metadataChanged)
+        {
+            var stamp = await userManager.UpdateSecurityStampAsync(user);
+            if (!stamp.Succeeded) return FromIdentity(stamp);
+        }
         if (user.IsActive) await ChatService.EnsurePublicChannelMembershipsAsync(db, user.Id, clock.GetUtcNow().UtcDateTime);
         await AuthorizationAudit.RecordAsync(db, op, input.Version.Epoch, "Edit ordinary account", details, clock, CancellationToken.None);
         await tx.CommitAsync();
+        notifications?.Publish();
         return UserAdministrationResult.Success(user.Id);
     }
 
@@ -309,6 +322,7 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
         await AuthorizationAudit.RecordAsync(db, op, state.GlobalEpoch, "Redeem delegated password reset", [new() {
             Kind = AuthorizationChangeKind.PasswordDelegation, UserId = userId, FieldName = "ResetConsumed", IsPresent = false }], clock, CancellationToken.None);
         await tx.CommitAsync();
+        notifications?.Publish();
         return UserAdministrationResult.Success(userId);
     }
 
@@ -328,6 +342,7 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
             await AuthorizationAudit.RecordAsync(db, op, version.Epoch, "Delete ordinary account", [new() {
                 Kind = AuthorizationChangeKind.Account, UserId = userId, WasPresent = true, IsPresent = false, PreviousName = user.UserName }], clock, CancellationToken.None);
             await tx.CommitAsync();
+            notifications?.Publish();
             return UserAdministrationResult.Success(userId);
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
@@ -359,9 +374,11 @@ public sealed class UserAdministrationService(UserManager<ApplicationUser> userM
         var old = assigned.ToHashSet(); var authority = new AdministrativeAuthority(current);
         var protectedTarget = targetId == current.Snapshot.ActorUserId || old.Contains(AppRoles.RootId);
         return values.Select(x => {
-            var can = !protectedTarget && current.Snapshot.Has(Permissions.Users.ManageRoles) && authority.CanAssign(x.Id, !old.Contains(x.Id));
-            var reason = x.SystemKind != SystemRoleKind.Ordinary ? "Protected membership" : !x.IsEnabled && !old.Contains(x.Id)
-                ? "Disabled; cannot add" : !can ? "Outside assignment authority" : null;
+            var can = !protectedTarget && (targetId is null && x.Id == AppRoles.ReadOnlyId && current.Snapshot.Has(Permissions.Users.Create)
+                || current.Snapshot.Has(Permissions.Users.ManageRoles) && authority.CanAssign(x.Id, !old.Contains(x.Id)));
+            var reason = x.SystemKind == SystemRoleKind.Root ? "Protected membership" : !x.IsEnabled && !old.Contains(x.Id)
+                ? "Disabled; cannot add" : !can ? "Outside assignment authority"
+                : x.SystemKind == SystemRoleKind.Baseline ? "Default for new users" : null;
             return new UserRoleChoice(x.Id, x.Name ?? "", x.IsEnabled, can, reason);
         }).ToArray();
     }

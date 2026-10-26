@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Inspections.Create")]
 @page "/inspections/create"
 @using Confast.Web.Features.Inspections
 @using Confast.Web.Features.Identity
@@ -188,7 +190,7 @@ else
                 inspection.PartId = PreselectedPartId.Value;
             }
         }
-        catch (AuthorizationDeniedException exception) { loadError = exception.Message; }
+        catch (AuthorizationDeniedException exception) { loadError = exception.Message; await RefreshPermissionsAsync(); }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to load Parts for inspection creation");
@@ -250,7 +252,7 @@ else
             };
             duplicateLotInspectionId = result.RelatedInspectionId;
         }
-        catch (AuthorizationDeniedException exception) { saveMessage = exception.Message; }
+        catch (AuthorizationDeniedException exception) { saveMessage = exception.Message; await RefreshPermissionsAsync(); }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to create inspection");

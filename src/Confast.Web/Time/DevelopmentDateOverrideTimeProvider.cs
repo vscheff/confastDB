@@ -22,10 +22,10 @@ public sealed class DevelopmentDateOverrideTimeProvider
         }
     }
 
-    public void SetDate(DateOnly date) =>
+    internal void SetDate(DateOnly date) =>
         Volatile.Write(ref overriddenDayNumber, date.DayNumber);
 
-    public void UseSystemDate() =>
+    internal void UseSystemDate() =>
         Volatile.Write(ref overriddenDayNumber, NoDateOverride);
 
 }

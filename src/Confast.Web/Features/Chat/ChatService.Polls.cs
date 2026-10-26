@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,7 +34,10 @@ public sealed partial class ChatService
         if (start > DateTime.MaxValue.AddHours(-durationHours))
             throw new InvalidOperationException("Choose an earlier start date and time.");
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(CreatePollAsync), new("Chat"), [Permissions.Chat.CreatePolls], cancellationToken);
+        if (startsAtUtc is not null && startsAtUtc > now)
+            operation.Require(operation.Purpose, operation.Scope, Permissions.Chat.ScheduleMessages);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         if (!await db.ChatConversationMembers.AnyAsync(x => x.ConversationId == conversationId && x.UserId == userId, cancellationToken))
             throw new UnauthorizedAccessException("Join this conversation before creating a poll.");
@@ -65,7 +69,8 @@ public sealed partial class ChatService
     public async Task TogglePollVoteAsync(long messageId, long answerId, CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(TogglePollVoteAsync), new("Chat"), [Permissions.Chat.VotePolls], cancellationToken);
+        var userId = await PrepareChatAsync(db, operation, cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Serialize votes on the message, including concurrent requests from the same user.
         var message = (await db.ChatMessages.FromSqlInterpolated(

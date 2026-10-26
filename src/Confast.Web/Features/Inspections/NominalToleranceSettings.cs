@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using System.ComponentModel.DataAnnotations;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
@@ -28,10 +29,11 @@ public sealed class NominalToleranceSettingsEditModel
     public uint? Version { get; set; }
 }
 
-public sealed class NominalToleranceSettingsService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class NominalToleranceSettingsService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
     public async Task<NominalToleranceSettingsEditModel> GetAsync(CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("NominalToleranceSettings.Read", new("NominalToleranceSettings"), [Permissions.NominalToleranceSettings.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var settings = await db.NominalToleranceSettings.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == 1, cancellationToken);
@@ -47,6 +49,7 @@ public sealed class NominalToleranceSettingsService(IDbContextFactory<AppDbConte
 
     public async Task SaveAsync(NominalToleranceSettingsEditModel model, CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("NominalToleranceSettings.Update", new("NominalToleranceSettings"), [Permissions.NominalToleranceSettings.Update], cancellationToken);
         if (model.ToleranceFloor <= 0) throw new NominalToleranceSettingsException("Tolerance floor must be greater than zero.");
         if (model.LargeDimensionDivisor <= 0) throw new NominalToleranceSettingsException("Large-dimension divisor must be greater than zero.");
 

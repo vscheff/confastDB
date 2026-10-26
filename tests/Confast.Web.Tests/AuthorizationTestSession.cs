@@ -19,6 +19,9 @@ internal sealed class AuthorizationTestSession(PostgresTestDatabase database) : 
     internal EffectivePermissionService Evaluator => new(database, this, Options.Create(new IdentityOptions()), cache,
         NullLogger<EffectivePermissionService>.Instance);
     internal ApplicationAuthorization Guard => new(Evaluator, new HttpContextAccessor());
+    internal Confast.Web.Features.Inspections.InspectionService Inspections(EffectivePermissionService? evaluator = null) =>
+        new(database, evaluator ?? Evaluator, Guard, new HttpContextAccessor(),
+            new Confast.Web.Features.Inspections.InspectionPrintRenderTokenService(new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider()));
     public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(new AuthenticationState(Principal));
 
     internal async Task<string> ProvisionRootAsync()

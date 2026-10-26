@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:InspectionCriteria.Update")]
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/new"
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}/criteria/{CriterionId:long}/edit"
 @using Confast.Web.Features.InspectionCriteria
@@ -117,7 +119,7 @@ else
                     ?? throw new InvalidOperationException("The criterion was not found.");
             }
 
-            methodChoices = await GageService.GetGageTypeChoicesAsync(
+            methodChoices = await GageService.GetCriteriaMethodChoicesAsync(
                 activeOnly: true,
                 includeGageTypeId: model.GageTypeId);
             unitChoices = await CriteriaService.GetUnitChoicesAsync();
@@ -128,8 +130,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load criterion {CriterionId}", CriterionId);
-            loadError = "The criterion could not be loaded.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be loaded.";
         }
         finally
         {
@@ -165,8 +168,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save criterion {CriterionId}", CriterionId);
-            message = "The criterion could not be saved. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be saved. Please try again.";
         }
         finally
         {

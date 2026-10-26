@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:InspectionCriteria.Read")]
 @page "/parts/{PartId:long}/inspection-criteria/{RevisionId:long}"
 @using Confast.Web.Features.InspectionCriteria
 @using Confast.Web.Features.Gages
@@ -38,15 +40,15 @@ else
             </p>
         </div>
         <div class="heading-actions">
-            @if (revision.IsDraft)
+            @if (revision.IsDraft && Can(Permissions.InspectionCriteria.Publish))
             {
                 <button class="button button-secondary" type="button" @onclick="PublishAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Publish Revision</button>
             }
-            @if (revision.CanEdit && !confirmRevisionDelete)
+            @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Delete)) && !confirmRevisionDelete)
             {
                 <button class="button button-danger" type="button" @onclick="BeginRevisionDelete" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Delete Revision</button>
             }
-            else if (revision.CanEdit)
+            else if (revision.CanEdit && Can(Permissions.InspectionCriteria.Delete))
             {
                 <button class="button button-danger" type="button" @onclick="DeleteRevisionAsync" disabled="@isWorking">Confirm delete</button>
                 <button class="button button-secondary" type="button" @onclick="CancelRevisionDelete" disabled="@isWorking">Cancel</button>
@@ -137,7 +139,7 @@ else
     <section class="criteria-section">
         <div class="section-heading secondary-process-heading">
             <h2>Requirements</h2>
-            @if (revision.CanEdit)
+            @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
             {
                 <div class="heading-actions">
                     <button class="button button-secondary" type="button" @onclick="AlignAllCriterionDecimalPlacesAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Match Cecimal Places</button>
@@ -166,7 +168,7 @@ else
                         <th>Unit</th>
                         <th>Available after</th>
                         <th>Notes</th>
-                        @if (revision.CanEdit)
+                        @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                         {
                             <th><span class="visually-hidden">Actions</span></th>
                         }
@@ -239,7 +241,7 @@ else
                             else
                             {
                                 <td data-label="#">
-                                    @if (revision.CanEdit)
+                                    @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                                     {
                                         <button class="criterion-drag-handle" type="button" title="Drag to reorder" aria-label="Drag @criterion.Name to reorder">⠿</button>
                                     }
@@ -252,7 +254,7 @@ else
                                 <td data-label="Unit">@(criterion.Unit ?? "—")</td>
                                 <td data-label="Available after">@(criterion.RequiredSecondaryProcessName ?? "Immediately")</td>
                                 <td data-label="Notes">@(criterion.Notes ?? "—")</td>
-                                @if (revision.CanEdit)
+                                @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                                 {
                                     <td class="table-action" data-label="Actions">
                                         @if (pendingDeleteId == criterion.Id)
@@ -346,7 +348,7 @@ else
     <section class="secondary-process-section">
         <div class="section-heading secondary-process-heading">
             <h2>Secondary Processes</h2>
-            @if (revision.CanEdit)
+            @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
             {
                 <button class="button button-secondary" type="button" @onclick="BeginAddSecondaryProcess" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Add Secondary Process</button>
             }
@@ -364,7 +366,7 @@ else
                         <tr>
                             <th>Process</th>
                             <th>Specification</th>
-                            @if (revision.CanEdit)
+                            @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                             {
                                 <th><span class="visually-hidden">Actions</span></th>
                             }
@@ -398,7 +400,7 @@ else
                                 {
                                     <td data-label="Process">@requirement.ProcessName</td>
                                     <td data-label="Specification">@(requirement.Specification ?? "—")</td>
-                                    @if (revision.CanEdit)
+                                    @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                                     {
                                         <td class="table-action" data-label="Actions">
                                             @if (pendingSecondaryProcessDeleteId == requirement.Id)
@@ -452,12 +454,12 @@ else
     <section class="revision-notes-section">
         <div class="section-heading revision-notes-heading">
             <h2>Notes</h2>
-            @if (revision.CanEdit)
+            @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
             {
                 <button class="button button-primary" type="button" @onclick="SaveRevisionHeaderAsync" disabled="@(isWorking || editingModel is not null || secondaryProcessEditingModel is not null)">Save Notes</button>
             }
         </div>
-        <textarea class="revision-notes-input" aria-label="Revision notes" rows="5" readonly="@(!revision.CanEdit)" @bind="revisionHeaderModel.Notes" @bind:event="oninput"></textarea>
+        <textarea class="revision-notes-input" aria-label="Revision notes" rows="5" readonly="@(!(revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))" @bind="revisionHeaderModel.Notes" @bind:event="oninput"></textarea>
     </section>
     </div>
     }
@@ -467,7 +469,7 @@ else
             <div class="master-print-toolbar">
                 <div>
                     <h2>Master Print</h2>
-                    @if (revision.HasMasterPrint)
+                    @if (revision.HasMasterPrint && Can(Permissions.MasterPrints.Read))
                     {
                         <p>
                             <strong>@revision.MasterPrintFileName</strong>
@@ -482,11 +484,11 @@ else
                         <p>No master print has been uploaded for this revision.</p>
                     }
                 </div>
-                @if (revision.HasMasterPrint)
+                @if (revision.HasMasterPrint && Can(Permissions.MasterPrints.Read))
                 {
                     <div class="heading-actions">
                         <a class="button button-secondary" href="@MasterPrintViewerUrl" target="_blank" rel="noopener">Open In New Tab</a>
-                        @if (revision.CanEdit)
+                        @if ((revision.CanEdit && Can(Permissions.MasterPrints.Delete)))
                         {
                             @if (confirmMasterPrintDelete)
                             {
@@ -502,7 +504,7 @@ else
                 }
             </div>
 
-            @if (revision.CanEdit)
+            @if ((revision.CanEdit && Can(Permissions.MasterPrints.Update)))
             {
                 <label class="master-print-drop-zone" for="master-print-file-input">
                     <span class="master-print-drop-title">@(revision.HasMasterPrint ? "Drop a replacement PDF here" : "Drop the master print PDF here")</span>
@@ -515,7 +517,7 @@ else
                            disabled="@isWorking" />
             }
 
-            @if (revision.HasMasterPrint)
+            @if (revision.HasMasterPrint && Can(Permissions.MasterPrints.Read))
             {
                 <iframe class="master-print-viewer" src="@MasterPrintViewerUrl" title="Master print PDF"></iframe>
             }
@@ -528,7 +530,7 @@ else
                 <div>
                     <h2>Certification Requirements</h2>
                 </div>
-                @if (revision.CanEdit)
+                @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                 {
                     <button class="button button-primary" type="button" @onclick="SaveCertificationRequirementsAsync" disabled="@isWorking">Save Requirements</button>
                 }
@@ -548,7 +550,7 @@ else
                             <tr>
                                 <td data-label="Certification type">@requirement.CertificationTypeName</td>
                                 <td data-label="Requirement">
-                                    @if (revision.CanEdit)
+                                    @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                                     {
                                         <select class="table-input" aria-label="Requirement for @requirement.CertificationTypeName" @bind="requirement.RequirementLevel">
                                             <option value="">Not Applicable</option>
@@ -562,7 +564,7 @@ else
                                     }
                                 </td>
                                 <td data-label="Notes">
-                                    @if (revision.CanEdit)
+                                    @if ((revision.CanEdit && Can(Permissions.InspectionCriteria.Update)))
                                     {
                                         <input class="table-input" aria-label="Notes for @requirement.CertificationTypeName" @bind="requirement.Notes" @bind:event="oninput" disabled="@(requirement.RequirementLevel is null)" />
                                     }
@@ -659,8 +661,8 @@ else
         try
         {
             var revisionTask = CriteriaService.GetRevisionAsync(PartId, RevisionId);
-            var partTask = PartService.GetPartAsync(PartId);
-            var customerOptionsTask = PartService.GetCustomerOptionsAsync();
+            var partTask = Can(Permissions.Parts.Read) ? PartService.GetPartAsync(PartId) : Task.FromResult<PartEditModel?>(null);
+            var customerOptionsTask = Can(Permissions.Parts.Read) ? PartService.GetCustomerOptionsAsync() : Task.FromResult<IReadOnlyList<CustomerOption>>([]);
 
             await Task.WhenAll(revisionTask, partTask, customerOptionsTask);
             revision = await revisionTask;
@@ -709,8 +711,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load criteria revision {RevisionId}", RevisionId);
-            loadError = "The revision could not be loaded.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The revision could not be loaded.";
         }
         finally
         {
@@ -752,12 +755,18 @@ else
             Version = criterion.Version
         };
         CaptureCommittedRange();
-        await LoadMethodChoicesAsync(criterion.GageTypeId);
+        try { await LoadMethodChoicesAsync(criterion.GageTypeId); }
+        catch (AuthorizationDeniedException exception)
+        {
+            editingModel = null;
+            message = exception.Message; messageClass = "alert-error";
+            await RefreshPermissionsAsync();
+        }
     }
 
     private async Task LoadMethodChoicesAsync(long? includeGageTypeId = null)
     {
-        methodChoices = await GageService.GetGageTypeChoicesAsync(
+        methodChoices = await GageService.GetCriteriaMethodChoicesAsync(
             activeOnly: true,
             includeGageTypeId: includeGageTypeId);
     }
@@ -874,8 +883,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to match criterion decimal places for revision {RevisionId}", RevisionId);
-            message = "The requirement decimal places could not be matched. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The requirement decimal places could not be matched. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -918,8 +928,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save criterion {CriterionId}", editingModel.Id);
-            message = "The criterion could not be saved. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be saved. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -958,8 +969,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save revision details {RevisionId}", RevisionId);
-            message = "The revision details could not be saved. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The revision details could not be saved. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -991,8 +1003,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save certification requirements for revision {RevisionId}", RevisionId);
-            message = "The certification requirements could not be saved. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The certification requirements could not be saved. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -1042,8 +1055,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to upload master print for revision {RevisionId}", RevisionId);
-            message = "The master print could not be uploaded. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The master print could not be uploaded. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -1080,8 +1094,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to remove master print from revision {RevisionId}", RevisionId);
-            message = "The master print could not be removed. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The master print could not be removed. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -1114,8 +1129,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to publish criteria revision {RevisionId}", RevisionId);
-            message = "The revision could not be published. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The revision could not be published. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -1160,9 +1176,10 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to delete criteria revision {RevisionId}", RevisionId);
             confirmRevisionDelete = false;
-            message = "The revision could not be deleted. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The revision could not be deleted. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -1190,8 +1207,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to reorder criterion {CriterionId}", criterionId);
-            message = "The criterion could not be reordered.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be reordered.";
             messageClass = "alert-error";
         }
         finally
@@ -1202,7 +1220,7 @@ else
 
     private Task InitializeCriteriaReorderingAsync()
     {
-        if (revision?.CanEdit != true || revision.Criteria.Count == 0 || activeTab != RevisionTab.Criteria || editingModel is not null || secondaryProcessEditingModel is not null || pendingDeleteId is not null || criteriaReorderReference is null)
+        if ((revision?.CanEdit != true || !Can(Permissions.InspectionCriteria.Update)) || revision.Criteria.Count == 0 || activeTab != RevisionTab.Criteria || editingModel is not null || secondaryProcessEditingModel is not null || pendingDeleteId is not null || criteriaReorderReference is null)
         {
             return Task.CompletedTask;
         }
@@ -1213,7 +1231,7 @@ else
     [JSInvokable]
     public async Task DropCriterionAsync(long criterionId, long targetCriterionId)
     {
-        if (criterionId == targetCriterionId || revision?.CanEdit != true || isWorking || editingModel is not null || secondaryProcessEditingModel is not null || pendingDeleteId is not null)
+        if (criterionId == targetCriterionId || (revision?.CanEdit != true || !Can(Permissions.InspectionCriteria.Update)) || isWorking || editingModel is not null || secondaryProcessEditingModel is not null || pendingDeleteId is not null)
         {
             return;
         }
@@ -1235,8 +1253,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to drag criterion {CriterionId} before {TargetCriterionId}", criterionId, targetCriterionId);
-            message = "The criterion could not be reordered.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be reordered.";
             messageClass = "alert-error";
         }
         finally
@@ -1283,8 +1302,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to remove criterion {CriterionId}", criterion.Id);
-            message = "The criterion could not be removed.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The criterion could not be removed.";
             messageClass = "alert-error";
         }
         finally
@@ -1361,11 +1381,12 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(
                 exception,
                 "Failed to save secondary process requirement {RequirementId}",
                 secondaryProcessEditingModel.Id);
-            message = "The secondary process could not be saved. Please try again.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The secondary process could not be saved. Please try again.";
             messageClass = "alert-error";
         }
         finally
@@ -1405,11 +1426,12 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(
                 exception,
                 "Failed to remove secondary process requirement {RequirementId}",
                 requirement.Id);
-            message = "The secondary process could not be removed.";
+            message = exception is AuthorizationDeniedException ? exception.Message : "The secondary process could not be removed.";
             messageClass = "alert-error";
         }
         finally

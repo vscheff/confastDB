@@ -1,14 +1,37 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Confast.Web.Features.Gages;
 
-public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
+    public async Task<IReadOnlyList<GageTypeChoice>> GetCriteriaMethodChoicesAsync(bool activeOnly = false,
+        long? includeGageTypeId = null, CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.MethodChoices", new("CriteriaMethods"),
+            [Permissions.InspectionCriteria.Read], cancellationToken);
+        return await GetMethodChoicesCoreAsync(activeOnly, includeGageTypeId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<GageTypeChoice>> GetGageMethodChoicesAsync(CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync("Gages.MethodChoices", new("GageMethods"),
+            [Permissions.Gages.Read], cancellationToken);
+        return await GetMethodChoicesCoreAsync(false, null, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<GageTypeChoice>> GetMethodChoicesCoreAsync(bool activeOnly, long? includeGageTypeId, CancellationToken cancellationToken)
+    {
+        await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await db.GageTypes.AsNoTracking().Where(x => !activeOnly || x.IsActive || x.Id == includeGageTypeId)
+            .OrderBy(x => x.Name).Select(x => new GageTypeChoice(x.Id, x.Name, x.IsActive)).ToListAsync(cancellationToken);
+    }
     public async Task<IReadOnlyList<GageTypeListItem>> GetGageTypesAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("GageTypes.Read", new("GageTypes"), [Permissions.GageTypes.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.GageTypes
             .AsNoTracking()
@@ -22,6 +45,7 @@ public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory)
         long? includeGageTypeId = null,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("GageTypes.Read", new("GageTypes"), [Permissions.GageTypes.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.GageTypes
             .AsNoTracking()
@@ -34,6 +58,7 @@ public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory)
     public async Task<IReadOnlyList<GageListItem>> GetGagesAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Gages.Read", new("Gages"), [Permissions.Gages.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.Gages
             .AsNoTracking()
@@ -52,6 +77,8 @@ public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory)
         GageTypeEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("GageTypes.Save", new("GageTypes", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.GageTypes.Create : Permissions.GageTypes.Update], cancellationToken);
         var name = model.Name.Trim();
         if (name.Length == 0)
         {
@@ -87,6 +114,8 @@ public sealed class GageService(IDbContextFactory<AppDbContext> contextFactory)
         GageEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("Gages.Save", new("Gages", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.Gages.Create : Permissions.Gages.Update], cancellationToken);
         var gageNumber = model.GageNumber.Trim();
         if (gageNumber.Length == 0)
         {

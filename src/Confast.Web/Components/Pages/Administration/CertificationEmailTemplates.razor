@@ -1,5 +1,6 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:CertificationEmailTemplates.Read")]
 @page "/admin/certification-email-templates"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = AppRoles.Administrator)]
 @using Confast.Web.Features.Inspections
 @inject ICertificationEmailTemplateService TemplateService
 @inject CertificationEmailTemplateRenderer Renderer
@@ -21,21 +22,23 @@
     }
     else
     {
+@if (Can(Permissions.CertificationEmailSettings.Read)) {
         <section class="email-template-settings">
             <h2>Implicit CC</h2>
             <p>Optional application-wide recipient added as a CC to every certification email. Leave blank to add none.</p>
             <div class="form-field">
                 <label for="implicit-cc-address">Email address</label>
-                <InputText id="implicit-cc-address" type="email" @bind-Value="implicitCcAddress" />
+                <InputText id="implicit-cc-address" type="email" @bind-Value="implicitCcAddress" disabled="@(!Can(Permissions.CertificationEmailSettings.Update))" />
             </div>
             <div class="form-actions">
-                <button class="button button-primary" type="button" disabled="@savingSettings" @onclick="SaveSettingsAsync">Save implicit CC</button>
+                <button class="button button-primary" type="button" disabled="@(!(Can(Permissions.CertificationEmailSettings.Update)) || (savingSettings))" @onclick="SaveSettingsAsync">Save implicit CC</button>
                 @if (settingsMessage is not null)
                 {
                     <div class="alert @(settingsSucceeded ? "alert-success" : "alert-error") email-template-save-message" role="alert">@settingsMessage</div>
                 }
             </div>
         </section>
+}
         <div class="revision-tabs" role="tablist" aria-label="Certification email template type">
             @foreach (var editor in editors)
             {
@@ -47,30 +50,31 @@
             <div class="email-template-fields">
                 <div class="form-field">
                     <label for="template-subject">Subject template</label>
-                    <InputText id="template-subject" @bind-Value="Current.Subject" />
+                    <InputText id="template-subject" @bind-Value="Current.Subject" disabled="@(!(Can(Permissions.CertificationEmailTemplates.Update)))" />
                 </div>
                 <div class="template-token-reference">
                     <strong>Available tokens</strong>
                     <div class="filename-token-list">
                     @foreach (var token in CertificationEmailTemplateRenderer.SubjectTokensFor(Current.Type))
                         {
-                            <button class="token-button" type="button" @onclick="() => InsertIntoSubject(Current, token)">@token</button>
+                            <button class="token-button" type="button" @onclick="() => InsertIntoSubject(Current, token)" disabled="@(!(Can(Permissions.CertificationEmailTemplates.Update)))">@token</button>
                         }
                     </div>
                     <p class="field-hint">Subject token buttons append to the subject. Body-only user tokens appear below the editor.</p>
                 </div>
                 <div class="form-field form-field-wide">
                     <label>HTML body template</label>
-                    <RichTextEditor Value="@Current.HtmlBody" ValueChanged="@(html => Current.HtmlBody = html)" />
+                    @if (Can(Permissions.CertificationEmailTemplates.Update)) { <RichTextEditor Value="@Current.HtmlBody" ValueChanged="@(html => Current.HtmlBody = html)" /> }
+                    else { <div class="email-html-preview">@((MarkupString)Sanitizer.SanitizeForEmail(Current.HtmlBody))</div> }
                     <div class="filename-token-list">
                         @foreach (var token in CertificationEmailTemplateRenderer.BodyTokensFor(Current.Type))
                         {
-                            <button class="token-button" type="button" @onclick="() => InsertIntoBody(Current, token)">@token</button>
+                            <button class="token-button" type="button" @onclick="() => InsertIntoBody(Current, token)" disabled="@(!(Can(Permissions.CertificationEmailTemplates.Update)))">@token</button>
                         }
                     </div>
                 </div>
                 <div class="form-actions">
-                    <button class="button button-primary" type="button" disabled="@saving" @onclick="SaveAsync">Save template</button>
+                    <button class="button button-primary" type="button" disabled="@(!(Can(Permissions.CertificationEmailTemplates.Update)) || (saving))" @onclick="SaveAsync">Save template</button>
                     @if (message is not null)
                     {
                         <div class="alert @(succeeded ? "alert-success" : "alert-error") email-template-save-message" role="alert">@message</div>
@@ -101,7 +105,7 @@
     protected override async Task OnInitializedAsync()
     {
         var templatesTask = TemplateService.GetAllAsync();
-        var settingsTask = TemplateService.GetSettingsAsync();
+        var settingsTask = Can(Permissions.CertificationEmailSettings.Read) ? TemplateService.GetSettingsAsync() : Task.FromResult(new CertificationEmailSettingsEditModel(null));
         await Task.WhenAll(templatesTask, settingsTask);
         editors.AddRange(templatesTask.Result.Select(x => new TemplateEditor(x)));
         implicitCcAddress = settingsTask.Result.ImplicitCcAddress;
@@ -117,7 +121,7 @@
             implicitCcAddress = string.IsNullOrWhiteSpace(implicitCcAddress) ? null : implicitCcAddress.Trim();
             settingsMessage = "Implicit certification CC saved."; settingsSucceeded = true;
         }
-        catch (CertificationEmailTemplateException exception) { settingsMessage = exception.Message; settingsSucceeded = false; }
+        catch (Exception exception) when (exception is CertificationEmailTemplateException or AuthorizationDeniedException) { settingsMessage = exception.Message; settingsSucceeded = false; }
         finally { savingSettings = false; }
     }
 
@@ -129,7 +133,7 @@
             await TemplateService.SaveAsync(new CertificationEmailTemplateEditModel(Current.Type, Current.Subject, Current.HtmlBody, Current.UpdatedAtUtc, Current.UpdatedByUserId));
             message = "Certification email template saved."; succeeded = true;
         }
-        catch (CertificationEmailTemplateException exception) { message = exception.Message; succeeded = false; }
+        catch (Exception exception) when (exception is CertificationEmailTemplateException or AuthorizationDeniedException) { message = exception.Message; succeeded = false; }
         finally { saving = false; }
     }
 

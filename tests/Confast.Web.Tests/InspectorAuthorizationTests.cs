@@ -28,7 +28,7 @@ public sealed class InspectorAuthorizationTests(PostgresTestDatabase database) :
     public async Task InitializeAsync()
     {
         await database.ResetAsync(); rootId = await session.ProvisionRootAsync(); await session.SignInAsync(rootId);
-        evaluator = session.Evaluator; inspections = new(database, evaluator); eligibility = new(database, evaluator);
+        evaluator = session.Evaluator; inspections = session.Inspections(evaluator); eligibility = new(database, evaluator);
     }
     public Task DisposeAsync() { session.Dispose(); return Task.CompletedTask; }
     private async Task<ApplicationUser> User(string name, params string[] roleIds)
@@ -91,13 +91,17 @@ public sealed class InspectorAuthorizationTests(PostgresTestDatabase database) :
     {
         var creator = await Role([Permissions.Inspections.Create]); var actor = await User("Creating Actor", creator);
         var attributed = await User("Attributed Inspector", creator); var part = await Part(); await session.SignInAsync(actor.Id);
+        await using (var removeDefault = database.CreateDbContext())
+            await removeDefault.UserRoles.Where(x => x.UserId == actor.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
         Assert.DoesNotContain(Permissions.Inspections.Read, PermissionCatalog.ExpandRequirements([Permissions.Inspections.Create]));
         var snapshot = await evaluator.EvaluateCurrentAsync();
-        Assert.All(snapshot.Provenance[Permissions.Inspections.Read], source => Assert.Equal(AppRoles.ReadOnlyId, source.GrantRoleId));
+        Assert.False(snapshot.Has(Permissions.Inspections.Read));
         var before = evaluator.ComputationCount;
         var created = await inspections.CreateInspectionAsync(Create(part, attributed.Id));
         Assert.Equal(InspectionOperationStatus.Succeeded, created.Status); Assert.Equal(before + 1, evaluator.ComputationCount);
-        var stored = await inspections.GetInspectionAsync(created.InspectionId!.Value);
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => inspections.GetInspectionAsync(created.InspectionId!.Value));
+        await using var persisted = database.CreateDbContext();
+        var stored = await persisted.Inspections.SingleAsync(x => x.Id == created.InspectionId!.Value);
         Assert.Equal(attributed.Id, stored!.InspectorUserId); Assert.Equal("Attributed Inspector", stored.Inspector);
         await using var db = database.CreateDbContext(); Assert.False(await db.ContainerReceiptAllocations.AnyAsync());
     }
@@ -107,7 +111,7 @@ public sealed class InspectorAuthorizationTests(PostgresTestDatabase database) :
     [InlineData("inactive actor")]
     [InlineData("stale stamp")]
     [InlineData("pending")]
-    [InlineData("unguarded constructor")]
+    [InlineData("anonymous")]
     public async Task ActualCreationBoundaryFailsClosed(string reason)
     {
         var part = await Part(); var actor = await User("Actor", AppRoles.QualityId); await session.SignInAsync(actor.Id);
@@ -115,7 +119,8 @@ public sealed class InspectorAuthorizationTests(PostgresTestDatabase database) :
         if (reason == "inactive actor") { await using var db = database.CreateDbContext(); await db.Users.Where(x => x.Id == actor.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false)); }
         if (reason == "stale stamp") { await using var db = database.CreateDbContext(); await db.Users.Where(x => x.Id == actor.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.SecurityStamp, "rotated")); }
         if (reason == "pending") { await database.ResetAsync(); actor = await User("Pending", AppRoles.QualityId); await session.SignInAsync(actor.Id); part = await Part(); }
-        var service = reason == "unguarded constructor" ? new InspectionService(database) : inspections;
+        if (reason == "anonymous") session.Principal = new(new System.Security.Claims.ClaimsIdentity());
+        var service = inspections;
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.CreateInspectionAsync(Create(part, actor.Id)));
         await using var verify = database.CreateDbContext(); Assert.Empty(await verify.Inspections.ToListAsync());
     }
@@ -163,17 +168,19 @@ public sealed class InspectorAuthorizationTests(PostgresTestDatabase database) :
     }
 
     [Fact]
-    public async Task UnchangedInactiveHistoricalAttributionSavesWithoutNewPermissionEvaluation()
+    public async Task UnchangedInactiveHistoricalAttributionStillRequiresCurrentActorAuthorization()
     {
         var inspector = await User("Historical Name", AppRoles.QualityId);
         var created = await inspections.CreateInspectionAsync(Create(await Part(), inspector.Id));
         await using (var db = database.CreateDbContext())
         { await db.Users.Where(x => x.Id == inspector.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.IsActive, false));
           await db.UserRoles.Where(x => x.UserId == inspector.Id && x.RoleId != AppRoles.ReadOnlyId).ExecuteDeleteAsync(); }
-        session.Principal = new(new System.Security.Claims.ClaimsIdentity());
         var edit = (await inspections.GetInspectionAsync(created.InspectionId!.Value))!; edit.Results[0].ActualMin = "1.1";
+        session.Principal = new(new System.Security.Claims.ClaimsIdentity());
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => inspections.SaveInspectionAsync(edit));
+        await session.SignInAsync(rootId);
         var before = evaluator.ComputationCount; Assert.Equal(InspectionOperationStatus.Succeeded, (await inspections.SaveInspectionAsync(edit)).Status);
-        Assert.Equal(before, evaluator.ComputationCount); Assert.Equal(inspector.Id, edit.InspectorUserId); Assert.Equal("Historical Name", edit.Inspector);
+        Assert.Equal(before + 1, evaluator.ComputationCount); Assert.Equal(inspector.Id, edit.InspectorUserId); Assert.Equal("Historical Name", edit.Inspector);
         await using var verify = database.CreateDbContext();
         verify.Users.Remove(await verify.Users.SingleAsync(x => x.Id == inspector.Id));
         await Assert.ThrowsAsync<DbUpdateException>(() => verify.SaveChangesAsync());
@@ -185,8 +192,8 @@ public sealed class InspectorAuthorizationTests(PostgresTestDatabase database) :
     {
         var creator = await Role([Permissions.Inspections.Create]); var actor = await User("Creator Only", creator);
         var first = await User("First", creator); var second = await User("Second", creator);
-        var created = await inspections.CreateInspectionAsync(Create(await Part(), first.Id)); await session.SignInAsync(actor.Id);
-        var edit = (await inspections.GetInspectionAsync(created.InspectionId!.Value))!; edit.InspectorUserId = second.Id;
+        var created = await inspections.CreateInspectionAsync(Create(await Part(), first.Id));
+        var edit = (await inspections.GetInspectionAsync(created.InspectionId!.Value))!; await session.SignInAsync(actor.Id); edit.InspectorUserId = second.Id;
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => inspections.SaveInspectionAsync(edit));
         await session.SignInAsync(rootId);
         Assert.Equal(InspectionOperationStatus.Succeeded, (await inspections.SaveInspectionAsync(edit)).Status);

@@ -90,12 +90,12 @@ public sealed class RoleGraph
     public FrozenSet<string> StoredEnvelope(string roleId) => closures[roleId].Append(roleId)
         .SelectMany(x => directGrants[x]).ToFrozenSet(StringComparer.Ordinal);
     public FrozenSet<string> StoredUserEnvelope(IEnumerable<string> assignedRoleIds) => assignedRoleIds
-        .Where(x => Roles[x].Kind == SystemRoleKind.Ordinary).SelectMany(StoredEnvelope).ToFrozenSet(StringComparer.Ordinal);
+        .Where(x => Roles[x].Kind != SystemRoleKind.Root).SelectMany(StoredEnvelope).ToFrozenSet(StringComparer.Ordinal);
 
     public FrozenDictionary<string, ImmutableArray<GrantProvenance>> EvaluateOrdinary(IEnumerable<string> assignedRoleIds)
     {
         var provenance = new Dictionary<string, HashSet<GrantProvenance>>(StringComparer.Ordinal);
-        foreach (var anchor in assignedRoleIds.Append(AppRoles.ReadOnlyId).Distinct(StringComparer.Ordinal))
+        foreach (var anchor in assignedRoleIds.Distinct(StringComparer.Ordinal))
         {
             if (!Roles.ContainsKey(anchor)) throw new InvalidOperationException("Unknown assigned role.");
             var visited = new HashSet<string>(StringComparer.Ordinal);

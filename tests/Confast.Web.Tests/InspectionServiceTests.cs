@@ -14,7 +14,7 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    private readonly InspectionCriteriaService criteriaService = new(database);
+    private InspectionCriteriaService criteriaService = null!;
     private InspectionService inspectionService = null!;
     private readonly AuthorizationTestSession authorization = new(database);
 
@@ -22,7 +22,8 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
     {
         await database.ResetAsync();
         await authorization.SignInAsync(await authorization.ProvisionRootAsync());
-        inspectionService = new(database, authorization.Evaluator);
+        criteriaService = new(database, authorization.Guard);
+        inspectionService = authorization.Inspections();
     }
 
     public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
@@ -261,7 +262,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             null!,
             null!,
             new CertificationPackageFilenameFormatter(),
-            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()));
+            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()), authorization.Guard);
         var exception = await Assert.ThrowsAsync<CertificationPackageException>(() =>
             packageService.BuildAsync(
                 new CertificationPackageRequest(
@@ -349,7 +350,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             null!,
             null!,
             new CertificationPackageFilenameFormatter(),
-            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()));
+            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()), authorization.Guard);
         var exception = await Assert.ThrowsAsync<CertificationPackageException>(() =>
             packageService.BuildAsync(
                 new CertificationPackageRequest(
@@ -417,7 +418,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             null!,
             new PdfDocumentMerger(),
             new CertificationPackageFilenameFormatter(),
-            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()));
+            new InspectionPrintRenderTokenService(new EphemeralDataProtectionProvider()), authorization.Guard);
         var package = await packageService.BuildAsync(
             new CertificationPackageRequest(
                 inspectionId,
@@ -1328,7 +1329,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         var gageTypeId = await CreateGageTypeAsync();
         await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21");
         await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20", "21");
-        var definition = await new PartFlipService(database).SaveDefinitionAsync(sourcePartId, targetPartId);
+        var definition = await new PartFlipService(database, authorization.Guard).SaveDefinitionAsync(sourcePartId, targetPartId);
         var source = await inspectionService.CreateInspectionAsync(new CreateInspectionModel
         {
             PartId = sourcePartId,
@@ -1447,7 +1448,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
             .Single(x => x.Name == "Heat Treat").Id;
         await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21", secondaryProcesses: [(heatTreatId, "Source heat-treat specification")]);
         await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20.2", "21", secondaryProcesses: [(heatTreatId, "Target heat-treat specification")]);
-        var flipService = new PartFlipService(database);
+        var flipService = new PartFlipService(database, authorization.Guard);
         var definition = await flipService.SaveDefinitionAsync(sourcePartId, targetPartId);
         Assert.Equal(SavePartFlipStatus.Saved, definition.Status);
         var sourceCreate = await inspectionService.CreateInspectionAsync(new CreateInspectionModel { PartId = sourcePartId, LotNumber = "FLIP-SOURCE-LOT", QuantityReceived = 10, InspectionDate = new DateOnly(2026, 9, 1) });
@@ -1560,7 +1561,7 @@ public sealed class InspectionServiceTests(PostgresTestDatabase database) : IAsy
         var gageTypeId = await CreateGageTypeAsync();
         await CreateAndPublishRevisionAsync(sourcePartId, gageTypeId, "20", "21");
         await CreateAndPublishRevisionAsync(targetPartId, gageTypeId, "20", "21");
-        var service = new PartFlipService(database);
+        var service = new PartFlipService(database, authorization.Guard);
         Assert.Equal(SavePartFlipStatus.Invalid, (await service.SaveDefinitionAsync(sourcePartId, sourcePartId)).Status);
         Assert.Equal(SavePartFlipStatus.Saved, (await service.SaveDefinitionAsync(sourcePartId, targetPartId)).Status);
         await using (var db = database.CreateDbContext())

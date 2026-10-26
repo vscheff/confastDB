@@ -6,15 +6,21 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class CertificationEmailTemplatePersistenceTests(PostgresTestDatabase database) : IAsyncLifetime
 {
-    public Task InitializeAsync() => database.ResetAsync();
-    public Task DisposeAsync() => Task.CompletedTask;
+    private readonly AuthorizationTestSession authorization = new(database);
+    public async Task InitializeAsync()
+    {
+        await database.ResetAsync();
+        await authorization.SignInAsync(await authorization.ProvisionRootAsync());
+
+    }
+    public Task DisposeAsync() { authorization.Dispose(); return Task.CompletedTask; }
 
     [Fact]
     public async Task MigrationDefaultsCanBeResolvedSavedAndRestored()
     {
         var renderer = new CertificationEmailTemplateRenderer();
         var sanitizer = new CertificationEmailHtmlSanitizer();
-        var service = new CertificationEmailTemplateService(database, new NoCurrentUser(), renderer, sanitizer);
+        var service = new CertificationEmailTemplateService(database, renderer, sanitizer, authorization.Guard);
         var templates = await service.GetAllAsync();
         Assert.Equal(3, templates.Count);
 
@@ -22,7 +28,7 @@ public sealed class CertificationEmailTemplatePersistenceTests(PostgresTestDatab
         var changed = original with { SubjectTemplate = "Updated {CustomerName}", HtmlBodyTemplate = "<p><strong>Updated</strong> {LotNumber}</p>" };
         await service.SaveAsync(changed);
 
-        var resolved = await new CertificationEmailTemplateResolver(database)
+        var resolved = await new CertificationEmailTemplateResolver(database, authorization.Guard)
             .ResolveEmailTemplateAsync(CertificationEmailTemplateType.SingleLot);
         Assert.Equal(changed.SubjectTemplate, resolved.SubjectTemplate);
         Assert.Equal(changed.HtmlBodyTemplate, resolved.HtmlBodyTemplate);

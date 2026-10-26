@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:InspectionCriteria.Read")]
 @page "/parts/{PartId:long}/inspection-criteria"
 @using Confast.Web.Features.InspectionCriteria
 @inject InspectionCriteriaService CriteriaService
@@ -12,7 +14,7 @@
         <h1>Inspection Criteria History</h1>
         <p>Published revisions become permanent, read-only snapshots once an inspection uses them.</p>
     </div>
-    @if (!isLoading && revisions.All(x => !x.IsDraft))
+    @if (Can(Permissions.InspectionCriteria.Create) && !isLoading && revisions.All(x => !x.IsDraft))
     {
         <a class="button button-primary" href="@($"/parts/{PartId}/inspection-criteria/create")">
             @(revisions.Any(x => x.IsCurrent) ? "Create New Revision" : "Create Initial Revision")
@@ -59,8 +61,8 @@ else if (!isLoading && loadError is null && revisions.Count > 0)
                             }
                             else
                             {
-                                <a class="button button-secondary" href="@RevisionUrl(revision.Id)">@(revision.CanEdit ? "Edit" : "View")</a>
-                                @if (revision.CanEdit)
+                                <a class="button button-secondary" href="@RevisionUrl(revision.Id)">@(revision.CanEdit && Can(Permissions.InspectionCriteria.Update) ? "Edit" : "View")</a>
+                                @if (revision.CanEdit && Can(Permissions.InspectionCriteria.Delete))
                                 {
                                     <button class="button button-danger" type="button" @onclick="() => BeginDelete(revision.Id)" disabled="@isDeleting">Delete</button>
                                 }
@@ -94,8 +96,9 @@ else if (!isLoading && loadError is null && revisions.Count > 0)
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load criteria history for part {PartId}", PartId);
-            loadError = "The revision history could not be loaded.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The revision history could not be loaded.";
         }
         finally
         {
@@ -146,9 +149,10 @@ else if (!isLoading && loadError is null && revisions.Count > 0)
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to delete criteria revision {RevisionId}", revision.Id);
             pendingDeleteId = null;
-            deleteMessage = "The revision could not be deleted. Please try again.";
+            deleteMessage = exception is AuthorizationDeniedException ? exception.Message : "The revision could not be deleted. Please try again.";
             deleteMessageClass = "alert-error";
         }
         finally

@@ -1,15 +1,15 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Suppliers.Read")]
 @page "/suppliers"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @using Confast.Web.Features.Suppliers
 @using Confast.Web.Features.ContainerTracking
 @inject SupplierService Suppliers
-@inject TrackingAccess Access
 @inject ILogger<Index> Logger
 
 <PageTitle>Suppliers</PageTitle>
 <div class="page-heading">
     <div><h1>Suppliers</h1><p>Supplier master data for bills of lading.</p></div>
-    @if (permissions.CanEdit)
+    @if (Can(Permissions.Suppliers.Create))
     {
         <button type="button" class="button button-primary" @onclick="() => editing = new()">Create supplier</button>
     }
@@ -24,12 +24,12 @@
     <EditForm Model="editing" OnValidSubmit="SaveAsync" FormName="supplier" class="record-form tracking-form">
         <DataAnnotationsValidator /><ValidationSummary />
         <h2>@(editing.Id == 0 ? "Create supplier" : "Edit supplier")</h2>
-        <fieldset disabled="@(!permissions.CanEdit || busy)" class="tracking-fields">
+        <fieldset disabled="@(!Can(editing.Id == 0 ? Permissions.Suppliers.Create : Permissions.Suppliers.Update) || busy)" class="tracking-fields">
             <div class="form-field"><label for="supplier-name">Name</label><InputText id="supplier-name" @bind-Value="editing.Name" maxlength="200" /></div>
             <div class="checkbox-field"><InputCheckbox id="supplier-active" @bind-Value="editing.IsActive" /><label for="supplier-active">Active supplier</label></div>
         </fieldset>
         <div class="form-actions">
-            @if (permissions.CanEdit) { <button class="button button-primary" disabled="@busy">Save supplier</button> }
+            @if (Can(editing.Id == 0 ? Permissions.Suppliers.Create : Permissions.Suppliers.Update)) { <button class="button button-primary" disabled="@busy">Save supplier</button> }
             <button type="button" class="button button-secondary" @onclick="() => editing = null">Close</button>
         </div>
     </EditForm>
@@ -39,14 +39,13 @@
         @foreach (var supplier in rows)
         {
             <tr @key="supplier.Id"><td>@supplier.Name</td><td>@(supplier.IsActive ? "Active" : "Inactive")</td>
-                <td><button class="button button-secondary" @onclick="() => Edit(supplier)">@(permissions.CanEdit ? "Edit" : "View")</button></td></tr>
+                <td><button class="button button-secondary" @onclick="() => Edit(supplier)">@(Can(Permissions.Suppliers.Update) ? "Edit" : "View")</button></td></tr>
         }
     </tbody></table>
 </div>
 @if (!busy && rows.Count == 0) { <p class="status-message">No suppliers found.</p> }
 
 @code {
-    private TrackingPermissions permissions = new(false, false);
     private List<SupplierEditModel> rows = [];
     private SupplierEditModel? editing;
     private string? search, message;
@@ -56,8 +55,9 @@
     private async Task LoadAsync()
     {
         busy = true;
-        try { permissions = await Access.GetAsync(); rows = await Suppliers.SearchAsync(search); }
-        catch (Exception ex) { Logger.LogError(ex, "Failed to load suppliers"); message = "Suppliers could not be loaded."; isError = true; }
+        try { rows = await Suppliers.SearchAsync(search); }
+        catch (Exception ex) {
+            if (ex is AuthorizationDeniedException) await RefreshPermissionsAsync(); Logger.LogError(ex, "Failed to load suppliers"); message = ex is AuthorizationDeniedException ? ex.Message : "Suppliers could not be loaded."; isError = true; }
         finally { busy = false; }
     }
     private async Task SaveAsync()
@@ -70,7 +70,8 @@
             message = result.Message ?? "Supplier saved."; isError = !result.Succeeded;
             if (result.Succeeded) { editing = null; rows = await Suppliers.SearchAsync(search); }
         }
-        catch (Exception ex) { Logger.LogError(ex, "Failed to save supplier"); message = "Supplier could not be saved."; isError = true; }
+        catch (Exception ex) {
+            if (ex is AuthorizationDeniedException) await RefreshPermissionsAsync(); Logger.LogError(ex, "Failed to save supplier"); message = ex is AuthorizationDeniedException ? ex.Message : "Supplier could not be saved."; isError = true; }
         finally { busy = false; }
     }
 }

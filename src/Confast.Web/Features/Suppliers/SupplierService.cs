@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Confast.Web.Data;
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.ContainerTracking;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,11 +15,11 @@ public sealed class SupplierEditModel
     public uint Version { get; set; }
 }
 
-public sealed class SupplierService(IDbContextFactory<AppDbContext> contextFactory, TrackingAccess access)
+public sealed class SupplierService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
     public async Task<List<SupplierEditModel>> SearchAsync(string? search = null, CancellationToken cancellationToken = default)
     {
-        await access.GetAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Suppliers.Read", new("Suppliers"), [Permissions.Suppliers.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var query = db.Suppliers.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(search))
@@ -32,7 +33,8 @@ public sealed class SupplierService(IDbContextFactory<AppDbContext> contextFacto
 
     public async Task<TrackingSaveResult> SaveAsync(SupplierEditModel model, CancellationToken cancellationToken = default)
     {
-        await access.RequireEditAsync(cancellationToken);
+        using var operation = await authorization.BeginAsync("Suppliers.Save", new("Supplier", model.Id.ToString()),
+            [model.Id == 0 ? Permissions.Suppliers.Create : Permissions.Suppliers.Update], cancellationToken);
         model.Name = model.Name?.Trim() ?? string.Empty;
         if (TrackingValidation.Validate(model) is { } error) return TrackingSaveResult.Invalid(error);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);

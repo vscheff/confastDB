@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Customers.Read")]
 @page "/customers/{Id:long}/edit"
 @using Confast.Web.Features.Customers
 @using Confast.Web.Features.Parts
@@ -48,17 +50,17 @@ else
 
         <div class="form-field customer-name-field">
             <label for="customer-name">Name</label>
-            <InputText id="customer-name" @bind-Value="customer.Name" autocomplete="organization" />
+            <InputText id="customer-name" @bind-Value="customer.Name" autocomplete="organization" disabled="@(!(Can(Permissions.Customers.Update)))" />
             <ValidationMessage For="() => customer.Name" />
         </div>
 
         <div class="form-field customer-active-field checkbox-field">
-            <InputCheckbox id="is-active" @bind-Value="customer.IsActive" />
+            <InputCheckbox id="is-active" @bind-Value="customer.IsActive" disabled="@(!(Can(Permissions.Customers.Update)))" />
             <label for="is-active">Active Customer</label>
         </div>
 
         <div class="form-actions customer-actions">
-            <button class="button button-primary" type="submit" disabled="@isSaving">
+            <button class="button button-primary" type="submit" disabled="@(!(Can(Permissions.Customers.Update)) || (isSaving))">
                 @(isSaving ? "Saving…" : "Save Changes")
             </button>
             <a class="button button-secondary" href="/customers">Cancel</a>
@@ -79,7 +81,7 @@ else
                 {
                     <button class="subtab @(!showNewPlantEditor && selectedPlantId == plant.Id ? "subtab-active" : null)" type="button" role="tab" aria-selected="@(!showNewPlantEditor && selectedPlantId == plant.Id)" @onclick="() => SelectPlantAsync(plant.Id)">@plant.Name</button>
                 }
-                <button class="subtab @(showNewPlantEditor ? "subtab-active" : null)" type="button" role="tab" aria-label="Create plant" aria-selected="@showNewPlantEditor" @onclick="ShowNewPlantEditor">+</button>
+                <button class="subtab @(showNewPlantEditor ? "subtab-active" : null)" type="button" role="tab" aria-label="Create plant" aria-selected="@showNewPlantEditor" @onclick="ShowNewPlantEditor" disabled="@(!(Can(Permissions.Plants.Create)))">+</button>
             </div>
             @if (plantMessage is not null) { <div class="alert @plantMessageClass" role="status">@plantMessage</div> }
 
@@ -87,28 +89,28 @@ else
             {
                 <EditForm Model="newPlant" OnValidSubmit="() => SavePlantAsync(newPlant)" FormName="new-plant" class="certification-recipient-row certification-recipient-new">
                     <DataAnnotationsValidator />
-                    <div class="form-field"><label>Name</label><InputText @bind-Value="newPlant.Name" /><ValidationMessage For="() => newPlant.Name" /></div>
-                    <div class="form-field"><label>Plant Code</label><InputText @bind-Value="newPlant.PlantCode" /></div>
-                    <div class="form-field form-field-wide"><label>Address Line 1</label><InputText @bind-Value="newPlant.AddressLine1" autocomplete="address-line1" /></div>
-                    <div class="form-field form-field-wide"><label>Address Line 2</label><InputText @bind-Value="newPlant.AddressLine2" autocomplete="address-line2" /></div>
-                    <div class="form-field"><label>City</label><InputText @bind-Value="newPlant.City" autocomplete="address-level2" /></div>
-                    <div class="form-field"><label>State</label><InputText @bind-Value="newPlant.State" autocomplete="address-level1" /></div>
-                    <div class="form-field"><label>Postal Code</label><InputText @bind-Value="newPlant.PostalCode" autocomplete="postal-code" /></div>
-                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Create plant</button></div>
+                    <div class="form-field"><label>Name</label><InputText @bind-Value="newPlant.Name" disabled="@(!(Can(Permissions.Plants.Create)))" /><ValidationMessage For="() => newPlant.Name" /></div>
+                    <div class="form-field"><label>Plant Code</label><InputText @bind-Value="newPlant.PlantCode" disabled="@(!(Can(Permissions.Plants.Create)))" /></div>
+                    <div class="form-field form-field-wide"><label>Address Line 1</label><InputText @bind-Value="newPlant.AddressLine1" autocomplete="address-line1" disabled="@(!(Can(Permissions.Plants.Create)))" /></div>
+                    <div class="form-field form-field-wide"><label>Address Line 2</label><InputText @bind-Value="newPlant.AddressLine2" autocomplete="address-line2" disabled="@(!(Can(Permissions.Plants.Create)))" /></div>
+                    <div class="form-field"><label>City</label><InputText @bind-Value="newPlant.City" autocomplete="address-level2" disabled="@(!(Can(Permissions.Plants.Create)))" /></div>
+                    <div class="form-field"><label>State</label><InputText @bind-Value="newPlant.State" autocomplete="address-level1" disabled="@(!(Can(Permissions.Plants.Create)))" /></div>
+                    <div class="form-field"><label>Postal Code</label><InputText @bind-Value="newPlant.PostalCode" autocomplete="postal-code" disabled="@(!(Can(Permissions.Plants.Create)))" /></div>
+                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@(!(Can(Permissions.Plants.Create)) || (isSavingPlant))">Create plant</button></div>
                 </EditForm>
             }
             else if (SelectedPlant is not null)
             {
                 <EditForm Model="SelectedPlant" OnValidSubmit="() => SavePlantAsync(SelectedPlant)" FormName="@($"plant-{SelectedPlant.Id}")" class="certification-recipient-row">
                     <DataAnnotationsValidator />
-                    <div class="form-field"><label>Name</label><InputText @bind-Value="SelectedPlant.Name" /><ValidationMessage For="() => SelectedPlant.Name" /></div>
-                    <div class="form-field"><label>Plant code</label><InputText @bind-Value="SelectedPlant.PlantCode" /></div>
-                    <div class="form-field form-field-wide"><label>Address line 1</label><InputText @bind-Value="SelectedPlant.AddressLine1" autocomplete="address-line1" /></div>
-                    <div class="form-field form-field-wide"><label>Address line 2</label><InputText @bind-Value="SelectedPlant.AddressLine2" autocomplete="address-line2" /></div>
-                    <div class="form-field"><label>City</label><InputText @bind-Value="SelectedPlant.City" autocomplete="address-level2" /></div>
-                    <div class="form-field"><label>State</label><InputText @bind-Value="SelectedPlant.State" autocomplete="address-level1" /></div>
-                    <div class="form-field"><label>Postal code</label><InputText @bind-Value="SelectedPlant.PostalCode" autocomplete="postal-code" /></div>
-                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@isSavingPlant">Save Plant</button><button class="button button-danger button-compact" type="button" disabled="@isSavingPlant" @onclick="() => DeletePlantAsync(SelectedPlant)">Remove</button></div>
+                    <div class="form-field"><label>Name</label><InputText @bind-Value="SelectedPlant.Name" disabled="@(!(Can(Permissions.Plants.Update)))" /><ValidationMessage For="() => SelectedPlant.Name" /></div>
+                    <div class="form-field"><label>Plant code</label><InputText @bind-Value="SelectedPlant.PlantCode" disabled="@(!(Can(Permissions.Plants.Update)))" /></div>
+                    <div class="form-field form-field-wide"><label>Address line 1</label><InputText @bind-Value="SelectedPlant.AddressLine1" autocomplete="address-line1" disabled="@(!(Can(Permissions.Plants.Update)))" /></div>
+                    <div class="form-field form-field-wide"><label>Address line 2</label><InputText @bind-Value="SelectedPlant.AddressLine2" autocomplete="address-line2" disabled="@(!(Can(Permissions.Plants.Update)))" /></div>
+                    <div class="form-field"><label>City</label><InputText @bind-Value="SelectedPlant.City" autocomplete="address-level2" disabled="@(!(Can(Permissions.Plants.Update)))" /></div>
+                    <div class="form-field"><label>State</label><InputText @bind-Value="SelectedPlant.State" autocomplete="address-level1" disabled="@(!(Can(Permissions.Plants.Update)))" /></div>
+                    <div class="form-field"><label>Postal code</label><InputText @bind-Value="SelectedPlant.PostalCode" autocomplete="postal-code" disabled="@(!(Can(Permissions.Plants.Update)))" /></div>
+                    <div class="row-actions certification-recipient-actions"><button class="button button-primary button-compact" type="submit" disabled="@(!(Can(Permissions.Plants.Update)) || (isSavingPlant))">Save Plant</button><button class="button button-danger button-compact" type="button" disabled="@(!(Can(Permissions.Plants.Delete)) || (isSavingPlant))" @onclick="() => DeletePlantAsync(SelectedPlant)">Remove</button></div>
                 </EditForm>
             }
         </section>
@@ -138,23 +140,23 @@ else
                             <DataAnnotationsValidator />
                             <div class="form-field">
                                 <label for="@($"recipient-name-{recipient.Id}")">Name</label>
-                                <InputText id="@($"recipient-name-{recipient.Id}")" @bind-Value="recipient.Name" autocomplete="name" />
+                                <InputText id="@($"recipient-name-{recipient.Id}")" @bind-Value="recipient.Name" autocomplete="name" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Update)))" />
                             </div>
                             <div class="form-field certification-recipient-email">
                                 <label for="@($"recipient-email-{recipient.Id}")">Email</label>
-                                <InputText id="@($"recipient-email-{recipient.Id}")" @bind-Value="recipient.EmailAddress" autocomplete="email" />
+                                <InputText id="@($"recipient-email-{recipient.Id}")" @bind-Value="recipient.EmailAddress" autocomplete="email" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Update)))" />
                                 <ValidationMessage For="() => recipient.EmailAddress" />
                             </div>
                             <div class="form-field certification-recipient-type">
                                 <label for="@($"recipient-type-{recipient.Id}")">Type</label>
-                                <InputSelect id="@($"recipient-type-{recipient.Id}")" @bind-Value="recipient.RecipientType">
+                                <InputSelect id="@($"recipient-type-{recipient.Id}")" @bind-Value="recipient.RecipientType" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Update)))">
                                     <option value="@CertificationRecipientType.To">To</option>
                                     <option value="@CertificationRecipientType.Cc">Cc</option>
                                 </InputSelect>
                             </div>
                             <div class="row-actions certification-recipient-actions">
-                                <button class="button button-primary button-compact" type="submit" disabled="@isSavingCertification">Save</button>
-                                <button class="button button-danger button-compact" type="button" disabled="@isSavingCertification" @onclick="() => DeleteRecipientAsync(recipient)">Remove</button>
+                                <button class="button button-primary button-compact" type="submit" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Update)) || (isSavingCertification))">Save</button>
+                                <button class="button button-danger button-compact" type="button" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Delete)) || (isSavingCertification))" @onclick="() => DeleteRecipientAsync(recipient)">Remove</button>
                             </div>
                         </EditForm>
                     }
@@ -163,22 +165,22 @@ else
                         <DataAnnotationsValidator />
                         <div class="form-field">
                             <label for="new-recipient-name">Name</label>
-                            <InputText id="new-recipient-name" @bind-Value="newRecipient.Name" autocomplete="name" />
+                            <InputText id="new-recipient-name" @bind-Value="newRecipient.Name" autocomplete="name" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Create)))" />
                         </div>
                         <div class="form-field certification-recipient-email">
                             <label for="new-recipient-email">Email</label>
-                            <InputText id="new-recipient-email" @bind-Value="newRecipient.EmailAddress" autocomplete="email" />
+                            <InputText id="new-recipient-email" @bind-Value="newRecipient.EmailAddress" autocomplete="email" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Create)))" />
                             <ValidationMessage For="() => newRecipient.EmailAddress" />
                         </div>
                         <div class="form-field certification-recipient-type">
                             <label for="new-recipient-type">Type</label>
-                            <InputSelect id="new-recipient-type" @bind-Value="newRecipient.RecipientType">
+                            <InputSelect id="new-recipient-type" @bind-Value="newRecipient.RecipientType" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Create)))">
                                 <option value="@CertificationRecipientType.To">To</option>
                                 <option value="@CertificationRecipientType.Cc">Cc</option>
                             </InputSelect>
                         </div>
                         <div class="row-actions certification-recipient-actions">
-                            <button class="button button-secondary button-compact" type="submit" disabled="@isSavingCertification">Add Recipient</button>
+                            <button class="button button-secondary button-compact" type="submit" disabled="@(!(Can(Permissions.PlantCertificationRecipients.Create)) || (isSavingCertification))">Add Recipient</button>
                         </div>
                     </EditForm>
                 </div>
@@ -189,7 +191,7 @@ else
                         @foreach (var certificationType in certificationDelivery.CertificationTypes)
                         {
                             <label>
-                                <input type="checkbox" @bind="certificationType.IsRequired" />
+                                <input type="checkbox" @bind="certificationType.IsRequired" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))" />
                                 <span>@certificationType.Name</span>
                             </label>
                         }
@@ -202,12 +204,12 @@ else
                         <div class="filename-template-group">
                             <div class="form-field">
                                 <label for="certification-filename-template">Single-Lot Filename Template</label>
-                                <InputText id="certification-filename-template" @bind-Value="certificationDelivery.FilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SystemDefaultTemplate" />
+                                <InputText id="certification-filename-template" @bind-Value="certificationDelivery.FilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SystemDefaultTemplate" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))" />
                             </div>
                             <div class="filename-token-list" aria-label="Supported single-lot filename tokens">
                                 @foreach (var token in CertificationPackageFilenameFormatter.SupportedTokens)
                                 {
-                                    <button type="button" class="token-button" @onclick="() => InsertFilenameToken(token)">@token</button>
+                                    <button type="button" class="token-button" @onclick="() => InsertFilenameToken(token)" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))">@token</button>
                                 }
                             </div>
                             <p class="filename-preview"><strong>Preview:</strong> @CertificationFilenamePreview</p>
@@ -217,12 +219,12 @@ else
                         <div class="filename-template-group">
                             <div class="form-field">
                                 <label for="certification-single-part-multi-lot-filename-template">Single-Part, Multi-Lot Filename Template</label>
-                                <InputText id="certification-single-part-multi-lot-filename-template" @bind-Value="certificationDelivery.SinglePartMultiLotFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate" />
+                                <InputText id="certification-single-part-multi-lot-filename-template" @bind-Value="certificationDelivery.SinglePartMultiLotFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.SinglePartMultiLotSystemDefaultTemplate" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))" />
                             </div>
                             <div class="filename-token-list" aria-label="Supported single-part multi-lot filename tokens">
                                 @foreach (var token in CertificationPackageFilenameFormatter.SinglePartMultiLotSupportedTokens)
                                 {
-                                    <button type="button" class="token-button" @onclick="() => InsertSinglePartMultiLotFilenameToken(token)">@token</button>
+                                    <button type="button" class="token-button" @onclick="() => InsertSinglePartMultiLotFilenameToken(token)" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))">@token</button>
                                 }
                             </div>
                             <p class="filename-preview"><strong>Preview:</strong> @SinglePartMultiLotCertificationFilenamePreview</p>
@@ -232,12 +234,12 @@ else
                         <div class="filename-template-group">
                             <div class="form-field">
                                 <label for="certification-multi-part-filename-template">Multi-Part Filename Template</label>
-                                <InputText id="certification-multi-part-filename-template" @bind-Value="certificationDelivery.MultiPartFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate" />
+                                <InputText id="certification-multi-part-filename-template" @bind-Value="certificationDelivery.MultiPartFilenameTemplate" @bind-Value:event="oninput" placeholder="@CertificationPackageFilenameFormatter.MultiPartSystemDefaultTemplate" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))" />
                             </div>
                             <div class="filename-token-list" aria-label="Supported multi-part filename tokens">
                                 @foreach (var token in CertificationPackageFilenameFormatter.MultiPartSupportedTokens)
                                 {
-                                    <button type="button" class="token-button" @onclick="() => InsertMultiPartFilenameToken(token)">@token</button>
+                                    <button type="button" class="token-button" @onclick="() => InsertMultiPartFilenameToken(token)" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)))">@token</button>
                                 }
                             </div>
                             <p class="filename-preview"><strong>Preview:</strong> @MultiPartCertificationFilenamePreview</p>
@@ -248,7 +250,7 @@ else
             </div>
 
             <div class="form-actions certification-delivery-actions">
-                <button class="button button-primary" type="button" disabled="@isSavingCertification" @onclick="SaveCertificationConfigurationAsync">
+                <button class="button button-primary" type="button" disabled="@(!(Can(Permissions.PlantCertificationSettings.Update)) || (isSavingCertification))" @onclick="SaveCertificationConfigurationAsync">
                     @(isSavingCertification ? "Saving…" : "Save Certification Settings")
                 </button>
             </div>
@@ -263,10 +265,14 @@ else
                 <h2 id="customer-parts-heading">Parts</h2>
                 <p>Parts assigned to @customer.Name.</p>
             </div>
-            <a class="button button-primary" href="@($"/parts/create?customerId={customer.Id}")">Create part</a>
+            @if (Can(Permissions.Parts.Create)) { <a class="button button-primary" href="@($"/parts/create?customerId={customer.Id}")">Create part</a> }
         </div>
 
-        @if (parts.Count == 0)
+        @if (!Can(Permissions.Parts.Read))
+        {
+            <p class="status-message">You do not have permission to view parts.</p>
+        }
+        else if (parts.Count == 0)
         {
             <div class="empty-state compact-empty-state">This customer has no parts.</div>
         }
@@ -427,8 +433,8 @@ else
         try
         {
             var customerTask = CustomerService.GetCustomerAsync(Id);
-            var partsTask = PartService.GetPartsForCustomerAsync(Id);
-            var plantsTask = CustomerService.GetPlantsAsync(Id);
+            var partsTask = Can(Permissions.Parts.Read) ? PartService.GetPartsForCustomerAsync(Id) : Task.FromResult<IReadOnlyList<PartListItem>>([]);
+            var plantsTask = Can(Permissions.Plants.Read) ? CustomerService.GetPlantsAsync(Id) : Task.FromResult<IReadOnlyList<PlantEditModel>>([]);
 
             await Task.WhenAll(customerTask, partsTask, plantsTask);
             customer = await customerTask;
@@ -440,8 +446,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load customer {CustomerId}", Id);
-            loadError = "The customer could not be loaded. Check that the database is running and configured.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The customer could not be loaded. Check that the database is running and configured.";
         }
         finally
         {
@@ -472,7 +479,8 @@ else
             }
             else { plantMessage = result.Message ?? (result.Status == PlantOperationStatus.DuplicateName ? "Plant names must be unique for this customer." : "The plant could not be saved."); plantMessageClass = "alert-error"; }
         }
-        catch (Exception exception) { Logger.LogError(exception, "Failed to save plant for customer {CustomerId}", Id); plantMessage = "The plant could not be saved."; plantMessageClass = "alert-error"; }
+        catch (Exception exception) {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync(); Logger.LogError(exception, "Failed to save plant for customer {CustomerId}", Id); plantMessage = exception is AuthorizationDeniedException ? exception.Message : "The plant could not be saved."; plantMessageClass = "alert-error"; }
         finally { isSavingPlant = false; }
     }
 
@@ -492,7 +500,8 @@ else
             }
             else { plantMessage = result.Message ?? "The plant could not be removed."; plantMessageClass = "alert-error"; }
         }
-        catch (Exception exception) { Logger.LogError(exception, "Failed to remove plant {PlantId}", plant.Id); plantMessage = "The plant could not be removed."; plantMessageClass = "alert-error"; }
+        catch (Exception exception) {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync(); Logger.LogError(exception, "Failed to remove plant {PlantId}", plant.Id); plantMessage = exception is AuthorizationDeniedException ? exception.Message : "The plant could not be removed."; plantMessageClass = "alert-error"; }
         finally { isSavingPlant = false; }
     }
 
@@ -531,8 +540,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save customer {CustomerId}", customer.Id);
-            saveMessage = "The changes could not be saved. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The changes could not be saved. Please try again.";
             saveMessageClass = "alert-error";
         }
         finally
@@ -565,6 +575,7 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save certification recipient for customer {CustomerId}", Id);
             SetCertificationError("The recipient could not be saved. Please try again.");
         }
@@ -592,6 +603,7 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to remove certification recipient {RecipientId}", recipient.Id);
             SetCertificationError("The recipient could not be removed. Please try again.");
         }
@@ -628,6 +640,7 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save certification settings for customer {CustomerId}", Id);
             SetCertificationError("The certification settings could not be saved. Please try again.");
         }
@@ -701,7 +714,7 @@ else
 
     private async Task LoadPlantCertificationAsync()
     {
-        certificationDelivery = selectedPlantId == 0
+        certificationDelivery = selectedPlantId == 0 || !(Can(Permissions.PlantCertificationRecipients.Read) || Can(Permissions.PlantCertificationSettings.Read))
             ? null
             : await CustomerService.GetPlantCertificationDeliveryAsync(selectedPlantId);
         newRecipient = new PlantCertificationRecipientEditModel { PlantId = selectedPlantId };
@@ -712,7 +725,13 @@ else
         selectedPlantId = plantId;
         showNewPlantEditor = false;
         certificationMessage = null;
-        await LoadPlantCertificationAsync();
+        try { await LoadPlantCertificationAsync(); }
+        catch (AuthorizationDeniedException exception)
+        {
+            certificationDelivery = null;
+            SetCertificationError(exception.Message);
+            await RefreshPermissionsAsync();
+        }
     }
 
     private void ShowNewPlantEditor()

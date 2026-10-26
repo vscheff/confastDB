@@ -1,3 +1,4 @@
+@inherits PermissionComponentBase
 @page "/received-parts"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Receiving.Read")]
 @using Confast.Web.Features.ContainerTracking
@@ -42,13 +43,13 @@ else
                             <td data-label="Actions"><div class="table-actions">
                                 @if (line.RemainingQuantity > 0)
                                 {
-                                    <button class="button button-primary" @onclick="() => OpenBegin(line)">Begin Inspection</button>
-                                    @if (line.HasMatchingInspectionCandidates)
+                                    @if (Can(Permissions.Receiving.BeginInspection)) { <button class="button button-primary" @onclick="() => OpenBegin(line)">Begin Inspection</button> }
+                                    @if (line.HasMatchingInspectionCandidates && Can(Permissions.Receiving.BumpQuantity))
                                     {
                                         <button class="button button-secondary" @onclick="() => OpenBumpAsync(line)">Bump Up</button>
                                     }
                                 }
-                                <button class="button button-secondary" @onclick="() => OpenCorrection(line)">Correct actual</button>
+                                @if (Can(Permissions.Containers.CorrectReceivedQuantities)) { <button class="button button-secondary" @onclick="() => OpenCorrection(line)">Correct actual</button> }
                             </div></td></tr>
                         @if (line.Allocations.Count > 0)
                         {
@@ -63,7 +64,7 @@ else
                                             <td>@(allocation.ReversedAtUtc is not null ? "Reversed" : allocation.InspectionCompleted ? "Completed" : allocation.InspectionAccepted ? "Accepted; not complete" : "In progress")</td>
                                             <td>@(allocation.ReversalReason ?? "—")</td>
                                             <td>@allocation.PerformedAtUtc.ToLocalTime().ToString("g")</td>
-                                            <td>@if (allocation.ReversedAtUtc is null) { <button class="button button-danger-outline" @onclick="() => OpenReversal(allocation)">Reverse</button> }</td></tr>
+                                            <td>@if (allocation.ReversedAtUtc is null && Can(Permissions.Receiving.ReverseAllocation)) { <button class="button button-danger-outline" @onclick="() => OpenReversal(allocation)">Reverse</button> }</td></tr>
                                     }
                                     </tbody></table>
                                 </details>
@@ -122,7 +123,7 @@ else
             <div class="alert alert-warning">This reverses this allocation only. Unsafe reversal of an inspection containing downstream work will be rejected.</div>
             <div class="form-field form-field-wide"><label for="reversal-reason">Reversal reason</label><InputTextArea id="reversal-reason" @bind-Value="reversalReason" /></div>
         }
-        <div class="form-actions"><button class="button button-primary" @onclick="SubmitDialogAsync" disabled="@(busy || (dialog == "bump" && selectedCandidateId == 0) || (dialog == "bump" && candidates.Count == 0))">Confirm</button>
+        <div class="form-actions"><button class="button button-primary" @onclick="SubmitDialogAsync" disabled="@(busy || !CanDialogAction || (dialog == "bump" && selectedCandidateId == 0) || (dialog == "bump" && candidates.Count == 0))">Confirm</button>
             <button class="button button-secondary" @onclick="CloseDialog" disabled="@busy">Cancel</button></div>
     </section></div>
 }
@@ -142,12 +143,17 @@ else
     private long selectedCandidateId;
     private ReceiptInspectionCandidate? SelectedCandidate => candidates.FirstOrDefault(x => x.InspectionId == selectedCandidateId);
     private string DialogTitle => dialog switch { "begin" => "Begin Inspection", "bump" => "Bump Up", "correct" => "Correct actual received quantity", "reverse" => "Reverse allocation", _ => "Received Parts" };
+    private bool CanDialogAction => dialog switch
+    {
+        "begin" => Can(Permissions.Receiving.BeginInspection), "bump" => Can(Permissions.Receiving.BumpQuantity),
+        "correct" => Can(Permissions.Containers.CorrectReceivedQuantities), "reverse" => Can(Permissions.Receiving.ReverseAllocation), _ => false
+    };
     protected override Task OnInitializedAsync() => LoadAsync();
     private async Task LoadAsync()
     {
         busy = true;
         try { containers = (await ReceivedParts.GetReceivedPartsAsync(search, includeFullyAssigned)).ToList(); }
-        catch (AuthorizationDeniedException ex) { message = ex.Message; isError = true; }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); message = ex.Message; isError = true; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load received parts"); message = "Received parts could not be loaded."; isError = true; }
         finally { busy = false; }
     }
@@ -162,7 +168,7 @@ else
             var actorId = await CurrentUser.GetUserIdAsync();
             beginModel.InspectorUserId = inspectorCandidates.FirstOrDefault(x => x.UserId == actorId)?.UserId;
         }
-        catch (AuthorizationDeniedException ex) { inspectorCandidates = []; dialogMessage = ex.Message; }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); inspectorCandidates = []; dialogMessage = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load eligible inspectors"); dialogMessage = "Inspectors could not be loaded."; }
         finally { busy = false; }
     }
@@ -180,7 +186,7 @@ else
                 CandidateChanged();
             }
         }
-        catch (AuthorizationDeniedException ex) { candidates = []; dialogMessage = ex.Message; }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); candidates = []; dialogMessage = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Failed to load receipt inspection candidates"); dialogMessage = "Inspections could not be loaded."; }
         finally { busy = false; }
     }
@@ -205,7 +211,7 @@ else
             var inspectionId = result.InspectionId; var wasBegin = dialog == "begin"; var wasBump = dialog == "bump"; CloseDialog(); message = "Received-parts operation saved."; bumpedUpInspectionId = wasBump ? inspectionId : null; isError = false; await LoadAsync();
             if (inspectionId is long id && wasBegin) Navigation.NavigateTo($"/inspections/{id}");
         }
-        catch (AuthorizationDeniedException ex) { dialogMessage = ex.Message; }
+        catch (AuthorizationDeniedException ex) { await RefreshPermissionsAsync(); dialogMessage = ex.Message; }
         catch (Exception ex) { Logger.LogError(ex, "Received-parts operation failed"); dialogMessage = "The operation could not be saved."; }
         finally { busy = false; }
     }

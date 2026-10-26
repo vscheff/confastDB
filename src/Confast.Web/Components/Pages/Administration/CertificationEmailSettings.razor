@@ -1,0 +1,41 @@
+@page "/admin/certification-email-settings"
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:CertificationEmailSettings.Read")]
+@using Confast.Web.Features.Inspections
+@inject ICertificationEmailTemplateService TemplateService
+
+<PageTitle>Certification Email Settings</PageTitle>
+<h1>Certification Email Settings</h1>
+@if (model is not null)
+{
+    <EditForm Model="model" OnValidSubmit="SaveAsync" FormName="certification-email-settings" class="record-form">
+        <div class="form-field">
+            <label for="implicit-cc-address">Implicit CC Email Address</label>
+            <input id="implicit-cc-address" type="email" @bind="address" disabled="@(!Can(Permissions.CertificationEmailSettings.Update))" />
+            <p class="field-hint">Added to every certification email. Leave blank to add none.</p>
+        </div>
+        <div class="form-actions">
+            <button class="button button-primary" disabled="@(saving || !Can(Permissions.CertificationEmailSettings.Update))">Save Settings</button>
+        </div>
+    </EditForm>
+}
+@if (message is not null) { <div class="alert @(saved ? "alert-success" : "alert-error")" role="status">@message</div> }
+
+@code {
+    private CertificationEmailSettingsEditModel? model;
+    private string? address, message;
+    private bool saving, saved;
+    protected override async Task OnInitializedAsync()
+    {
+        try { model = await TemplateService.GetSettingsAsync(); address = model.ImplicitCcAddress; }
+        catch (AuthorizationDeniedException exception) { message = exception.Message; await RefreshPermissionsAsync(); }
+    }
+    private async Task SaveAsync()
+    {
+        saving = true; saved = false;
+        try { await TemplateService.SaveSettingsAsync(new(address)); saved = true; message = "Certification email settings saved."; }
+        catch (Exception exception) when (exception is AuthorizationDeniedException or CertificationEmailTemplateException)
+        { message = exception.Message; await RefreshPermissionsAsync(); }
+        finally { saving = false; }
+    }
+}

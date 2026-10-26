@@ -4,10 +4,10 @@
     {
         <label class="checkbox-field">
             <input type="checkbox"
-                   checked="@(role.Id == AppRoles.ReadOnlyId || SelectedRoles.Contains(role.Name))"
-                   disabled="@(!role.CanChange)"
+                   checked="@SelectedRoles.Contains(role.Name)"
+                   disabled="@(Disabled || !role.CanChange)"
                    @onchange="eventArgs => SetRole(role.Name, eventArgs.Value as bool? == true)" />
-            @role.Name @if (role.Reason is not null) { <small class="muted">(@role.Reason)</small> }
+            @role.Name @if (!role.IsEnabled) { <small>(Disabled)</small> } @if (role.Reason is not null) { <small class="muted">(@role.Reason)</small> }
         </label>
     }
 </fieldset>
@@ -18,8 +18,10 @@
 
     [Parameter, EditorRequired]
     public IReadOnlyList<UserRoleChoice> Choices { get; set; } = [];
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
 
-    private void SetRole(string role, bool selected)
+    private async Task SetRole(string role, bool selected)
     {
         if (selected)
         {
@@ -29,5 +31,6 @@
         {
             SelectedRoles.Remove(role);
         }
+        await Changed.InvokeAsync();
     }
 }

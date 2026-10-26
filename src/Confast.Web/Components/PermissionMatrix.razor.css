@@ -1,0 +1,16 @@
+.matrix-filters { display: flex; flex-wrap: wrap; gap: .75rem; margin: .75rem 0; }
+.matrix-filters label { display: grid; gap: .3rem; flex: 1 1 12rem; }
+.matrix-filters input, .matrix-filters select { min-height: 2.5rem; width: 100%; }
+.matrix-group { border: 1px solid var(--border-color, #ccc); border-radius: .35rem; margin: .6rem 0; }
+.matrix-group > summary { padding: .65rem; cursor: pointer; font-weight: 600; }
+.matrix-scroll { overflow-x: auto; }
+table { min-width: 780px; width: 100%; }
+td { vertical-align: top; }
+td:first-child { min-width: 230px; }
+td:last-child { min-width: 240px; }
+code { font-size: .78rem; overflow-wrap: anywhere; }
+input[type=checkbox] { width: 1.3rem; height: 1.3rem; margin: .45rem; }
+small { display: block; }
+details details { margin-top: .35rem; font-size: .85rem; }
+details details summary { padding: .35rem 0; cursor: pointer; }
+.matrix-warning { color: var(--danger, #a32a22); }

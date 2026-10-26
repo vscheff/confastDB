@@ -1,3 +1,4 @@
+@inherits PermissionComponentBase
 @using Confast.Web.Features.ProductionScheduling
 @inject ProductionService ProductionService
 @inject ILogger<PartProductionSettings> Logger
@@ -9,7 +10,7 @@
             <h2 id="part-production-settings-heading">Production Scheduling</h2>
             <p>This part’s eligible machines, preferred machine, and target rates.</p>
         </div>
-        @if (data?.IsAdministrator == true)
+        @if (Can(Permissions.PartMachineEligibility.Create))
         {
             <div class="heading-actions">
                 <button class="button button-primary" type="button" disabled="@(isSaving || showNewMachine)" @onclick="StartAddingMachine">Add Eligible Machine</button>
@@ -35,16 +36,16 @@
         {
             <div class="table-shell">
                 <table class="data-table part-production-rates-table">
-                    <thead><tr><th>Machine</th><th>Preferred Machine</th><th>Target PPH</th><th>Effective PPH</th>@if (data.IsAdministrator) { <th class="part-production-rate-actions-header">Actions</th> }</tr></thead>
+                    <thead><tr><th>Machine</th><th>Preferred Machine</th><th>Target PPH</th><th>Effective PPH</th>@if (Can(Permissions.PartMachineEligibility.Update) || Can(Permissions.PartMachineEligibility.Delete)) { <th class="part-production-rate-actions-header">Actions</th> }</tr></thead>
                     <tbody>
                         @if (showNewMachine)
                         {
-                            <tr class="part-production-new-rate"><td><select aria-label="Eligible machine" @bind="newMachineId"><option value="">Select a machine</option>@foreach (var machine in AvailableMachines) { <option value="@machine.Id">@machine.Name@(!machine.IsActive ? " (inactive)" : null)</option> }</select></td><td></td><td><ThousandsSeparatedLongInput @bind-Value="newTargetPph" class="part-production-rate-input" aria-label="Target PPH" @onkeydown="HandleNewTargetPphKeyDown" /></td><td>@EffectivePph(newTargetPph)</td><td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="SaveNewMachineAsync">Save</button><button class="button button-secondary" type="button" disabled="@isSaving" @onclick="CancelAddingMachine">Cancel</button></td></tr>
+                            <tr class="part-production-new-rate"><td><select aria-label="Eligible machine" @bind="newMachineId"><option value="">Select a machine</option>@foreach (var machine in AvailableMachines) { <option value="@machine.Id">@machine.Name@(!machine.IsActive ? " (inactive)" : null)</option> }</select></td><td></td><td><ThousandsSeparatedLongInput @bind-Value="newTargetPph" class="part-production-rate-input" aria-label="Target PPH" @onkeydown="HandleNewTargetPphKeyDown" /></td><td>@EffectivePph(newTargetPph)</td><td class="part-production-rate-actions">@if (Can(Permissions.PartMachineEligibility.Create)) { <button class="button button-primary" type="button" disabled="@isSaving" @onclick="SaveNewMachineAsync">Save</button> }<button class="button button-secondary" type="button" disabled="@isSaving" @onclick="CancelAddingMachine">Cancel</button></td></tr>
                         }
                         @foreach (var machine in EligibleMachines)
                         {
                             var rate = rateEditors.Single(editor => editor.MachineId == machine.Id);
-                            <tr><td>@machine.Name@(!machine.IsActive ? " (inactive)" : null)</td><td class="part-production-preferred"><div class="part-production-preferred-content">@if (data.IsAdministrator) { <input type="radio" name="preferred-machine" aria-label="@($"Preferred machine: {machine.Name}")" checked="@rate.IsPreferred" disabled="@(isSaving || !machine.IsActive)" @onchange="() => SetPreferredMachineAsync(machine.Id)" /> } else if (rate.IsPreferred) { <span>Preferred</span> }</div></td><td>@if (data.IsAdministrator) { <ThousandsSeparatedLongInput @bind-Value="rate.TargetPph" class="part-production-rate-input" aria-label="@($"Target PPH for {machine.Name}")" @onkeydown="args => HandleTargetPphKeyDown(args, rate)" /> } else { @rate.TargetPph?.ToString("N0") }</td><td>@EffectivePph(rate.TargetPph)</td>@if (data.IsAdministrator) { <td class="part-production-rate-actions"><button class="button button-primary" type="button" disabled="@isSaving" @onclick="() => SaveRateAsync(rate)">Save</button><button class="button button-danger-outline" type="button" disabled="@isSaving" @onclick="() => RemoveAsync(machine.Id)">Remove Eligibility</button></td> }</tr>
+                            <tr><td>@machine.Name@(!machine.IsActive ? " (inactive)" : null)</td><td class="part-production-preferred"><div class="part-production-preferred-content">@if (Can(Permissions.PartMachineEligibility.Update)) { <input type="radio" name="preferred-machine" aria-label="@($"Preferred machine: {machine.Name}")" checked="@rate.IsPreferred" disabled="@(isSaving || !machine.IsActive)" @onchange="() => SetPreferredMachineAsync(machine.Id)" /> } else if (rate.IsPreferred) { <span>Preferred</span> }</div></td><td>@if (Can(Permissions.PartMachineEligibility.Update)) { <ThousandsSeparatedLongInput @bind-Value="rate.TargetPph" class="part-production-rate-input" aria-label="@($"Target PPH for {machine.Name}")" @onkeydown="args => HandleTargetPphKeyDown(args, rate)" /> } else { @rate.TargetPph?.ToString("N0") }</td><td>@EffectivePph(rate.TargetPph)</td>@if (Can(Permissions.PartMachineEligibility.Update) || Can(Permissions.PartMachineEligibility.Delete)) { <td class="part-production-rate-actions">@if (Can(Permissions.PartMachineEligibility.Update)) { <button class="button button-primary" type="button" disabled="@isSaving" @onclick="() => SaveRateAsync(rate)">Save</button> }@if (Can(Permissions.PartMachineEligibility.Delete)) { <button class="button button-danger-outline" type="button" disabled="@isSaving" @onclick="() => RemoveAsync(machine.Id)">Remove Eligibility</button> }</td> }</tr>
                         }
                     </tbody>
                 </table>
@@ -61,7 +62,7 @@
     [Parameter]
     public EventCallback<bool> OnEligibilityChanged { get; set; }
 
-    private ProductionSnapshot? data;
+    private PartProductionConfiguration? data;
     private List<RateEditor> rateEditors = [];
     private long? newMachineId;
     private long? newTargetPph;
@@ -88,7 +89,7 @@
         message = null;
         try
         {
-            data = await ProductionService.GetAsync();
+            data = await ProductionService.GetPartConfigurationAsync(PartId);
             rateEditors = EligibleMachines.Select(machine =>
             {
                 var rate = machine.Parts.Single(rate => rate.PartId == PartId);
@@ -100,6 +101,7 @@
         {
             data = null;
         }
+        catch (AuthorizationDeniedException exception) { await RefreshPermissionsAsync(); message = exception.Message; }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to load production settings for part {PartId}", PartId);
@@ -180,6 +182,7 @@
         {
             message = exception.Message;
         }
+        catch (AuthorizationDeniedException exception) { await RefreshPermissionsAsync(); message = exception.Message; }
         catch (Exception exception)
         {
             Logger.LogError(exception, "Failed to save production settings for part {PartId}", PartId);

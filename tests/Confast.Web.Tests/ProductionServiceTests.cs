@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.Gages;
@@ -17,9 +18,11 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
     private ProductionService service = null!;
     private readonly TestClock clock = new();
     private long partId, machineId;
+    private readonly AuthorizationTestSession session = new(database);
     public async Task InitializeAsync()
     {
         await database.ResetAsync();
+        await session.ProvisionRootAsync();
         await using var db = database.CreateDbContext();
         await db.Database.ExecuteSqlRawAsync("TRUNCATE production_progress, production_requirements, production_segments, production_jobs, part_machines, machine_working_days, machine_downtime, sorting_machines, production_holidays, downtime_reasons, production_audit RESTART IDENTITY CASCADE");
         var settings = await db.Set<ProductionSettings>().SingleAsync(); settings.EfficiencyPercent = 91;
@@ -88,13 +91,14 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
                 IsComplete = false
             });
         await db.SaveChangesAsync();
-        service = new(database, new TestUser(), clock);
+        await session.SignInAsync("planner");
+        service = new(database, session.Guard, clock);
         await service.SaveMachineAsync(await Revision(), 0, "Sorter", true, false, [0, 8, 8, 8, 8, 8, 0]);
         machineId = (await service.GetAsync()).Machines.Single().Id;
         await service.SaveRateAsync(await Revision(), machineId, partId, 10000);
         await service.SetPreferredMachineAsync(await Revision(), machineId, partId);
     }
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() { session.Dispose(); return Task.CompletedTask; }
     private async Task<long> Revision() => (await service.GetAsync()).Settings.Revision;
     private async Task<ProductionSegment> AddJob(decimal quantity = 100000)
     {
@@ -659,9 +663,9 @@ public sealed class ProductionServiceTests(PostgresTestDatabase database) : IAsy
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveMachineAsync(await Revision(), machineId, "Sorter", true, false, [0, 8.25m, 8, 8, 8, 8, 0]));
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 0));
         await Assert.ThrowsAsync<SchedulingException>(async () => await service.SaveRateAsync(await Revision(), machineId, partId, 100.5m));
-        await using (var db = database.CreateDbContext()) { db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.RoleId != AppRoles.ReadOnlyId).ToListAsync()); await db.SaveChangesAsync(); }
+        await using (var db = database.CreateDbContext()) { db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.UserId == "planner" && x.RoleId != AppRoles.ReadOnlyId).ToListAsync()); await db.SaveChangesAsync(); }
         var data = await service.GetAsync(); Assert.False(data.CanEdit);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SaveJobAsync(data.Settings.Revision, 0, partId, machineId, 100, null, null, null));
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => service.SaveJobAsync(data.Settings.Revision, 0, partId, machineId, 100, null, null, null));
     }
 
     private sealed class TestUser : ICurrentUser { public ValueTask<string?> GetUserIdAsync() => ValueTask.FromResult<string?>("planner"); }

@@ -1,0 +1,4 @@
+.moderation-history { position: absolute; inset: 3.5rem .75rem .75rem; z-index: 25; overflow: auto; padding: 1rem; font-size: .85rem; background: var(--surface, #fff); color: var(--text-color, #202a33); border: 1px solid #9aa5b0; border-radius: .5rem; box-shadow: 0 8px 30px #0003; }
+.history-scroll { overflow-x: auto; }
+table { min-width: 580px; }
+td { vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }

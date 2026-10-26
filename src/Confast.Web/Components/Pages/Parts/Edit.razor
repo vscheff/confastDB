@@ -1,3 +1,5 @@
+@inherits PermissionComponentBase
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Parts.Read")]
 @page "/parts/{Id:long}/edit"
 @using Confast.Web.Features.InspectionCriteria
 @using Confast.Web.Features.Parts
@@ -34,10 +36,10 @@ else
         <div class="heading-actions">
             @if (currentRevision is not null)
             {
-                <a class="button button-primary" href="@($"/inspections/create?partId={part.Id}")">New Inspection</a>
+                @if (Can(Permissions.Inspections.Create)) { <a class="button button-primary" href="@($"/inspections/create?partId={part.Id}")">New Inspection</a> }
             }
-            <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a>
-            <a class="button button-secondary" href="@($"/parts/{part.Id}/flips")">Flip Configuration</a>
+            @if (Can(Permissions.Parts.Delete)) { <a class="button button-danger-outline" href="@($"/parts/{part.Id}/delete")">Delete</a> }
+            @if (Can(Permissions.PartFlipDefinitions.Read)) { <a class="button button-secondary" href="@($"/parts/{part.Id}/flips")">Flip Configuration</a> }
         </div>
     </div>
 
@@ -46,7 +48,7 @@ else
         <div class="alert @saveMessageClass" role="status">@saveMessage</div>
     }
 
-    <PartForm Model="part"
+    <PartForm CanEdit="Can(Permissions.Parts.Update)" Model="part"
               CustomerOptions="customerOptions"
               PlantOptions="plantOptions"
               SupplierOptions="supplierOptions"
@@ -104,17 +106,17 @@ else
             <div class="heading-actions">
                 @if (criteriaSummary?.DraftRevision is not null)
                 {
-                    <a class="button button-primary" href="@RevisionUrl(criteriaSummary.DraftRevision.Id)">Edit draft</a>
+                    <a class="button button-primary" href="@RevisionUrl(criteriaSummary.DraftRevision.Id)">@(Can(Permissions.InspectionCriteria.Update) ? "Edit Draft" : "View Draft")</a>
                 }
                 else if (currentRevision?.CanEdit == true)
                 {
-                    <a class="button button-primary" href="@RevisionUrl(currentRevision.Id)">Edit current revision</a>
+                    <a class="button button-primary" href="@RevisionUrl(currentRevision.Id)">@(Can(Permissions.InspectionCriteria.Update) ? "Edit Current Revision" : "View Current Revision")</a>
                 }
                 else
                 {
-                    <a class="button button-primary" href="@($"/parts/{Id}/inspection-criteria/create")">
+                    @if (Can(Permissions.InspectionCriteria.Create)) { <a class="button button-primary" href="@($"/parts/{Id}/inspection-criteria/create")">
                         @(criteriaSummary?.CurrentRevision is null ? "Create Initial Revision" : "Create New Revision")
-                    </a>
+                    </a> }
                 }
                 <a class="button button-secondary" href="@($"/parts/{Id}/inspection-criteria")">History</a>
             </div>
@@ -127,7 +129,11 @@ else
             </div>
         }
 
-        @if (currentRevision is null)
+        @if (!Can(Permissions.InspectionCriteria.Read))
+        {
+            <p class="status-message">You do not have permission to view inspection criteria.</p>
+        }
+        else if (currentRevision is null)
         {
             <div class="empty-state compact-empty-state">No inspection criteria have been published for this part.</div>
         }
@@ -356,8 +362,8 @@ else
             var partTask = PartService.GetPartAsync(Id);
             var eligibilityTask = PartService.HasEligibleMachineAsync(Id);
             var optionsTask = PartService.GetCustomerOptionsAsync();
-            var criteriaTask = CriteriaService.GetPartSummaryAsync(Id);
-            var certificationTypesTask = CriteriaService.GetCertificationTypeChoicesAsync();
+            var criteriaTask = Can(Permissions.InspectionCriteria.Read) ? CriteriaService.GetPartSummaryAsync(Id) : Task.FromResult<PartInspectionCriteriaSummary?>(null);
+            var certificationTypesTask = Can(Permissions.InspectionCriteria.Read) ? CriteriaService.GetCertificationTypeChoicesAsync() : Task.FromResult<IReadOnlyList<CertificationTypeChoice>>([]);
 
             await Task.WhenAll(partTask, eligibilityTask, optionsTask, criteriaTask, certificationTypesTask);
             part = await partTask;
@@ -383,8 +389,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to load part {PartId}", Id);
-            loadError = "The part could not be loaded. Please try again.";
+            loadError = exception is AuthorizationDeniedException ? exception.Message : "The part could not be loaded. Please try again.";
         }
         finally
         {
@@ -457,8 +464,9 @@ else
         }
         catch (Exception exception)
         {
+            if (exception is AuthorizationDeniedException) await RefreshPermissionsAsync();
             Logger.LogError(exception, "Failed to save part {PartId}", part.Id);
-            saveMessage = "The changes could not be saved. Please try again.";
+            saveMessage = exception is AuthorizationDeniedException ? exception.Message : "The changes could not be saved. Please try again.";
             saveMessageClass = "alert-error";
         }
         finally

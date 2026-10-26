@@ -1,3 +1,4 @@
+using Confast.Web.Features.Authorization;
 using System.Data;
 using Confast.Web.Data;
 using Microsoft.EntityFrameworkCore;
@@ -5,7 +6,7 @@ using Npgsql;
 
 namespace Confast.Web.Features.InspectionCriteria;
 
-public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> contextFactory, ApplicationAuthorization authorization)
 {
     public const long MaximumMasterPrintBytes = 25 * 1024 * 1024;
 
@@ -40,6 +41,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
     public async Task<IReadOnlyList<string>> GetUnitChoicesAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("CriteriaReferences"), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var savedUnits = await db.InspectionCriteria
             .AsNoTracking()
@@ -64,6 +66,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
     public async Task<IReadOnlyList<SecondaryProcessTypeChoice>> GetSecondaryProcessTypeChoicesAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("CriteriaReferences"), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.SecondaryProcessTypes
             .AsNoTracking()
@@ -75,6 +78,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
     public async Task<IReadOnlyList<CertificationTypeChoice>> GetCertificationTypeChoicesAsync(
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("CriteriaReferences"), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         return await db.CertificationTypes
             .AsNoTracking()
@@ -88,6 +92,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long partId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("Part", partId.ToString()), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var part = await db.Parts
@@ -119,6 +124,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long partId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("Part", partId.ToString()), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await RevisionSummaries(
@@ -134,6 +140,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long revisionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var revision = await db.InspectionCriteriaRevisions
@@ -238,6 +245,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long criterionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Read", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Read], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await db.InspectionCriteria
@@ -267,6 +275,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         string? changeNote,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Create", new("Part", partId.ToString()), [Permissions.InspectionCriteria.Create], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
@@ -407,6 +416,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Publish", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Publish], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
@@ -484,6 +494,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Delete", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -537,6 +548,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         InspectionCriteriaRevisionHeaderEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -572,6 +584,21 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long revisionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("MasterPrints.Read", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.MasterPrints.Read], cancellationToken);
+        return await GetMasterPrintCoreAsync(partId, revisionId, cancellationToken);
+    }
+
+    internal Task<MasterPrintFile?> GetMasterPrintForHttpAsync(long partId, long revisionId, AuthorizedOperation operation, CancellationToken cancellationToken)
+    {
+        operation.Require("MasterPrints.Read", new("CriteriaRevision", $"{partId}/{revisionId}"), Permissions.MasterPrints.Read);
+        return GetMasterPrintCoreAsync(partId, revisionId, cancellationToken);
+    }
+
+    private async Task<MasterPrintFile?> GetMasterPrintCoreAsync(
+        long partId,
+        long revisionId,
+        CancellationToken cancellationToken)
+    {
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         var file = await db.InspectionCriteriaRevisions
             .AsNoTracking()
@@ -595,6 +622,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("MasterPrints.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.MasterPrints.Update], cancellationToken);
         var validationError = ValidateMasterPrint(fileName, content);
         if (validationError is not null)
         {
@@ -639,6 +667,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("MasterPrints.Delete", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.MasterPrints.Delete], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -675,6 +704,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         InspectionCriterionEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -748,6 +778,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         InspectionCriterionEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -825,6 +856,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -868,6 +900,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         bool moveUp,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -928,6 +961,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long targetCriterionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         if (criterionId == targetCriterionId)
         {
             return new CriteriaOperationResult(CriteriaOperationStatus.Succeeded, revisionId);
@@ -995,6 +1029,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         long revisionId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -1039,6 +1074,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         SecondaryProcessRequirementEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -1095,6 +1131,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         SecondaryProcessRequirementEditModel model,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         var validationError = Validate(model);
         if (validationError is not null)
         {
@@ -1160,6 +1197,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         uint version,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         await using var db = await contextFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var revision = await LockRevisionAsync(db, partId, revisionId, cancellationToken);
@@ -1202,6 +1240,7 @@ public sealed class InspectionCriteriaService(IDbContextFactory<AppDbContext> co
         IReadOnlyCollection<RevisionCertificationRequirementEditModel> models,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync("InspectionCriteria.Update", new("CriteriaRevision", $"{partId}/{revisionId}"), [Permissions.InspectionCriteria.Update], cancellationToken);
         if (models.Any(x => x.CertificationTypeId <= 0)
             || models.Select(x => x.CertificationTypeId).Distinct().Count() != models.Count
             || models.Any(x => x.RequirementLevel is not null

@@ -1,5 +1,6 @@
 using Confast.Web.Data;
 using Confast.Web.Features.Chat;
+using Confast.Web.Features.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Identity;
@@ -15,7 +16,8 @@ public sealed class UserProfilePicture
 
 public sealed class UserProfilePictureService(
     IDbContextFactory<AppDbContext> dbFactory,
-    ICurrentUser currentUser,
+    ApplicationAuthorization authorization,
+    IHttpContextAccessor http,
     ChatNotifications notifications)
 {
     public const int MaximumPictureBytes = 1_048_576;
@@ -24,7 +26,7 @@ public sealed class UserProfilePictureService(
     public async Task<IReadOnlyDictionary<string, Guid>> GetVersionsAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        await RequireActiveUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetVersionsAsync), new("ChatProfilePictures"), [Permissions.Chat.Access], cancellationToken);
         return await db.UserProfilePictures.AsNoTracking()
             .Where(x => x.User.IsActive)
             .ToDictionaryAsync(x => x.UserId, x => x.Version, cancellationToken);
@@ -33,17 +35,30 @@ public sealed class UserProfilePictureService(
     public async Task<string> GetCurrentUserDisplayNameAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireActiveUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(GetCurrentUserDisplayNameAsync), new("OwnProfile"), [], cancellationToken);
+        var userId = operation.ActorUserId;
         return await db.Users.AsNoTracking().Where(x => x.Id == userId)
             .Select(x => x.DisplayName).SingleAsync(cancellationToken);
     }
 
-    public async Task<(byte[] Data, string ContentType)?> GetAsync(string requesterUserId, string userId,
+    public async Task<(byte[] Data, string ContentType)?> GetAsync(string userId,
         CancellationToken cancellationToken = default)
     {
+        using var operation = await authorization.BeginAsync(nameof(GetAsync), new("ChatProfilePicture", userId), [Permissions.Chat.Access], cancellationToken);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        if (!await db.Users.AnyAsync(x => x.Id == requesterUserId && x.IsActive, cancellationToken))
-            throw new UnauthorizedAccessException("An active account is required to view profile pictures.");
+        return await FindPictureAsync(db, userId, cancellationToken);
+    }
+
+    internal async Task<(byte[] Data, string ContentType)?> GetForHttpAsync(string userId, CancellationToken cancellationToken)
+    {
+        BusinessHttpAuthorization.Require(http.HttpContext!, "ChatProfilePicture", new("ChatProfilePicture", userId), Permissions.Chat.Access);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await FindPictureAsync(db, userId, cancellationToken);
+    }
+
+    private static async Task<(byte[] Data, string ContentType)?> FindPictureAsync(AppDbContext db, string userId,
+        CancellationToken cancellationToken)
+    {
         var picture = await db.UserProfilePictures.AsNoTracking()
             .Where(x => x.UserId == userId && x.User.IsActive)
             .Select(x => new { x.Data, x.ContentType })
@@ -59,7 +74,8 @@ public sealed class UserProfilePictureService(
             ?? throw new InvalidOperationException("Choose a PNG, JPEG, GIF, or WebP picture.");
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireActiveUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(SaveAsync), new("OwnProfile"), [], cancellationToken);
+        var userId = operation.ActorUserId;
         var version = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO identity_user_profile_pictures (user_id, data, content_type, version)
@@ -75,17 +91,10 @@ public sealed class UserProfilePictureService(
     public async Task RemoveAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await RequireActiveUserAsync(db, cancellationToken);
+        using var operation = await authorization.BeginAsync(nameof(RemoveAsync), new("OwnProfile"), [], cancellationToken);
+        var userId = operation.ActorUserId;
         await db.UserProfilePictures.Where(x => x.UserId == userId).ExecuteDeleteAsync(cancellationToken);
         await NotifyUsersAsync(db, cancellationToken);
-    }
-
-    private async Task<string> RequireActiveUserAsync(AppDbContext db, CancellationToken cancellationToken)
-    {
-        var userId = await currentUser.GetUserIdAsync();
-        if (userId is null || !await db.Users.AnyAsync(x => x.Id == userId && x.IsActive, cancellationToken))
-            throw new UnauthorizedAccessException("An active account is required to view profile pictures.");
-        return userId;
     }
 
     private async Task NotifyUsersAsync(AppDbContext db, CancellationToken cancellationToken) =>
