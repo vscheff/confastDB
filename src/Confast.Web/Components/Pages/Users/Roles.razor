@@ -60,22 +60,30 @@
                     <button class="button button-secondary" disabled="@busy" @onclick="ReapplyAsync">Reload And Reapply</button>
                     <button class="button button-danger-outline" disabled="@(!CanEdit(Permissions.Roles.Delete))" @onclick="BeginDeleteAsync">Delete Role</button>
                 </div>
-                @if (previewStale && draft.IsDirty) { <p role="status">Inherited, Effective, And Usable Columns Show The Last Server Projection. Use The Optional Preview To Evaluate Proposed Changes.</p> }
                 @if (preview is not null)
                 {
-                    <section class="confirmation-card" aria-label="Change Impact Preview">
+                    <section @ref="impactPreview" class="confirmation-card" aria-label="Change Impact Preview">
                         <h3>@(confirmingDelete ? "Deletion Impact Preview" : "Change Impact Preview")</h3>
-                        <p>Epoch @preview.Version.Epoch · Generation @preview.Version.Generation · Role Version @preview.ConcurrencyStamp</p>
-                        <p>@(preview.Permitted ? "Currently Permitted; Save Independently Rechecks Authority And Concurrency." : preview.Rejection)</p>
+                        @if (!preview.Permitted) { <p>@preview.Rejection</p> }
+                        <h4 class="impact-role-heading">@selected.Name</h4>
                         <PermissionImpactSummary Impact="preview.SelectedRole" />
                         <p>@preview.ChangedUsers Assigned Users Would Change Effective Permissions. Account Identities Are Withheld.</p>
-                        <details><summary>Affected Descendants (@preview.Descendants.Count)</summary>
-                            @foreach (var item in preview.Descendants) { <h4>@item.Name @(!item.IsEnabled ? "(Disabled)" : "")</h4><PermissionImpactSummary Impact="item.Permissions" /> }
+                        <details class="impact-group"><summary>Affected Descendants (@preview.Descendants.Count)</summary>
+                            @foreach (var item in preview.Descendants)
+                            {
+                                <section class="descendant-impact-role" aria-label="Impact on @item.Name">
+                                    <h4>@item.Name @(!item.IsEnabled ? "(Disabled)" : "")</h4>
+                                    <PermissionImpactSummary Impact="item.Permissions" />
+                                </section>
+                            }
                         </details>
-                        <details><summary>Your Effective Access And Management Reach</summary><PermissionImpactSummary Impact="preview.Actor" />
-                            <p>Reach Added: @(preview.ReachAdded.Count == 0 ? "None" : string.Join(", ", preview.ReachAdded))</p>
-                            <p>Reach Removed: @(preview.ReachRemoved.Count == 0 ? "None" : string.Join(", ", preview.ReachRemoved))</p>
-                            <p>Server validation checks every direct anchor independently, including disabled anchors.</p>
+                        <details class="impact-group"><summary>Changes To Your Permissions</summary>
+                            <div class="descendant-impact-role"><PermissionImpactSummary Impact="preview.Actor" /></div>
+                        </details>
+                        <details><summary>Changes To Your Role Hierarchy</summary>
+                            <p>Roles Added To Your Hierarchy: @(preview.ReachAdded.Count == 0 ? "None" : string.Join(", ", preview.ReachAdded))</p>
+                            <p>Roles Removed From Your Hierarchy: @(preview.ReachRemoved.Count == 0 ? "None" : string.Join(", ", preview.ReachRemoved))</p>
+                            <p>Hierarchy alone does not determine which roles you can manage. This comparison includes disabled roles directly assigned to you.</p>
                         </details>
                         @if (confirmingDelete)
                         {
@@ -88,16 +96,22 @@
                 <details class="inheritance-editor" open>
                     <summary>Role Inheritance</summary>
                     <h3>Direct Parents</h3>
-                    @foreach (var parent in editor.Parents.Where(x => x.Id != selected.Id && (x.Direct || x.CanAdd || draft.Parents.Contains(x.Id))))
+                    <div class="parent-choices">
+                    @foreach (var parent in editor.Parents.Where(x => x.Id != selected.Id && x.Id != AppRoles.RootId && (x.Direct || x.CanAdd || draft.Parents.Contains(x.Id))))
                     {
-                        <label class="checkbox-field"><input type="checkbox" checked="@draft.Parents.Contains(parent.Id)"
+                        <label class="parent-choice"><input type="checkbox" checked="@draft.Parents.Contains(parent.Id)"
                             disabled="@(busy || !CanEdit(Permissions.Roles.ManageInheritance) || (!parent.CanAdd && !parent.Direct))"
-                            @onchange="e => SetParent(parent.Id, e.Value is true)" />@parent.Name @(!parent.Enabled ? "(Disabled)" : "")
-                            <small class="muted">@parent.Reason</small></label>
+                            @onchange="e => SetParent(parent.Id, e.Value is true)" /><span>@parent.Name @(!parent.Enabled ? "(Disabled)" : "")
+                            @if (parent.Reason != "Final Graph Safety Checked On Preview And Save") { <small class="muted">@parent.Reason</small> }</span></label>
                     }
-                    <details><summary>Unavailable Parent Choices</summary>
-                        @foreach (var parent in editor.Parents.Where(x => x.Id != selected.Id && !x.Direct && !x.CanAdd)) { <p><b>@parent.Name</b> · @parent.Reason</p> }
-                    </details>
+                    </div>
+                    @{ var unavailableParents = editor.Parents.Where(x => x.Id != selected.Id && x.Id != AppRoles.RootId && !x.Direct && !x.CanAdd).ToArray(); }
+                    @if (unavailableParents.Length > 0)
+                    {
+                        <details><summary>Unavailable Parent Choices</summary>
+                            @foreach (var parent in unavailableParents) { <p><b>@parent.Name</b> · @parent.Reason</p> }
+                        </details>
+                    }
                     <h3>Transitive Inherited Roles (Committed State)</h3><p>@string.Join(", ", TransitiveParents)</p>
                     <h3>Roles Inheriting From This Role</h3>
                     @if (editor.Descendants.Count == 0) { <p>None</p> }
@@ -128,6 +142,7 @@ else { <p>Role Administration Is Unavailable.</p> }
 
 @code {
     private ElementReference selectionDialog;
+    private ElementReference impactPreview;
     private IJSObjectReference? dialogModule;
     private RoleAdministrationView? view;
     private RoleAdministrationItem? selected;
@@ -136,7 +151,7 @@ else { <p>Role Administration Is Unavailable.</p> }
     private RoleChangePreview? preview;
     private string search = "", status = "all", newName = "";
     private string? newDescription, anchor, error, success, pendingSelection;
-    private bool busy, previewStale = true, confirmingDelete;
+    private bool busy, previewStale = true, confirmingDelete, scrollToDeletionPreview;
     private long observedRevision = -1;
     private bool Has(string key) => Can(key);
     private bool CanEdit(string key) => !busy && selected?.CanEdit == true && Has(key);
@@ -175,9 +190,14 @@ else { <p>Role Administration Is Unavailable.</p> }
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (pendingSelection is null) return;
+        if (pendingSelection is null && !scrollToDeletionPreview) return;
         dialogModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/Pages/Users/Roles.razor.js");
-        await dialogModule.InvokeVoidAsync("show", selectionDialog);
+        if (pendingSelection is not null) await dialogModule.InvokeVoidAsync("show", selectionDialog);
+        if (scrollToDeletionPreview)
+        {
+            scrollToDeletionPreview = false;
+            if (confirmingDelete && preview is not null) await dialogModule.InvokeVoidAsync("revealPreview", impactPreview);
+        }
     }
     private async Task KeepEditingAsync()
     {
@@ -220,7 +240,7 @@ else { <p>Role Administration Is Unavailable.</p> }
         view = await RoleService.GetRolesAsync(); await SelectAsync(id); success = "Role Created.";
     });
     private Task PreviewAsync() => RunAsync(async () => { preview = await RoleService.PreviewAsync(draft!.Input()); previewStale = false; confirmingDelete = false; });
-    private Task BeginDeleteAsync() => RunAsync(async () => { preview = await RoleService.PreviewAsync(draft!.Input(true)); previewStale = false; confirmingDelete = true; });
+    private Task BeginDeleteAsync() => RunAsync(async () => { preview = await RoleService.PreviewAsync(draft!.Input(true)); previewStale = false; confirmingDelete = true; scrollToDeletionPreview = true; });
     private Task SaveAsync() => CommitAsync(false);
     private Task DeleteAsync() => CommitAsync(true);
     private Task CommitAsync(bool delete) => RunAsync(async () =>

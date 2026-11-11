@@ -1,0 +1,56 @@
+@using System.Collections.Immutable
+@using Confast.Web.Features.Navigation
+
+<nav class="application-navigation" aria-label="Main navigation">
+    <ul class="navigation-list">
+        <li>
+            <a class="navigation-row navigation-home" href="@HomeRoute" aria-current="@Current(NavigationCatalog.Home)"
+               title="@(Compact ? NavigationCatalog.Home.Label : null)">
+                <NavigationIcon Icon="NavigationCatalog.Home.Icon" />
+                <span class="navigation-label">@NavigationCatalog.Home.Label</span>
+            </a>
+        </li>
+        @foreach (var group in Groups)
+        {
+            var category = group.Category;
+            var expanded = !Compact && Expanded.Contains(category.Id);
+            var active = ActiveItem?.Category == category.Id;
+            var groupId = $"{IdPrefix}-{category.Id}";
+            <li @key="category.Id" class="navigation-category @category.AccentClass">
+                <button type="button" id="@(groupId + "-toggle")"
+                        class="navigation-row navigation-category-toggle @(active ? "is-current" : null)"
+                        aria-controls="@(Compact ? "navigation-drawer" : groupId)" aria-expanded="@(expanded ? "true" : "false")"
+                        aria-haspopup="@(Compact ? "dialog" : null)" aria-description="@(active ? "Contains the current page" : null)"
+                        data-static-navigation-toggle="@(!RendererInfo.IsInteractive ? "true" : null)"
+                        title="@(Compact ? category.Label : null)" @onclick="() => ToggleCategory.InvokeAsync(category.Id)">
+                    <NavigationIcon Icon="category.Icon" />
+                    <span class="navigation-label">@category.Label</span>
+                    <span class="navigation-chevron"><NavigationIcon Icon="NavigationIconName.Chevron" /></span>
+                </button>
+                <ul class="navigation-children" id="@groupId" hidden="@(!expanded)">
+                    @foreach (var item in group.Items)
+                    {
+                        <li @key="item.Id">
+                            <a class="navigation-child" href="@item.Route" aria-current="@Current(item)">@item.Label</a>
+                        </li>
+                    }
+                </ul>
+            </li>
+        }
+    </ul>
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public string IdPrefix { get; set; } = "";
+    [Parameter, EditorRequired] public string HomeRoute { get; set; } = "";
+    [Parameter, EditorRequired] public ImmutableArray<NavigationGroup> Groups { get; set; }
+    [Parameter, EditorRequired] public IReadOnlySet<NavigationCategoryId> Expanded { get; set; } = null!;
+    [Parameter, EditorRequired] public EventCallback<NavigationCategoryId> ToggleCategory { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public NavigationItem? ActiveItem { get; set; }
+    [Parameter, EditorRequired] public string ActivePath { get; set; } = "";
+
+    private string? Current(NavigationItem item) => item == ActiveItem
+        ? NavigationCatalog.IsExact(item, ActivePath) ? "page" : "location"
+        : null;
+}

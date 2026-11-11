@@ -1,84 +1,116 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@using System.Collections.Immutable
+@using Confast.Web.Features.Navigation
+@using Confast.Web.Time
 @inject EffectivePermissionService NavigationPermissions
 @inject AuthorizationChangeNotifications AuthorizationChanges
-
-@using Confast.Web.Time
+@inject AuthenticationStateProvider AuthenticationState
+@inject IJSRuntime JS
 @inject IWebHostEnvironment HostEnvironment
 @inject DevelopmentDateOverrideTimeProvider DevelopmentClock
 @inject NavigationManager Navigation
 @inject IServiceProvider Services
 
-<CascadingValue Name="AuthorizationRevision" Value="authorizationRevision">
-<header class="app-header">
-    <div class="header-brand-group">
-        <AuthorizeView Context="navigationAuthenticationState">
-            <Authorized>
-                <details class="main-menu">
-                    <summary class="main-menu-toggle" aria-label="Toggle main menu">
-                        <span aria-hidden="true">☰</span>
-                    </summary>
-                    <nav class="main-menu-panel" aria-label="Main navigation">
-                        @if (CanNavigate(Permissions.Customers.Read)) { <NavLink href="/customers" Match="NavLinkMatch.Prefix">Customers</NavLink> }
-                        @if (CanNavigate(Permissions.Parts.Read)) { <NavLink href="/parts" Match="NavLinkMatch.Prefix">Parts</NavLink> }
-                        @if (CanNavigate(Permissions.Gages.Read)) { <NavLink href="/gages" Match="NavLinkMatch.Prefix">Gages</NavLink> }
-                        @if (CanNavigate(Permissions.Inspections.Read)) { <NavLink href="/inspections" Match="NavLinkMatch.Prefix">Inspections</NavLink> }
-                        @if (CanNavigate(Permissions.Receiving.Read)) { <NavLink href="/received-parts" Match="NavLinkMatch.Prefix">Received Parts</NavLink> }
-                        @if (CanNavigate(Permissions.Shipments.Read)) { <NavLink href="/container-tracking" Match="NavLinkMatch.Prefix">Container Tracking</NavLink> }
-                        @if (CanNavigate(Permissions.ProductionSchedules.Read)) { <NavLink href="/production-scheduling" Match="NavLinkMatch.Prefix">Production Scheduling</NavLink> }
-                        @if (CanNavigate(Permissions.ProductionLogs.Read)) { <NavLink href="/production-tracking" Match="NavLinkMatch.Prefix">Production Tracking</NavLink> }
-                        @if (CanNavigate(Permissions.ProductionReports.Read)) { <NavLink href="/morning-production-review">Production Review</NavLink> }
-                        @if (PermissionPolicies.ProductionConfigurationReadKeys.Any(CanNavigate)) { <NavLink href="/production-scheduling/settings">Scheduling Settings</NavLink> }
-                        @if (CanNavigate(Permissions.SortLogDowntimeCauses.Read)) { <NavLink href="/production-tracking/settings">Sort Log Downtime Causes</NavLink> }
-                        @if (CanNavigate(Permissions.Suppliers.Read)) { <NavLink href="/suppliers" Match="NavLinkMatch.Prefix">Suppliers</NavLink> }
-                        @if (CanNavigate(Permissions.Users.Read)) { <NavLink href="/admin/users" Match="NavLinkMatch.Prefix">Users</NavLink> }
-                        @if (CanNavigate(Permissions.Roles.Read)) { <NavLink href="/admin/roles" Match="NavLinkMatch.Prefix">Roles</NavLink> }
-                        @if (CanNavigate(Permissions.CertificationEmailTemplates.Read)) { <NavLink href="/admin/certification-email-templates" Match="NavLinkMatch.Prefix">Email Templates</NavLink> }
-                        @if (CanNavigate(Permissions.CertificationEmailSettings.Read)) { <NavLink href="/admin/certification-email-settings" Match="NavLinkMatch.Prefix">Email Settings</NavLink> }
-                        @if (CanNavigate(Permissions.NominalToleranceSettings.Read)) { <NavLink href="/admin/nominal-tolerance" Match="NavLinkMatch.Prefix">Nominal Tolerance</NavLink> }
-                        @if (!CanNavigate(Permissions.Gages.Read) && CanNavigate(Permissions.GageTypes.Read)) { <NavLink href="/gage-types">Gage Types</NavLink> }
-
-                    </nav>
-                </details>
-                <span class="header-brand-divider" aria-hidden="true"></span>
-            </Authorized>
-        </AuthorizeView>
-        <a class="brand" href="/">ConFastDB</a>
-    </div>
-    @if (HostEnvironment.IsDevelopment() && CanNavigate(Permissions.Authorization.ManageSecurity))
-    {
-        <form class="development-date-control" @onsubmit="SetDevelopmentDateAsync" @onsubmit:preventDefault>
-            <label for="development-date">Development date</label>
-            <input id="development-date" type="date" @bind="developmentDate" />
-            <button type="submit">Set</button>
-            @if (DevelopmentClock.HasOverride)
-            {
-                <button type="button" @onclick="UseSystemDateAsync">Use system date</button>
-            }
-        </form>
-        @if (developmentError is not null) { <span role="alert">@developmentError</span> }
-    }
-    <AuthorizeView>
-        <Authorized Context="authenticationState">
-            <div class="user-menu">
-                <span>@GetDisplayName(authenticationState.User)</span>
-                <a class="header-link" href="/logout">Log out</a>
-            </div>
-        </Authorized>
-    </AuthorizeView>
-</header>
-
-<main class="app-main">
-    @Body
-</main>
-
-@if (!IsInspectionPrintRoute)
+@if (navigationReady)
 {
-    <AuthorizeView Context="chatAuthenticationState">
-        <Authorized>
-            <ChatPanel @key="chatAuthenticationState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value" />
-        </Authorized>
-    </AuthorizeView>
+    <CascadingValue Name="AuthorizationRevision" Value="authorizationRevision">
+        <header class="app-header">
+            <div class="header-brand-group">
+                @if (homeRoute is not null)
+                {
+                    @if (RendererInfo.IsInteractive)
+                    {
+                        <button class="main-menu-toggle desktop-menu-toggle" type="button" aria-controls="application-sidebar"
+                                aria-expanded="@(!compact ? "true" : "false")"
+                                aria-label="@(compact ? "Expand sidebar" : "Collapse sidebar")" @onclick="() => compact = !compact">
+                            <NavigationIcon Icon="NavigationIconName.Menu" />
+                        </button>
+                    }
+                    <button class="main-menu-toggle @(RendererInfo.IsInteractive ? "drawer-menu-toggle" : null)" type="button"
+                            aria-label="Open navigation" aria-haspopup="dialog" aria-controls="navigation-drawer"
+                            aria-expanded="false" data-navigation-open>
+                        <NavigationIcon Icon="NavigationIconName.Menu" />
+                    </button>
+                    <span class="header-brand-divider" aria-hidden="true"></span>
+                }
+                @if (signedIn && homeRoute is null)
+                {
+                    <span class="brand">ConFastDB</span>
+                }
+                else
+                {
+                    <a class="brand" href="@(homeRoute ?? NavigationCatalog.Home.Route)">ConFastDB</a>
+                }
+            </div>
+            @if (HostEnvironment.IsDevelopment() && CanNavigate(Permissions.Authorization.ManageSecurity))
+            {
+                <form class="development-date-control" @onsubmit="SetDevelopmentDateAsync" @onsubmit:preventDefault>
+                    <label for="development-date">Development date</label>
+                    <input id="development-date" type="date" @bind="developmentDate" />
+                    <button type="submit">Set</button>
+                    @if (DevelopmentClock.HasOverride)
+                    {
+                        <button type="button" @onclick="UseSystemDateAsync">Use system date</button>
+                    }
+                </form>
+                @if (developmentError is not null) { <span role="alert">@developmentError</span> }
+            }
+            <AuthorizeView>
+                <Authorized Context="authenticationState">
+                    <div class="user-menu">
+                        <span>@GetDisplayName(authenticationState.User)</span>
+                        <a class="header-link" href="/logout">Log out</a>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
+        </header>
+
+        <div class="app-shell">
+            @if (homeRoute is not null && RendererInfo.IsInteractive)
+            {
+                <aside id="application-sidebar" class="app-sidebar @(compact ? "app-sidebar-compact" : null)">
+                    <ApplicationNavigation IdPrefix="sidebar" HomeRoute="@homeRoute" Groups="visibleGroups"
+                                           Expanded="expandedCategories" Compact="compact" ToggleCategory="ToggleSidebarCategory"
+                                           ActiveItem="activeItem" ActivePath="@activePath" />
+                </aside>
+            }
+            <div class="app-content">
+                <main class="app-main">
+                    @Body
+                </main>
+            </div>
+        </div>
+
+        @if (homeRoute is not null)
+        {
+            <dialog id="navigation-drawer" class="navigation-drawer" aria-labelledby="navigation-drawer-title">
+                <div class="navigation-drawer-content">
+                    <div class="navigation-drawer-header">
+                        <h2 id="navigation-drawer-title">Navigation</h2>
+                        <form method="dialog">
+                            <button type="submit" class="navigation-drawer-close" aria-label="Close navigation" autofocus>
+                                <NavigationIcon Icon="NavigationIconName.Close" />
+                            </button>
+                        </form>
+                    </div>
+                    <ApplicationNavigation IdPrefix="drawer" HomeRoute="@homeRoute" Groups="visibleGroups"
+                                           Expanded="expandedCategories" ToggleCategory="ToggleCategory"
+                                           ActiveItem="activeItem" ActivePath="@activePath" />
+                </div>
+            </dialog>
+        }
+
+        @if (!IsInspectionPrintRoute)
+        {
+            <AuthorizeView Context="chatAuthenticationState">
+                <Authorized>
+                    <ChatPanel @key="chatAuthenticationState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value" />
+                </Authorized>
+            </AuthorizeView>
+        }
+
+    </CascadingValue>
 }
 
 <div id="blazor-error-ui" data-nosnippet>
@@ -87,49 +119,146 @@
     <span class="dismiss">🗙</span>
 </div>
 
-</CascadingValue>
 @code {
-    private long authorizationRevision;
-    private bool refreshQueued, disposed;
+    private readonly HashSet<NavigationCategoryId> expandedCategories = [];
+    private ImmutableArray<NavigationGroup> visibleGroups = [];
+    private NavigationItem? activeItem;
+    private NavigationCategoryId? drawerCategory;
+    private string activePath = "/";
+    private string? homeRoute;
+    private long authorizationRevision, permissionRequest;
+    private bool navigationReady, signedIn, compact, disposed;
     private bool IsInspectionPrintRoute => new Uri(Navigation.Uri).AbsolutePath.Trim('/').Split('/')
         is ["inspections", _, "print"];
     private DateOnly developmentDate;
     private string? developmentError;
     private EffectivePermissionSnapshot? navigationPermissions;
-    private bool CanNavigate(string key) => navigationPermissions is not null && PermissionCatalog.ExpandRequirements([key]).All(navigationPermissions.Has);
+
+    private bool CanNavigate(string key) => navigationPermissions is not null
+        && PermissionCatalog.ExpandRequirements([key]).All(navigationPermissions.Has);
+
     protected override async Task OnInitializedAsync()
     {
         Navigation.LocationChanged += NavigationChanged;
         AuthorizationChanges.Changed += AuthorizationChanged;
+        AuthenticationState.AuthenticationStateChanged += AuthenticationChanged;
         await RefreshNavigationAsync();
     }
+
     private async Task RefreshNavigationAsync()
     {
-        try { navigationPermissions = await NavigationPermissions.EvaluateCurrentAsync(); }
-        catch (AuthorizationDeniedException) { navigationPermissions = null; }
-    }
-    private async void NavigationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
-    {
-        await InvokeAsync(async () => { await RefreshNavigationAsync(); StateHasChanged(); });
-    }
-    private void AuthorizationChanged()
-    {
-        // Marshal and coalesce hints on the renderer. Never run a subscriber on the committing request's DbContext.
-        _ = InvokeAsync(async () =>
+        var request = ++permissionRequest;
+        var authenticated = (await AuthenticationState.GetAuthenticationStateAsync()).User.Identity?.IsAuthenticated == true;
+        EffectivePermissionSnapshot? snapshot = null;
+        if (authenticated)
         {
-            if (disposed || refreshQueued) return;
-            refreshQueued = true;
-            try { await RefreshNavigationAsync(); authorizationRevision++; StateHasChanged(); }
-            finally { refreshQueued = false; }
+            try { snapshot = await NavigationPermissions.EvaluateCurrentAsync(); }
+            catch (AuthorizationDeniedException) { }
+        }
+
+        // Route and authorization notifications can overlap while the database is queried.
+        if (disposed || request != permissionRequest) return;
+
+        if (navigationPermissions?.Version != snapshot?.Version) authorizationRevision++;
+        navigationPermissions = snapshot;
+        signedIn = authenticated;
+        visibleGroups = NavigationCatalog.GetVisibleGroups(snapshot);
+        homeRoute = NavigationCatalog.GetHomeRoute(snapshot, visibleGroups);
+        UpdateActivePage();
+        navigationReady = true;
+    }
+
+    private void UpdateActivePage()
+    {
+        var path = NavigationCatalog.GetPath(new Uri(Navigation.Uri));
+        var item = NavigationCatalog.FindActive(path, visibleGroups, homeRoute);
+        if ((path != activePath || item != activeItem) && item?.Category is { } category)
+            expandedCategories.Add(category);
+
+        activePath = path;
+        activeItem = item;
+    }
+
+    private void ToggleCategory(NavigationCategoryId category)
+    {
+        if (!expandedCategories.Add(category)) expandedCategories.Remove(category);
+    }
+
+    private void ToggleSidebarCategory(NavigationCategoryId category)
+    {
+        if (compact)
+        {
+            expandedCategories.Add(category);
+            drawerCategory = category;
+        }
+        else
+        {
+            ToggleCategory(category);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (drawerCategory is not { } category) return;
+
+        drawerCategory = null;
+        try { await JS.InvokeVoidAsync("confastNavigation.openCategory", category.ToString()); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private async void NavigationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        await InvokeAsync(async () =>
+        {
+            if (disposed) return;
+            UpdateActivePage();
+            StateHasChanged();
+            if (RendererInfo.IsInteractive && homeRoute is not null)
+            {
+                try { await JS.InvokeVoidAsync("confastNavigation.closeDrawer"); }
+                catch (JSDisconnectedException) { }
+            }
+            await RefreshNavigationAsync();
+            if (!disposed) StateHasChanged();
         });
     }
+
+    private void AuthorizationChanged()
+    {
+        // Marshal hints to the renderer. The committing request owns its DbContext.
+        _ = InvokeAsync(async () =>
+        {
+            if (disposed) return;
+            await RefreshNavigationAsync();
+            if (!disposed) StateHasChanged();
+        });
+    }
+
+    private void AuthenticationChanged(Task<AuthenticationState> state)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            if (disposed) return;
+            navigationPermissions = null;
+            visibleGroups = [];
+            homeRoute = null;
+            activeItem = null;
+            expandedCategories.Clear();
+            compact = false;
+            authorizationRevision++;
+            StateHasChanged();
+            await RefreshNavigationAsync();
+            if (!disposed) StateHasChanged();
+        });
+    }
+
     public void Dispose()
     {
         disposed = true;
         Navigation.LocationChanged -= NavigationChanged;
         AuthorizationChanges.Changed -= AuthorizationChanged;
+        AuthenticationState.AuthenticationStateChanged -= AuthenticationChanged;
     }
-
 
     protected override void OnInitialized()
     {

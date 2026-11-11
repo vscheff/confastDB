@@ -1,8 +1,8 @@
 .morning-review-page {
     position: relative;
     left: 50%;
-    width: min(calc(100vw - 2rem), 1800px);
-    margin-left: max(calc(1rem - 50vw), -900px);
+    width: min(calc(var(--app-content-width, 100vw) - 2rem), 1800px);
+    margin-left: max(calc(1rem - var(--app-content-width, 100vw) / 2), -900px);
 }
 
 .morning-review-heading,

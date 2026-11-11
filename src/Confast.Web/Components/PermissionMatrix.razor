@@ -2,7 +2,7 @@
     <div class="matrix-filters">
         <label>Search Permissions<input type="search" @bind="search" @bind:event="oninput" placeholder="Name Or Permission Key" /></label>
         <label>Functional Category<select @bind="category"><option value="">All Categories</option>
-            @foreach (var value in Rows.Select(x => x.Definition.Category).Distinct().Order()) { <option>@value</option> }
+            @foreach (var value in Rows.Select(x => DisplayCategory(x.Definition.Category)).Distinct().Order()) { <option>@value</option> }
         </select></label>
         <label>Grant Filter<select @bind="filter">
             <option value="all">All Permissions</option><option value="direct">Direct Grants</option>
@@ -11,7 +11,7 @@
         </select></label>
     </div>
     <p class="field-help">@Filtered.Count() Of @Rows.Count Permissions · Usable means catalog prerequisites are met. Membership, ownership, and business-context rules still apply.</p>
-    @foreach (var group in Filtered.GroupBy(x => x.Definition.Category))
+    @foreach (var group in Filtered.GroupBy(x => DisplayCategory(x.Definition.Category)))
     {
         <details class="matrix-group" open @key="group.Key">
             <summary>@group.Key <span class="muted">(@group.Count())</span></summary>
@@ -68,8 +68,17 @@
     private bool Direct(PermissionMatrixRow row) => SelectedGrants?.Contains(row.Definition.Key) ?? row.Direct;
     private string RoleName(string id) => RoleNames.GetValueOrDefault(id, id);
     private static string YesNo(bool value) => value ? "Yes" : "No";
+    private static string DisplayCategory(string category) => category switch
+    {
+        "Plants" or "Plant Certification Delivery" => "Customers",
+        "Part Flip Definitions" => "Parts",
+        "Inspection Criteria" or "Certifications" or "Email Administration" or "Global Settings" or "Receiving" => "Inspections",
+        "Production Configuration" or "Production Reporting" => "Production Scheduling",
+        "Role Administration" => "Users",
+        _ => category
+    };
     private IEnumerable<PermissionMatrixRow> Filtered => Rows.Where(row =>
-        (category.Length == 0 || row.Definition.Category == category)
+        (category.Length == 0 || DisplayCategory(row.Definition.Category) == category)
         && (search.Length == 0 || row.Definition.Key.Contains(search, StringComparison.OrdinalIgnoreCase)
             || row.Definition.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase))
         && (filter switch { "direct" => Direct(row), "inherited" => row.Inherited, "effective" => row.Effective,

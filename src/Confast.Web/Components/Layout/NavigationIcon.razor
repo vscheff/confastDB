@@ -1,0 +1,35 @@
+@using Confast.Web.Features.Navigation
+
+<svg class="navigation-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <path d="@Path" />
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public NavigationIconName Icon { get; set; }
+
+    private string Path => Icon switch
+    {
+        NavigationIconName.Home => "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
+        NavigationIconName.Factory => "M3 21V10l6 3V8l6 3V4h5l1 17H3Zm4-4h1m3 0h1m3 0h1",
+        NavigationIconName.Package => "M3 7l9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4m-9 4v10M7.5 5l9 4v4",
+        NavigationIconName.ClipboardCheck => "M9 5H6a2 2 0 0 0-2 2v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7a2 2 0 0 0-2-2h-3M9 3h6v4H9zm-1 11 3 3 5-6",
+        NavigationIconName.Database => "M4 6a8 3 0 1 0 16 0 8 3 0 1 0-16 0Zm0 0v12a8 3 0 0 0 16 0V6M4 12a8 3 0 0 0 16 0",
+        NavigationIconName.Shield => "M12 22c5-2.2 8-6 8-11V5l-8-3-8 3v6c0 5 3 8.8 8 11Zm-3-10 2 2 4-4",
+        NavigationIconName.Settings => "m10 3-.7 2.4-2 .9L5 5l-2 3.5 1.9 1.7v3.6L3 15.5 5 19l2.3-1.3 2 .9L10 21h4l.7-2.4 2-.9L19 19l2-3.5-1.9-1.7v-3.6L21 8.5 19 5l-2.3 1.3-2-.9L14 3zm2 6a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z",
+        NavigationIconName.Tracking => "M3 12h4l3-7 4 14 3-7h4",
+        NavigationIconName.Calendar => "M4 5h16v16H4zm0 5h16M8 3v4m8-4v4m-8 7h2m4 0h2m-8 3h2",
+        NavigationIconName.Report => "M5 3h10l4 4v14H5zm9 0v5h5m-10 9v-3m3 3v-5m3 5v-4",
+        NavigationIconName.Truck => "M3 5h12v12H3zm12 5h4l3 4v3h-7M9 17a2 2 0 1 1-4 0m15 0a2 2 0 1 1-4 0",
+        NavigationIconName.Gage => "M4 18a9 9 0 1 1 16 0zm8-3 4-4m-9 2h1m4-4v1m4 3h1",
+        NavigationIconName.Parts => "m12 3 8 4.5v9L12 21l-8-4.5v-9zm0 5a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z",
+        NavigationIconName.Customers or NavigationIconName.Users => "M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-9 12v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2M5 6a3 3 0 0 0 0 5m14-5a3 3 0 0 1 0 5",
+        NavigationIconName.Suppliers => "M3 10h18l-2-6H5zm2 0v10h14V10m-9 10v-6h4v6",
+        NavigationIconName.Mail => "M3 5h18v14H3zm0 1 9 7 9-7",
+        NavigationIconName.Ruler => "m3 16 13-13 5 5L8 21zm8-8 2 2m1-5 2 2m-8 4 2 2m-5 1 2 2",
+        NavigationIconName.Menu => "M4 6h16M4 12h16M4 18h16",
+        NavigationIconName.Chevron => "m6 9 6 6 6-6",
+        NavigationIconName.Close => "m6 6 12 12M18 6 6 18",
+        _ => throw new ArgumentOutOfRangeException(nameof(Icon))
+    };
+}

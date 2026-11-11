@@ -7,7 +7,7 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .production-fields ::deep input:not([type=checkbox]), .production-fields select, .production-fields textarea { min-height: 2.4rem; padding: .4rem; border: 1px solid #aebcc7; border-radius: .25rem; max-width: 100%; }
 .production-fields textarea { height: 2.4rem; resize: vertical; }
 .production-fields input[type=checkbox] { width: 1.2rem; height: 1.2rem; }
-.production-schedule-envelope { position: relative; left: 50%; width: min(calc(100vw - 2rem), 1800px); margin-left: max(calc(1rem - 50vw), -900px); }
+.production-schedule-envelope { position: relative; left: 50%; width: min(calc(var(--app-content-width, 100vw) - 2rem), 1800px); margin-left: max(calc(1rem - var(--app-content-width, 100vw) / 2), -900px); }
 .production-schedule-toolbar { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
 .production-schedule-filters, .production-schedule-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
 .production-schedule-actions { justify-content: flex-end; margin-left: auto; }
