@@ -1,0 +1,164 @@
+.quick-access-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem 1rem;
+    margin-bottom: .75rem;
+}
+
+.quick-access-heading h1 { margin: 0; font-size: 1.25rem; }
+.quick-access-controls { display: flex; flex-wrap: wrap; gap: .5rem; }
+.quick-access-controls button { gap: .375rem; padding-inline: .7rem; font-size: .875rem; }
+.quick-access-controls ::deep .navigation-icon { width: 17px; height: 17px; }
+.quick-access-empty {
+    margin: 0;
+    padding: 1.125rem;
+    border: 1px solid var(--home-border);
+    border-radius: .625rem;
+    background: #fff;
+    color: var(--home-muted);
+}
+
+.quick-access[aria-busy="true"] .quick-access-empty { min-height: 6.625rem; }
+
+.shortcut-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.75rem), 1fr));
+    gap: .625rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.shortcut-tile { position: relative; min-width: 0; }
+.shortcut-link {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .625rem;
+    height: 100%;
+    min-height: 6.625rem;
+    padding: .75rem;
+    border: 1px solid var(--home-border);
+    border-radius: .625rem;
+    background: #fff;
+    color: var(--home-text);
+    text-decoration: none;
+    box-shadow: 0 1px 2px rgb(23 50 74 / 5%);
+}
+
+.shortcut-link:hover {
+    border-color: color-mix(in srgb, var(--navigation-accent) 45%, #fff);
+    background: color-mix(in srgb, var(--navigation-accent) 5%, #fff);
+}
+
+.shortcut-icon {
+    display: grid;
+    width: 2.25rem;
+    aspect-ratio: 1;
+    place-items: center;
+    border-radius: .45rem;
+    background: color-mix(in srgb, var(--navigation-accent) 10%, #fff);
+    color: var(--navigation-accent);
+}
+
+.shortcut-label { font-size: .875rem; font-weight: 650; line-height: 1.28; overflow-wrap: anywhere; }
+.shortcut-pin { position: absolute; inset: .8rem auto auto 3.25rem; display: inline-flex; color: var(--home-muted); pointer-events: none; }
+.shortcut-pin ::deep .navigation-icon { width: 14px; height: 14px; }
+.shortcut-options, .quick-access-close {
+    display: grid;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: .375rem;
+    background: transparent;
+    color: var(--home-muted);
+    cursor: pointer;
+}
+
+.shortcut-options { position: absolute; inset: .1875rem .1875rem auto auto; }
+.shortcut-options:hover, .quick-access-close:hover { background: #eaf0f5; color: var(--home-text); }
+.quick-access :is(button, a, input, select):focus-visible { outline: 2px solid var(--home-focus); outline-offset: 2px; }
+
+.quick-access-dialog {
+    width: min(32rem, calc(100vw - 2rem));
+    max-width: none;
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    padding: 1rem 1.25rem 1.25rem;
+    border: 1px solid var(--home-border);
+    border-radius: .75rem;
+    background: #fff;
+    color: var(--home-text);
+    box-shadow: 0 12px 40px rgb(23 50 74 / 20%);
+    overflow: auto;
+}
+
+.quick-access-dialog::backdrop { background: rgb(14 30 46 / 43%); }
+.quick-access-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.quick-access-dialog-heading h2 { margin: 0; font-size: 1.1875rem; }
+.quick-access-dialog > p { line-height: 1.5; }
+.quick-access-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.quick-access-field { display: grid; gap: .375rem; margin-bottom: .75rem; font-size: .9375rem; font-weight: 650; }
+.quick-access-field :is(input, select) {
+    min-height: 44px;
+    min-width: 0;
+    padding: .375rem .625rem;
+    border: 1px solid #aeb9c2;
+    border-radius: .375rem;
+    background: #fff;
+    color: inherit;
+}
+
+.quick-access-field select { justify-self: start; min-width: 5rem; }
+.quick-access-help { color: var(--home-muted); font-size: .875rem; line-height: 1.45; }
+.shortcut-picker { max-height: min(50vh, 25rem); overflow: auto; overscroll-behavior: contain; }
+.shortcut-picker-group + .shortcut-picker-group { margin-top: .625rem; }
+.shortcut-picker-group h3 {
+    margin: 0;
+    padding: .375rem .5rem;
+    border-inline-start: 3px solid var(--navigation-accent);
+    background: #f4f6f8;
+    font-size: .875rem;
+}
+
+.shortcut-picker ul, .removed-shortcuts ul { margin: 0 0 .5rem; padding: .25rem; list-style: none; }
+.shortcut-picker button, .shortcut-menu-actions button {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    width: 100%;
+    padding: .375rem .5rem;
+    border: 0;
+    border-radius: .375rem;
+    background: transparent;
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+
+.shortcut-picker button:hover:not(:disabled), .shortcut-menu-actions button:hover:not(:disabled) { background: #eaf0f5; }
+.shortcut-picker button:disabled, .shortcut-menu-actions button:disabled { color: var(--home-muted); opacity: .65; cursor: default; }
+.shortcut-picker ::deep .navigation-icon { flex: 0 0 20px; color: var(--navigation-accent); }
+.removed-shortcuts { margin-top: 1rem; border-top: 1px solid var(--home-border); padding-top: 1rem; }
+.removed-shortcuts h3 { margin: 0 0 .5rem; font-size: 1rem; }
+.removed-shortcuts li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .25rem 0; }
+
+.shortcut-menu {
+    position: fixed;
+    inset: 0 auto auto 0;
+    margin: 0;
+    width: min(14.5rem, calc(100vw - 1rem));
+    padding: .375rem .5rem .5rem;
+    border-radius: .625rem;
+}
+
+.shortcut-menu::backdrop { background: transparent; }
+.shortcut-menu .quick-access-dialog-heading { margin: 0; padding-inline-start: .5rem; }
+.shortcut-menu h2 { font-size: .9375rem; }
+.shortcut-menu .alert { margin: .25rem 0; padding: .5rem; font-size: .875rem; }
+.shortcut-menu-actions .shortcut-remove { color: #8f2525; }

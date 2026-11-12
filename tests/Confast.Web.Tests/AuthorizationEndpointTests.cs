@@ -28,8 +28,10 @@ namespace Confast.Web.Tests;
 [Collection(PostgresCollection.Name)]
 public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
 {
-    [Fact]
-    public async Task UnauthenticatedUser_IsRedirectedToLogin()
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/customers")]
+    public async Task UnauthenticatedUser_IsRedirectedToLogin(string path)
     {
         await using var factory = CreateFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -38,7 +40,7 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
             BaseAddress = new Uri("https://localhost")
         });
 
-        var response = await client.GetAsync("/customers");
+        var response = await client.GetAsync(path);
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
         Assert.Equal("/login", response.Headers.Location?.AbsolutePath);

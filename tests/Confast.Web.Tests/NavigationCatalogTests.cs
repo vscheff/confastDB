@@ -53,7 +53,7 @@ public sealed class NavigationCatalogTests
             group => CheckGroup(group, "Administration", "Users", "Roles"),
             group => CheckGroup(group, "Settings", "Scheduling Settings", "Sort Log Downtime Causes",
                 "Email Templates", "Email Settings", "Nominal Tolerance"));
-        Assert.Equal("/", NavigationCatalog.GetHomeRoute(permissions, groups));
+        Assert.Equal(NavigationCatalog.Home, NavigationCatalog.FindActive("/", groups));
     }
 
     [Fact]
@@ -65,16 +65,15 @@ public sealed class NavigationCatalogTests
         Assert.Collection(groups,
             group => CheckGroup(group, "Quality", "Gage Types"),
             group => CheckGroup(group, "Settings", "Scheduling Settings"));
-        Assert.Equal("/gage-types", NavigationCatalog.GetHomeRoute(permissions, groups));
-        Assert.Equal("gage-types", NavigationCatalog.FindActive("/gage-types", groups, "/gage-types")?.Id);
-        Assert.Null(NavigationCatalog.FindActive("/production-scheduling", groups, "/gage-types"));
-        Assert.Null(NavigationCatalog.FindActive("/admin/users", groups, "/gage-types"));
+        Assert.Equal(NavigationCatalog.Home, NavigationCatalog.FindActive("/", groups));
+        Assert.Equal("gage-types", NavigationCatalog.FindActive("/gage-types", groups)?.Id);
+        Assert.Null(NavigationCatalog.FindActive("/production-scheduling", groups));
+        Assert.Null(NavigationCatalog.FindActive("/admin/users", groups));
 
         var noPermissions = Snapshot(false);
         Assert.Empty(NavigationCatalog.GetVisibleGroups(noPermissions));
-        Assert.Null(NavigationCatalog.GetHomeRoute(noPermissions, []));
+        Assert.Equal(NavigationCatalog.Home, NavigationCatalog.FindActive("/", []));
         Assert.Empty(NavigationCatalog.GetVisibleGroups(null));
-        Assert.Null(NavigationCatalog.GetHomeRoute(null, []));
     }
 
     [Theory]
@@ -96,7 +95,7 @@ public sealed class NavigationCatalogTests
         var permissions = Snapshot(true, PermissionCatalog.All.Select(definition => definition.Key).ToArray());
         var groups = NavigationCatalog.GetVisibleGroups(permissions);
         var path = NavigationCatalog.GetPath(new Uri("https://confast.example" + route));
-        Assert.Equal(expected, NavigationCatalog.FindActive(path, groups, "/")?.Id);
+        Assert.Equal(expected, NavigationCatalog.FindActive(path, groups)?.Id);
     }
 
     private static void CheckGroup(NavigationGroup group, string label, params string[] items)

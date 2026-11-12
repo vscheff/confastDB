@@ -1,6 +1,5 @@
 @inherits PermissionComponentBase
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:Customers.Read")]
-@page "/"
 @page "/customers"
 @using Confast.Web.Features.Customers
 @inject CustomerService CustomerService

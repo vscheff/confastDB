@@ -9,13 +9,14 @@ public enum NavigationIconName
 {
     Home, Factory, Package, ClipboardCheck, Database, Shield, Settings,
     Tracking, Calendar, Report, Truck, Gage, Parts, Customers, Suppliers, Users, Mail, Ruler,
-    Menu, Chevron, Close
+    Menu, Chevron, Close, More, Pin, Plus
 }
 
-public sealed record NavigationCategory(NavigationCategoryId Id, string Label, NavigationIconName Icon, string AccentClass, int Order);
+public sealed record NavigationCategory(NavigationCategoryId Id, string Label, string Description,
+    NavigationIconName Icon, string AccentClass, int Order);
 
 public sealed record NavigationItem(string Id, string Label, string Route, NavigationCategoryId? Category,
-    NavigationIconName Icon, int Order, string AuthorizationPolicy, ImmutableArray<string> AnyPermissionKeys,
+    NavigationIconName Icon, int Order, string? AuthorizationPolicy, ImmutableArray<string> AnyPermissionKeys,
     bool ShowOnHome = true, bool MatchDescendants = false, string? FallbackFor = null);
 
 public sealed record NavigationGroup(NavigationCategory Category, ImmutableArray<NavigationItem> Items);
@@ -25,16 +26,22 @@ public static class NavigationCatalog
     private const string GagesId = "gages";
 
     public static NavigationItem Home { get; } =
-        Page("home", "Home", "/", null, NavigationIconName.Home, 0, Permissions.Customers.Read, showOnHome: false);
+        new("home", "Home", "/", null, NavigationIconName.Home, 0, null, [], ShowOnHome: false);
 
     public static ImmutableArray<NavigationCategory> Categories { get; } =
     [
-        new(NavigationCategoryId.Production, "Production", NavigationIconName.Factory, "navigation-accent-production", 10),
-        new(NavigationCategoryId.Receiving, "Receiving & Logistics", NavigationIconName.Package, "navigation-accent-receiving", 20),
-        new(NavigationCategoryId.Quality, "Quality", NavigationIconName.ClipboardCheck, "navigation-accent-quality", 30),
-        new(NavigationCategoryId.MasterData, "Master Data", NavigationIconName.Database, "navigation-accent-master-data", 40),
-        new(NavigationCategoryId.Administration, "Administration", NavigationIconName.Shield, "navigation-accent-slate", 50),
-        new(NavigationCategoryId.Settings, "Settings", NavigationIconName.Settings, "navigation-accent-slate", 60)
+        new(NavigationCategoryId.Production, "Production", "Track, schedule, and review production.",
+            NavigationIconName.Factory, "navigation-accent-production", 10),
+        new(NavigationCategoryId.Receiving, "Receiving & Logistics", "Manage receipts and inbound shipments.",
+            NavigationIconName.Package, "navigation-accent-receiving", 20),
+        new(NavigationCategoryId.Quality, "Quality", "Work with inspections and gages.",
+            NavigationIconName.ClipboardCheck, "navigation-accent-quality", 30),
+        new(NavigationCategoryId.MasterData, "Master Data", "Maintain parts and business records.",
+            NavigationIconName.Database, "navigation-accent-master-data", 40),
+        new(NavigationCategoryId.Administration, "Administration", "Manage user accounts and roles.",
+            NavigationIconName.Shield, "navigation-accent-slate", 50),
+        new(NavigationCategoryId.Settings, "Settings", "Configure production and quality workflows.",
+            NavigationIconName.Settings, "navigation-accent-slate", 60)
     ];
 
     public static ImmutableArray<NavigationItem> Destinations { get; } =
@@ -76,6 +83,16 @@ public static class NavigationCatalog
             NavigationIconName.Ruler, 50, Permissions.NominalToleranceSettings.Read)
     ];
 
+    private static readonly IReadOnlyDictionary<NavigationCategoryId, NavigationCategory> CategoriesById =
+        Categories.ToDictionary(category => category.Id);
+
+    internal static ImmutableArray<NavigationItem> ShortcutDestinations { get; } =
+        [.. Destinations.Where(item => item.ShowOnHome && item.Category.HasValue)
+            .OrderBy(item => CategoryFor(item).Order).ThenBy(item => item.Order)
+            .ThenBy(item => item.Id, StringComparer.Ordinal)];
+
+    internal static NavigationCategory CategoryFor(NavigationItem item) => CategoriesById[item.Category!.Value];
+
     public static ImmutableArray<NavigationGroup> GetVisibleGroups(EffectivePermissionSnapshot? permissions)
     {
         if (permissions is null)
@@ -90,37 +107,34 @@ public static class NavigationCatalog
             .Where(group => !group.Items.IsEmpty)];
     }
 
-    public static string? GetHomeRoute(EffectivePermissionSnapshot? permissions, ImmutableArray<NavigationGroup> groups) =>
-        permissions is not null && CanAccess(Home, permissions)
-            ? Home.Route
-            : groups.FirstOrDefault()?.Items[0].Route;
-
     public static string GetPath(Uri location) => location.AbsolutePath.TrimEnd('/') is { Length: > 0 } path ? path : "/";
 
     public static bool IsExact(NavigationItem item, string path) =>
         path.Equals(item.Route, StringComparison.OrdinalIgnoreCase);
 
-    public static NavigationItem? FindActive(string path, ImmutableArray<NavigationGroup> groups, string? homeRoute)
+    public static NavigationItem? FindActive(string path, ImmutableArray<NavigationGroup> groups)
     {
-        if (homeRoute == Home.Route && IsExact(Home, path))
+        if (IsExact(Home, path))
             return Home;
 
         // Match the catalog before filtering so a hidden route cannot light up another entry.
-        var matched = Destinations.FirstOrDefault(item => IsExact(item, path))
-            ?? Destinations.Where(item => item.MatchDescendants
-                && path.StartsWith(item.Route + "/", StringComparison.OrdinalIgnoreCase))
-                .MaxBy(item => item.Route.Length);
-
+        var matched = FindDestination(path);
         return matched is null ? null : groups.SelectMany(group => group.Items)
             .FirstOrDefault(item => item.Id == matched.Id || item.Id == matched.FallbackFor);
     }
 
-    private static bool CanAccess(NavigationItem item, EffectivePermissionSnapshot permissions) =>
+    internal static NavigationItem? FindDestination(string path) =>
+        Destinations.FirstOrDefault(item => IsExact(item, path))
+        ?? Destinations.Where(item => item.MatchDescendants
+            && path.StartsWith(item.Route + "/", StringComparison.OrdinalIgnoreCase))
+            .MaxBy(item => item.Route.Length);
+
+    internal static bool CanAccess(NavigationItem item, EffectivePermissionSnapshot permissions) =>
         item.AnyPermissionKeys.Any(key => PermissionCatalog.ExpandRequirements([key]).All(permissions.Has));
 
     private static NavigationItem Page(string id, string label, string route, NavigationCategoryId? category,
-        NavigationIconName icon, int order, string key, bool showOnHome = true, bool matchDescendants = false,
+        NavigationIconName icon, int order, string key, bool matchDescendants = false,
         string? fallbackFor = null) =>
         new(id, label, route, category, icon, order, AuthorizationRegistration.PolicyName(key), [key],
-            showOnHome, matchDescendants, fallbackFor);
+            MatchDescendants: matchDescendants, FallbackFor: fallbackFor);
 }

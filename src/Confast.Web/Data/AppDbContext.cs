@@ -6,6 +6,7 @@ using Confast.Web.Features.Gages;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Identity;
+using Confast.Web.Features.Navigation;
 using Confast.Web.Features.Parts;
 using Confast.Web.Features.ProductionTracking;
 using Microsoft.AspNetCore.Identity;
@@ -123,6 +124,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         ProductionTrackingMapping.Configure(modelBuilder);
         modelBuilder.Entity<Part>().Property(x => x.BoxQuantity).HasColumnName("box_quantity").HasPrecision(18, 3);
         ConfigureIdentity(modelBuilder);
+        NavigationMapping.Configure(modelBuilder);
         Confast.Web.Features.Authorization.AuthorizationMapping.Configure(modelBuilder);
         ContainerTrackingConfiguration.Configure(modelBuilder);
 

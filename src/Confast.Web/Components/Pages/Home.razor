@@ -1,0 +1,50 @@
+@page "/"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Confast.Web.Features.Navigation
+
+<PageTitle>Home</PageTitle>
+
+<div class="home-workspace">
+    <HomeQuickAccess />
+
+    @if (!groups.IsEmpty)
+    {
+        <section class="home-departments" aria-labelledby="home-departments-heading">
+            <h2 id="home-departments-heading">Departments &amp; Functions</h2>
+            <div class="department-grid">
+                @foreach (var group in groups)
+                {
+                    var category = group.Category;
+                    <section class="department-card @category.AccentClass" @key="category.Id" aria-labelledby="@($"department-{category.Id}")">
+                        <header class="department-heading">
+                            <span class="department-icon"><NavigationIcon Icon="category.Icon" /></span>
+                            <div>
+                                <h3 id="@($"department-{category.Id}")">@category.Label</h3>
+                                <p>@category.Description</p>
+                            </div>
+                        </header>
+                        <ul>
+                            @foreach (var item in group.Items)
+                            {
+                                <li @key="item.Id">
+                                    <a href="@item.Route">
+                                        <span>@item.Label</span>
+                                        <span class="department-chevron"><NavigationIcon Icon="NavigationIconName.Chevron" /></span>
+                                    </a>
+                                </li>
+                            }
+                        </ul>
+                    </section>
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private EffectivePermissionSnapshot? Permissions { get; set; }
+
+    private System.Collections.Immutable.ImmutableArray<NavigationGroup> groups = [];
+
+    protected override void OnParametersSet() => groups = NavigationCatalog.GetVisibleGroups(Permissions);
+}

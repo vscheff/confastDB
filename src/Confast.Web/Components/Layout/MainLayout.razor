@@ -17,7 +17,7 @@
     <CascadingValue Name="AuthorizationRevision" Value="authorizationRevision">
         <header class="app-header">
             <div class="header-brand-group">
-                @if (homeRoute is not null)
+                @if (signedIn)
                 {
                     @if (RendererInfo.IsInteractive)
                     {
@@ -34,14 +34,7 @@
                     </button>
                     <span class="header-brand-divider" aria-hidden="true"></span>
                 }
-                @if (signedIn && homeRoute is null)
-                {
-                    <span class="brand">ConFastDB</span>
-                }
-                else
-                {
-                    <a class="brand" href="@(homeRoute ?? NavigationCatalog.Home.Route)">ConFastDB</a>
-                }
+                <a class="brand" href="@NavigationCatalog.Home.Route">ConFastDB</a>
             </div>
             @if (HostEnvironment.IsDevelopment() && CanNavigate(Permissions.Authorization.ManageSecurity))
             {
@@ -67,22 +60,24 @@
         </header>
 
         <div class="app-shell">
-            @if (homeRoute is not null && RendererInfo.IsInteractive)
+            @if (signedIn && RendererInfo.IsInteractive)
             {
                 <aside id="application-sidebar" class="app-sidebar @(compact ? "app-sidebar-compact" : null)">
-                    <ApplicationNavigation IdPrefix="sidebar" HomeRoute="@homeRoute" Groups="visibleGroups"
+                    <ApplicationNavigation IdPrefix="sidebar" Groups="visibleGroups"
                                            Expanded="expandedCategories" Compact="compact" ToggleCategory="ToggleSidebarCategory"
                                            ActiveItem="activeItem" ActivePath="@activePath" />
                 </aside>
             }
             <div class="app-content">
                 <main class="app-main">
-                    @Body
+                    <CascadingValue Value="navigationPermissions">
+                        @Body
+                    </CascadingValue>
                 </main>
             </div>
         </div>
 
-        @if (homeRoute is not null)
+        @if (signedIn)
         {
             <dialog id="navigation-drawer" class="navigation-drawer" aria-labelledby="navigation-drawer-title">
                 <div class="navigation-drawer-content">
@@ -94,7 +89,7 @@
                             </button>
                         </form>
                     </div>
-                    <ApplicationNavigation IdPrefix="drawer" HomeRoute="@homeRoute" Groups="visibleGroups"
+                    <ApplicationNavigation IdPrefix="drawer" Groups="visibleGroups"
                                            Expanded="expandedCategories" ToggleCategory="ToggleCategory"
                                            ActiveItem="activeItem" ActivePath="@activePath" />
                 </div>
@@ -125,7 +120,6 @@
     private NavigationItem? activeItem;
     private NavigationCategoryId? drawerCategory;
     private string activePath = "/";
-    private string? homeRoute;
     private long authorizationRevision, permissionRequest;
     private bool navigationReady, signedIn, compact, disposed;
     private bool IsInspectionPrintRoute => new Uri(Navigation.Uri).AbsolutePath.Trim('/').Split('/')
@@ -163,7 +157,6 @@
         navigationPermissions = snapshot;
         signedIn = authenticated;
         visibleGroups = NavigationCatalog.GetVisibleGroups(snapshot);
-        homeRoute = NavigationCatalog.GetHomeRoute(snapshot, visibleGroups);
         UpdateActivePage();
         navigationReady = true;
     }
@@ -171,7 +164,7 @@
     private void UpdateActivePage()
     {
         var path = NavigationCatalog.GetPath(new Uri(Navigation.Uri));
-        var item = NavigationCatalog.FindActive(path, visibleGroups, homeRoute);
+        var item = signedIn ? NavigationCatalog.FindActive(path, visibleGroups) : null;
         if ((path != activePath || item != activeItem) && item?.Category is { } category)
             expandedCategories.Add(category);
 
@@ -213,7 +206,7 @@
             if (disposed) return;
             UpdateActivePage();
             StateHasChanged();
-            if (RendererInfo.IsInteractive && homeRoute is not null)
+            if (RendererInfo.IsInteractive && signedIn)
             {
                 try { await JS.InvokeVoidAsync("confastNavigation.closeDrawer"); }
                 catch (JSDisconnectedException) { }
@@ -241,7 +234,7 @@
             if (disposed) return;
             navigationPermissions = null;
             visibleGroups = [];
-            homeRoute = null;
+            signedIn = false;
             activeItem = null;
             expandedCategories.Clear();
             compact = false;

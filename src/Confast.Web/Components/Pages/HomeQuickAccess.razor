@@ -1,0 +1,197 @@
+@using Confast.Web.Features.Navigation
+
+<section class="quick-access" aria-labelledby="quick-access-heading" aria-busy="@(loading ? "true" : "false")">
+    <div class="quick-access-heading">
+        <h1 id="quick-access-heading">Quick Access</h1>
+        @if (view is not null)
+        {
+            <div class="quick-access-controls">
+                <button id="quick-access-add" type="button" class="button button-secondary" aria-haspopup="dialog"
+                        disabled="@view.Destinations.IsEmpty" @onclick="() => OpenPanel(Panel.Add)">
+                    <NavigationIcon Icon="NavigationIconName.Plus" /> Add shortcut
+                </button>
+                <button id="quick-access-manage" type="button" class="button button-secondary" aria-haspopup="dialog"
+                        @onclick="() => OpenPanel(Panel.Settings)">
+                    <NavigationIcon Icon="NavigationIconName.Settings" /> Manage
+                </button>
+            </div>
+        }
+    </div>
+
+    <p class="visually-hidden" role="status">@status</p>
+    @if (panel is null && view is not null && error is not null)
+    {
+        <p class="alert alert-error" role="alert">@error</p>
+    }
+    @if (loading)
+    {
+        <p class="quick-access-empty" role="status">Loading your shortcuts…</p>
+    }
+    else if (view is null)
+    {
+        <div class="quick-access-empty">
+            <p>@(error ?? "Quick Access is unavailable for this account.")</p>
+            @if (error is not null && Permissions is not null)
+            {
+                <button class="button button-secondary" type="button" @onclick="ReloadAsync">Try again</button>
+            }
+        </div>
+    }
+    else if (view.Tiles.IsEmpty)
+    {
+        <p class="quick-access-empty">@(view.Destinations.IsEmpty
+            ? "Your account has no available destinations."
+            : "Add a shortcut or restore removed shortcuts in Manage.")</p>
+    }
+    else
+    {
+        <ul class="shortcut-grid" aria-label="Quick Access shortcuts">
+            @foreach (var tile in view.Tiles)
+            {
+                var item = tile.Destination;
+                var stateId = $"shortcut-state-{item.Id}";
+                <li class="shortcut-tile @NavigationCatalog.CategoryFor(item).AccentClass" @key="item.Id">
+                    <a class="shortcut-link" href="@item.Route" aria-describedby="@stateId">
+                        <span class="shortcut-icon"><NavigationIcon Icon="item.Icon" /></span>
+                        <span class="shortcut-label">@item.Label</span>
+                    </a>
+                    <span id="@stateId" class="visually-hidden">@(tile.IsPinned ? "Pinned shortcut" : "Suggested shortcut")</span>
+                    @if (tile.IsPinned)
+                    {
+                        <span class="shortcut-pin"><NavigationIcon Icon="NavigationIconName.Pin" /></span>
+                    }
+                    <button id="@OptionsId(item)" type="button" class="shortcut-options" aria-haspopup="dialog"
+                            aria-label="Options for @item.Label" aria-expanded="@(panel == Panel.Tile && selectedId == item.Id ? "true" : "false")"
+                            @onclick="() => OpenPanel(Panel.Tile, item)">
+                        <NavigationIcon Icon="NavigationIconName.More" />
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
+    @if (view is not null && panel is { } openPanel)
+    {
+        <dialog class="quick-access-dialog @(openPanel == Panel.Tile ? "shortcut-menu" : null)" @key="openPanel" @ref="dialog"
+                aria-labelledby="quick-access-dialog-title" @onclose="PanelClosed">
+            <header class="quick-access-dialog-heading">
+                <h2 id="quick-access-dialog-title">@PanelTitle</h2>
+                <button class="quick-access-close" type="button" aria-label="Close" @onclick="ClosePanelAsync">
+                    <NavigationIcon Icon="NavigationIconName.Close" />
+                </button>
+            </header>
+            @if (error is not null)
+            {
+                <p class="alert alert-error" role="alert">@error</p>
+            }
+
+            @if (openPanel == Panel.Tile && SelectedTile is { } selected)
+            {
+                var item = selected.Destination;
+                var position = view.Tiles.IndexOf(selected);
+                <div class="shortcut-menu-actions">
+                    @if (selected.IsPinned)
+                    {
+                        <button type="button" autofocus disabled="@busy" @onclick="() => ChangeTileAsync(QuickAccessAction.Unpin, item)">Unpin</button>
+                        <button type="button" disabled="@(busy || position == 0)" @onclick="() => ChangeTileAsync(QuickAccessAction.MoveEarlier, item)">Move earlier</button>
+                        <button type="button" disabled="@(busy || position >= view.VisiblePinCount - 1)" @onclick="() => ChangeTileAsync(QuickAccessAction.MoveLater, item)">Move later</button>
+                    }
+                    else
+                    {
+                        <button type="button" autofocus disabled="@busy" @onclick="() => ChangeTileAsync(QuickAccessAction.Pin, item)">Pin</button>
+                    }
+                    <button class="shortcut-remove" type="button" disabled="@busy" @onclick="() => ChangeTileAsync(QuickAccessAction.Remove, item)">Remove</button>
+                </div>
+            }
+            else if (openPanel == Panel.Add)
+            {
+                <label class="quick-access-field">
+                    <span>Find a destination</span>
+                    <input type="search" autofocus @bind="search" @bind:event="oninput" />
+                </label>
+                @if (view.SavedPinCount >= view.Capacity)
+                {
+                    <p class="quick-access-help">All shortcut slots are pinned. Unpin a shortcut or increase capacity in Manage.</p>
+                }
+                var matches = MatchingDestinations.ToArray();
+                if (matches.Length == 0)
+                {
+                    <p class="quick-access-help">No matching destinations are available to pin.</p>
+                }
+                else
+                {
+                    <div class="shortcut-picker">
+                        @foreach (var group in matches.GroupBy(NavigationCatalog.CategoryFor))
+                        {
+                            <div class="shortcut-picker-group @group.Key.AccentClass">
+                                <h3>@group.Key.Label</h3>
+                                <ul>
+                                    @foreach (var item in group)
+                                    {
+                                        <li @key="item.Id">
+                                            <button type="button" disabled="@busy" @onclick="() => ChangeTileAsync(QuickAccessAction.Pin, item)">
+                                                <NavigationIcon Icon="item.Icon" /> @item.Label
+                                            </button>
+                                        </li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else if (openPanel == Panel.Settings && !confirmReset)
+            {
+                <label class="quick-access-field">
+                    <span>Shortcut slots</span>
+                    <select id="quick-access-capacity" autofocus disabled="@busy" @bind:get="view.Capacity" @bind:set="ChangeCapacityAsync">
+                        @foreach (var capacity in QuickAccessService.Capacities)
+                        {
+                            <option value="@capacity">@capacity</option>
+                        }
+                    </select>
+                </label>
+                @if (view.SavedPinCount > view.VisiblePinCount)
+                {
+                    <p class="quick-access-help">Some saved pins are temporarily unavailable. They still count toward your pin limit.</p>
+                }
+                <section class="removed-shortcuts" aria-labelledby="removed-shortcuts-heading">
+                    <h3 id="removed-shortcuts-heading">Removed shortcuts</h3>
+                    @if (view.Removed.IsEmpty)
+                    {
+                        <p class="quick-access-help">There are no removed shortcuts you can access.</p>
+                    }
+                    else
+                    {
+                        <ul>
+                            @foreach (var item in view.Removed)
+                            {
+                                <li @key="item.Id">
+                                    <span>@item.Label</span>
+                                    <button class="button button-secondary" type="button" aria-label="Restore @item.Label" disabled="@busy"
+                                            @onclick="() => ChangeTileAsync(QuickAccessAction.Restore, item)">Restore</button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    @if (view.HasRemovedShortcuts)
+                    {
+                        <button type="button" class="button button-secondary" disabled="@busy"
+                                @onclick="RestoreAllAsync">Restore all</button>
+                    }
+                </section>
+                <footer class="quick-access-dialog-actions">
+                    <button id="quick-access-reset" type="button" class="button button-danger-outline" disabled="@busy" @onclick="AskToReset">Reset Quick Access</button>
+                </footer>
+            }
+            else if (confirmReset)
+            {
+                <p>Clear your pins and removed shortcuts and return to eight slots? Your navigation history will still be used for suggestions.</p>
+                <footer class="quick-access-dialog-actions">
+                    <button id="quick-access-cancel-reset" class="button button-secondary" type="button" @onclick="CancelReset">Cancel</button>
+                    <button class="button button-danger" type="button" disabled="@busy" @onclick="ResetAsync">Reset preferences</button>
+                </footer>
+            }
+        </dialog>
+    }
+</section>

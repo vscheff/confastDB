@@ -6094,6 +6094,93 @@ namespace Confast.Web.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationPreference", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("Capacity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(8)
+                        .HasColumnName("capacity");
+
+                    b.Property<DateOnly?>("RecommendationDay")
+                        .HasColumnType("date")
+                        .HasColumnName("recommendation_day");
+
+                    b.PrimitiveCollection<string[]>("RecommendationOrder")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("recommendation_order")
+                        .HasDefaultValueSql("ARRAY[]::text[]");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("navigation_preferences", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_navigation_preferences_capacity", "capacity IN (6, 8, 12)");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationShortcutPreference", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("DestinationId")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("destination_id");
+
+                    b.Property<int?>("PinOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("pin_order");
+
+                    b.HasKey("UserId", "DestinationId");
+
+                    b.ToTable("navigation_shortcut_preferences", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_navigation_shortcut_preferences_pin_order", "pin_order >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationUsage", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("DestinationId")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("destination_id");
+
+                    b.Property<DateTimeOffset>("LastVisitedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_visited_utc");
+
+                    b.Property<long>("VisitCount")
+                        .HasColumnType("bigint")
+                        .HasColumnName("visit_count");
+
+                    b.Property<double>("VisitScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("visit_score");
+
+                    b.HasKey("UserId", "DestinationId");
+
+                    b.ToTable("navigation_usage", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_navigation_usage_visit_count", "visit_count > 0");
+
+                            t.HasCheckConstraint("CK_navigation_usage_visit_score", "visit_score > 0 AND visit_score < 'Infinity'::double precision");
+                        });
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Parts.LotFlip", b =>
                 {
                     b.Property<long>("Id")
@@ -8181,6 +8268,33 @@ namespace Confast.Web.Data.Migrations
                     b.Navigation("SourceInspection");
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationPreference", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithOne()
+                        .HasForeignKey("Confast.Web.Features.Navigation.NavigationPreference", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationShortcutPreference", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Navigation.NavigationPreference", null)
+                        .WithMany("Shortcuts")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationUsage", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Parts.LotFlip", b =>
                 {
                     b.HasOne("Confast.Web.Features.Inspections.Inspection", "DestinationInspection")
@@ -8690,6 +8804,11 @@ namespace Confast.Web.Data.Migrations
             modelBuilder.Entity("Confast.Web.Features.Inspections.InspectionCertification", b =>
                 {
                     b.Navigation("Documents");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Navigation.NavigationPreference", b =>
+                {
+                    b.Navigation("Shortcuts");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Parts.Part", b =>

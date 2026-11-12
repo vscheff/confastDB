@@ -4,7 +4,7 @@
 <nav class="application-navigation" aria-label="Main navigation">
     <ul class="navigation-list">
         <li>
-            <a class="navigation-row navigation-home" href="@HomeRoute" aria-current="@Current(NavigationCatalog.Home)"
+            <a class="navigation-row navigation-home" href="@NavigationCatalog.Home.Route" aria-current="@Current(NavigationCatalog.Home)"
                title="@(Compact ? NavigationCatalog.Home.Label : null)">
                 <NavigationIcon Icon="NavigationCatalog.Home.Icon" />
                 <span class="navigation-label">@NavigationCatalog.Home.Label</span>
@@ -42,7 +42,6 @@
 
 @code {
     [Parameter, EditorRequired] public string IdPrefix { get; set; } = "";
-    [Parameter, EditorRequired] public string HomeRoute { get; set; } = "";
     [Parameter, EditorRequired] public ImmutableArray<NavigationGroup> Groups { get; set; }
     [Parameter, EditorRequired] public IReadOnlySet<NavigationCategoryId> Expanded { get; set; } = null!;
     [Parameter, EditorRequired] public EventCallback<NavigationCategoryId> ToggleCategory { get; set; }
