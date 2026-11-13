@@ -1,0 +1,76 @@
+@using Confast.Web.Features.Navigation
+@implements IDisposable
+@inject AppearanceSession Appearance
+@inject IJSRuntime JS
+@inject ILogger<AccountMenu> Logger
+
+<div class="user-menu" @ref="host" data-saved-mode="@Appearance.Current?.ModeName" data-saved-accent="@Appearance.Current?.AccentColor">
+    <button class="user-menu-trigger" type="button" popovertarget="account-popover" aria-controls="account-popover"
+            aria-label="@($"{DisplayName} account menu")">
+        <span>@DisplayName</span>
+        <NavigationIcon Icon="NavigationIconName.Chevron" />
+    </button>
+    <div id="account-popover" class="user-menu-popover" popover="auto" data-account-popover>
+        <a href="/appearance" data-account-destination>Appearance</a>
+        @if (RendererInfo.IsInteractive)
+        {
+            <button type="button" @onclick="ToggleModeAsync" aria-disabled="@(saving ? "true" : null)">
+                <span class="switch-to-dark">Switch to dark mode</span>
+                <span class="switch-to-light">Switch to light mode</span>
+            </button>
+            @if (error is not null)
+            {
+                <p class="user-menu-error" role="alert">@error</p>
+            }
+        }
+        <a href="/logout" data-account-destination>Log out</a>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string DisplayName { get; set; } = "";
+
+    private ElementReference host;
+    private bool saving;
+    private string? error;
+
+    protected override void OnInitialized()
+    {
+        if (RendererInfo.IsInteractive)
+            Appearance.Changed += AppearanceChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { await JS.InvokeVoidAsync("confastAppearance.watchAccount", host); }
+        catch (JSDisconnectedException) { }
+    }
+
+    private void AppearanceChanged(AppearancePreference preference) => _ = InvokeAsync(StateHasChanged);
+
+    private async Task ToggleModeAsync()
+    {
+        if (saving) return;
+        saving = true;
+        error = null;
+        try
+        {
+            var theme = await JS.InvokeAsync<string>("confastAppearance.resolvedTheme");
+            await Appearance.SaveAsync(theme == "dark" ? AppearanceMode.Light : AppearanceMode.Dark, null);
+        }
+        catch (JSDisconnectedException) { }
+        catch (AuthorizationDeniedException)
+        {
+            error = "Sign in again to change your appearance.";
+        }
+        catch (Npgsql.NpgsqlException exception)
+        {
+            Logger.LogWarning(exception, "Could not save the account's appearance mode.");
+            error = "Could not save your appearance. Try again.";
+        }
+        finally { saving = false; }
+    }
+
+    public void Dispose() => Appearance.Changed -= AppearanceChanged;
+}

@@ -51,10 +51,8 @@
             }
             <AuthorizeView>
                 <Authorized Context="authenticationState">
-                    <div class="user-menu">
-                        <span>@GetDisplayName(authenticationState.User)</span>
-                        <a class="header-link" href="/logout">Log out</a>
-                    </div>
+                    <AccountMenu @key="authenticationState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value"
+                                 DisplayName="@GetDisplayName(authenticationState.User)" />
                 </Authorized>
             </AuthorizeView>
         </header>

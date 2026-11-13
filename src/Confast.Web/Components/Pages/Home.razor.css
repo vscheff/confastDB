@@ -1,8 +1,8 @@
 .home-workspace {
-    --home-text: #17324a;
-    --home-muted: #526575;
-    --home-border: #d7e1e8;
-    --home-focus: #176b9c;
+    --home-text: var(--text-strong);
+    --home-muted: var(--text-secondary);
+    --home-border: var(--border);
+    --home-focus: var(--accent-border);
     color: var(--home-text);
 }
 
@@ -20,8 +20,8 @@
     min-width: 0;
     border: 1px solid var(--home-border);
     border-radius: .65rem;
-    background: #fff;
-    box-shadow: 0 1px 2px rgb(23 50 74 / 5%);
+    background: var(--surface);
+    box-shadow: 0 1px 2px var(--shadow-subtle);
 }
 
 .department-heading {
@@ -38,13 +38,13 @@
     aspect-ratio: 1;
     place-items: center;
     color: var(--navigation-accent);
-    background: color-mix(in srgb, var(--navigation-accent) 10%, #fff);
+    background: color-mix(in srgb, var(--navigation-accent) 10%, var(--surface));
     border-radius: .45rem;
 }
 
 .department-heading h3 { margin: 0 0 .25rem; font-size: 1.0625rem; line-height: 1.25; }
 .department-heading p { margin: 0; color: var(--home-muted); font-size: .875rem; line-height: 1.35; }
-.department-card ul { list-style: none; margin: 0 .625rem; padding: .25rem 0 .625rem; border-top: 1px solid #e6edf2; }
+.department-card ul { list-style: none; margin: 0 .625rem; padding: .25rem 0 .625rem; border-top: 1px solid var(--border-subtle); }
 .department-card a {
     display: flex;
     align-items: center;
@@ -59,7 +59,7 @@
     text-decoration: none;
 }
 
-.department-card a:hover { background: #eaf0f5; }
+.department-card a:hover { background: var(--hover-bg); }
 .department-card a:focus-visible { outline: 2px solid var(--home-focus); outline-offset: 1px; }
 .department-chevron { display: inline-flex; color: var(--navigation-accent); transform: rotate(-90deg); }
 .department-chevron ::deep .navigation-icon { width: 16px; height: 16px; }

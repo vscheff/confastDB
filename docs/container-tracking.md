@@ -1,75 +1,58 @@
-# Container Tracking
+# Container Tracking and Receiving
 
-The workspace is at `/container-tracking`; Supplier master data is at `/suppliers`.
-`AddContainerTracking` adds seven tables: suppliers, shipments, shipment bill numbers,
-containers, bills of lading, container groups, and container group parts. Existing
-Parts remain authoritative. There is no FileMaker import or synchronization in this slice.
+Open **Container Tracking** under **Receiving & Logistics**. The shipment list
+requires `Shipments.Read`. Container details and container-level search also
+require `Containers.Read`. Shipment, container, bill of lading (B/L), and
+receiving actions each have their own permissions.
 
-## Workflow
+## Entering a shipment
 
-1. Create the supplier (or select an existing active supplier).
-2. Create a shipment with one or more individually stored bill numbers.
-3. Add containers to that shipment and enter their dates and charges.
-4. Add groups. Select an existing B/L, or create one inline with its supplier and duty.
-5. Add Part/PO/quantity lines. Save the groups together. Each line keeps its own ID;
-   repeated Parts and repeated Part/PO combinations are allowed.
+1. Create a shipment with at least one shipment bill number and optional
+   freight cost.
+2. Add containers and enter their identifiers, estimated departure (ETD),
+   estimated arrival (ETA), and any applicable charges.
+3. Add groups to each container. Select an existing B/L or create one with
+   an active supplier. Record group invoice, weight, pallets, and certification
+   status as available. Weight is recorded in pounds.
+4. Add part, purchase order (PO), and expected quantity lines. The part's
+   supplier must match the group's B/L supplier. Each line has its own identity,
+   so repeated part and PO combinations are allowed.
 
-The search includes shipment bills, container numbers, B/L numbers, supplier names,
-and Part numbers. A match displays the entire shipment, including its other containers.
-B/L duty and supplier edits affect every group referencing that B/L. Supplier names
-are never copied into tracking records. Inactive suppliers remain visible on existing
-B/L records but cannot be newly assigned.
+Search matches shipment bills and, with container access, container and CBP
+numbers, B/Ls, suppliers, invoices, and part numbers. A match returns the
+shipment with its containers. B/L numbers are trimmed, uppercased, and unique.
+Editing a shared B/L changes it for all groups using it. Inactive suppliers
+remain visible on existing B/Ls.
 
-## Decisions and boundaries
+## Departure and receipt
 
-- Supplier follows Customer's numeric ID, active/inactive, and `xmin` pattern.
-  No extra contact/address domain or hard-delete UI was added.
-- Active authenticated users can read. Administrator, Quality, and Production can
-  edit. The service checks current database roles and account status for every operation.
-- Departure means the server's local calendar date is strictly greater than ETD.
-  A missing ETD leaves the container editable; ETD day itself is editable.
-- Groups, certifications status, B/L assignments, and part lines lock after departure.
-  Normal users cannot change the container number, ETD, ETA, quoted rate, or drayage.
-- Received date and production-schedule status remain updateable after departure.
-  This is the interpretation of operational fields that must still work at arrival.
-  Neither field triggers any other behavior.
-- Administrators may correct container metadata, including ETD. Correcting ETD to
-  today or later reopens normal content editing. Administrators do not directly bypass
-  the content lock. Shared B/L edits require administrator access if any referencing
-  container has departed.
-- Monetary values are optional nonnegative decimals with two decimal places; unknown
-  differs from zero. Weight is in pounds with up to three decimal places. Pallets and
-  quantities are nonnegative whole numbers. PO is required. No additional date-order,
-  container-number uniqueness, or Part/PO uniqueness rules are imposed.
-- B/L numbers are trimmed and uppercased before checking uniqueness; PostgreSQL enforces
-  canonical storage and global uniqueness. A concurrent duplicate returns the existing
-  B/L identity so the editor can select it.
-- Container saves use one `xmin` token for metadata and all groups/lines. Each content
-  save advances that token. Shipment bill edits likewise advance the shipment token via
-  `UpdatedAtUtc`. Serializable transactions protect shared-B/L/departure checks; conflicts
-  return a reload message rather than overwriting another user's work.
+A container is considered departed when its ETD is before the current business
+date. ETD day itself remains editable. After departure, groups, B/L assignments,
+certification status, and part lines are locked. Correcting departed metadata
+requires `Containers.CorrectDepartedMetadata`. Moving ETD to today or later
+reopens group editing, subject to the receipt restrictions below. Editing a
+shared B/L used on any departed container requires `BillsOfLading.CorrectDeparted`.
 
-## Migration and verification
+Use **Receive container** to record receipt. This records the actor and date
+and initializes actual quantities from expected quantities where actuals are
+missing. The received date must be today or earlier. Corrections and historical
+receipt reconciliation require a reason and the applicable receipt permission.
+A received line preserves its part, PO, and expected quantity. Correct actuals
+in **Received Parts** with a reason. Actual quantity must cover quantities
+already allocated to inspections.
 
-Apply the reviewed migration through the normal deployment process:
+**Received Parts** requires `Receiving.Read`. From there, authorized users can
+start an inspection for a received line, bump the received quantity on an
+eligible existing inspection, or reverse an allocation. Receipt allocations
+retain their source line and history. A container can be unreceived only
+before any receipt allocations have been recorded.
 
-```powershell
-dotnet ef database update --project src/Confast.Web --startup-project src/Confast.Web
-```
+Departed container lines can enter the [production schedule](production-scheduling.md#jobs-from-inbound-containers).
+The schedule uses ETA for forecasts until a received date is recorded.
 
-The implementation was built in Release and the migration applied to the configured
-disposable PostgreSQL test database. The full test suite passed. Added tests cover
-Supplier validation/deactivation, authorization, multiple shipment bills, normalized
-and concurrent B/L uniqueness, shared B/Ls, repeated Parts, parent/child integrity,
-negative values, stale saves, departure locks, receipt, and administrator correction.
+## Data integrity
 
-Authenticated Chromium checks used the configured Development BrowserTestUser through
-the real login UI against the disposable database. They exercised the creation workflow,
-Part/PO rows, departure locking, receipt, and search at desktop and tablet viewport sizes.
-This does not claim testing on a physical iPad or in Safari. The normal development
-database was not migrated during verification.
-
-## Deferred
-
-Receiving inspector screens, inspections, inspection correlation, lot numbers, bump-ups,
-inventory, and container-to-inspection relationships remain intentionally absent.
+Container metadata and contents share a concurrency version. A stale edit
+requires a reload. Shipment bill edits similarly advance the shipment version.
+The database enforces B/L uniqueness, and transactions protect shared B/L
+changes and receipt allocations from concurrent edits.

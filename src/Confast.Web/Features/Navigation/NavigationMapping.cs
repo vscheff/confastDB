@@ -9,6 +9,8 @@ internal sealed class NavigationPreference
     public int Capacity { get; set; } = QuickAccessService.DefaultCapacity;
     public DateOnly? RecommendationDay { get; set; }
     public string[] RecommendationOrder { get; set; } = [];
+    public string? AppearanceMode { get; set; }
+    public string? AccentColor { get; set; }
     public List<NavigationShortcutPreference> Shortcuts { get; } = [];
 }
 
@@ -41,6 +43,8 @@ internal static class NavigationMapping
         preferences.Property(x => x.Capacity).HasColumnName("capacity").HasDefaultValue(QuickAccessService.DefaultCapacity);
         preferences.Property(x => x.RecommendationDay).HasColumnName("recommendation_day");
         preferences.Property(x => x.RecommendationOrder).HasColumnName("recommendation_order").HasDefaultValueSql("ARRAY[]::text[]");
+        preferences.Property(x => x.AppearanceMode).HasColumnName("appearance_mode").HasMaxLength(6);
+        preferences.Property(x => x.AccentColor).HasColumnName("accent_color").HasMaxLength(7);
         preferences.HasOne<ApplicationUser>().WithOne().HasForeignKey<NavigationPreference>(x => x.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 

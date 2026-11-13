@@ -42,6 +42,7 @@ public sealed partial class DelegatedAdministrationTests
             await page.WaitForURLAsync(origin + "/customers");
             await AssertRestrictedNavigationAsync(nav);
 
+            await page.GetByRole(AriaRole.Button, new() { Name = "Browser Test User account menu" }).ClickAsync();
             await page.GetByRole(AriaRole.Link, new() { Name = "Log out", Exact = true }).ClickAsync();
             await page.GetByRole(AriaRole.Button, new() { Name = "Open navigation", Exact = true }).ClickAsync();
             var staticDrawer = page.GetByRole(AriaRole.Dialog, new() { Name = "Navigation", Exact = true });

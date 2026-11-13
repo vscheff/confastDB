@@ -1150,7 +1150,8 @@
                         {
                             @if (entry.Type is ChatMessageType.Text or ChatMessageType.Poll)
                             {
-                                <article @key="entry.Id" data-chat-message-id="@entry.Id" class="chat-channel-thread-entry">
+                                <article @key="entry.Id" data-chat-message-id="@entry.Id"
+                                         class="chat-channel-thread-entry @(entry.SenderUserId == currentUserId ? "mine" : null)">
                                     <div><strong>@entry.SenderName</strong><time datetime="@entry.SentAtUtc.ToString("O")">@entry.SentAtUtc.ToLocalTime().ToString("g")</time></div>
                                     @if (entry.ReplyToBody is { } replyBody) { <small>↳ @replyBody</small> }
                                     @if (entry.Attachments.Count == 0 || !string.Equals(entry.Body, "Shared a file", StringComparison.Ordinal))

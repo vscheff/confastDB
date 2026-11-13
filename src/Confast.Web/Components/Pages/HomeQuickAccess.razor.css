@@ -16,7 +16,7 @@
     padding: 1.125rem;
     border: 1px solid var(--home-border);
     border-radius: .625rem;
-    background: #fff;
+    background: var(--surface);
     color: var(--home-muted);
 }
 
@@ -42,15 +42,15 @@
     padding: .75rem;
     border: 1px solid var(--home-border);
     border-radius: .625rem;
-    background: #fff;
+    background: var(--surface);
     color: var(--home-text);
     text-decoration: none;
-    box-shadow: 0 1px 2px rgb(23 50 74 / 5%);
+    box-shadow: 0 1px 2px var(--shadow-subtle);
 }
 
 .shortcut-link:hover {
-    border-color: color-mix(in srgb, var(--navigation-accent) 45%, #fff);
-    background: color-mix(in srgb, var(--navigation-accent) 5%, #fff);
+    border-color: color-mix(in srgb, var(--navigation-accent) 45%, var(--surface));
+    background: color-mix(in srgb, var(--navigation-accent) 5%, var(--surface));
 }
 
 .shortcut-icon {
@@ -59,7 +59,7 @@
     aspect-ratio: 1;
     place-items: center;
     border-radius: .45rem;
-    background: color-mix(in srgb, var(--navigation-accent) 10%, #fff);
+    background: color-mix(in srgb, var(--navigation-accent) 10%, var(--surface));
     color: var(--navigation-accent);
 }
 
@@ -81,7 +81,7 @@
 }
 
 .shortcut-options { position: absolute; inset: .1875rem .1875rem auto auto; }
-.shortcut-options:hover, .quick-access-close:hover { background: #eaf0f5; color: var(--home-text); }
+.shortcut-options:hover, .quick-access-close:hover { background: var(--hover-bg); color: var(--home-text); }
 .quick-access :is(button, a, input, select):focus-visible { outline: 2px solid var(--home-focus); outline-offset: 2px; }
 
 .quick-access-dialog {
@@ -92,13 +92,13 @@
     padding: 1rem 1.25rem 1.25rem;
     border: 1px solid var(--home-border);
     border-radius: .75rem;
-    background: #fff;
+    background: var(--surface-raised);
     color: var(--home-text);
-    box-shadow: 0 12px 40px rgb(23 50 74 / 20%);
+    box-shadow: 0 12px 40px var(--shadow-raised);
     overflow: auto;
 }
 
-.quick-access-dialog::backdrop { background: rgb(14 30 46 / 43%); }
+.quick-access-dialog::backdrop { background: var(--backdrop); }
 .quick-access-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
 .quick-access-dialog-heading h2 { margin: 0; font-size: 1.1875rem; }
 .quick-access-dialog > p { line-height: 1.5; }
@@ -108,9 +108,9 @@
     min-height: 44px;
     min-width: 0;
     padding: .375rem .625rem;
-    border: 1px solid #aeb9c2;
+    border: 1px solid var(--input-border);
     border-radius: .375rem;
-    background: #fff;
+    background: var(--input-bg);
     color: inherit;
 }
 
@@ -122,7 +122,7 @@
     margin: 0;
     padding: .375rem .5rem;
     border-inline-start: 3px solid var(--navigation-accent);
-    background: #f4f6f8;
+    background: var(--page-bg);
     font-size: .875rem;
 }
 
@@ -141,7 +141,7 @@
     cursor: pointer;
 }
 
-.shortcut-picker button:hover:not(:disabled), .shortcut-menu-actions button:hover:not(:disabled) { background: #eaf0f5; }
+.shortcut-picker button:hover:not(:disabled), .shortcut-menu-actions button:hover:not(:disabled) { background: var(--hover-bg); }
 .shortcut-picker button:disabled, .shortcut-menu-actions button:disabled { color: var(--home-muted); opacity: .65; cursor: default; }
 .shortcut-picker ::deep .navigation-icon { flex: 0 0 20px; color: var(--navigation-accent); }
 .removed-shortcuts { margin-top: 1rem; border-top: 1px solid var(--home-border); padding-top: 1rem; }
@@ -161,4 +161,4 @@
 .shortcut-menu .quick-access-dialog-heading { margin: 0; padding-inline-start: .5rem; }
 .shortcut-menu h2 { font-size: .9375rem; }
 .shortcut-menu .alert { margin: .25rem 0; padding: .5rem; font-size: .875rem; }
-.shortcut-menu-actions .shortcut-remove { color: #8f2525; }
+.shortcut-menu-actions .shortcut-remove { color: var(--danger-text); }

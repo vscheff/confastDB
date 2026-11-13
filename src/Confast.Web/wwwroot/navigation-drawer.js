@@ -47,8 +47,29 @@ window.confastNavigation = {
     }
 };
 
+function positionAccountPopover(popover) {
+    const trigger = popover.parentElement.querySelector("[popovertarget='account-popover']");
+    const bounds = trigger.getBoundingClientRect();
+    popover.style.top = `${bounds.bottom + 6}px`;
+    popover.style.right = `${Math.max(8, document.documentElement.clientWidth - bounds.right)}px`;
+}
+
+// Native popover dismissal and focus behavior also work on static account pages.
+document.addEventListener("beforetoggle", event => {
+    if (event.newState === "open" && event.target.matches?.("[data-account-popover]")) {
+        positionAccountPopover(event.target);
+    }
+}, true);
+window.addEventListener("resize", () => {
+    const openMenu = document.querySelector("[data-account-popover]:popover-open");
+    if (openMenu) positionAccountPopover(openMenu);
+});
+
 document.addEventListener("click", event => {
     if (!(event.target instanceof Element)) return;
+    const accountDestination = event.target.closest("[data-account-destination]");
+    if (accountDestination) accountDestination.closest(":popover-open")?.hidePopover();
+
     const trigger = event.target.closest("[data-navigation-open]");
     if (trigger) {
         const drawer = document.getElementById(trigger.getAttribute("aria-controls"));

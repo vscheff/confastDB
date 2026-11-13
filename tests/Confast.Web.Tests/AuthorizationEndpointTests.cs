@@ -31,6 +31,7 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
     [Theory]
     [InlineData("/")]
     [InlineData("/customers")]
+    [InlineData("/appearance")]
     public async Task UnauthenticatedUser_IsRedirectedToLogin(string path)
     {
         await using var factory = CreateFactory();

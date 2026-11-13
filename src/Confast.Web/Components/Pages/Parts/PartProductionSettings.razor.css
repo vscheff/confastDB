@@ -14,8 +14,8 @@
 .part-production-preferred-content input[type=radio] { margin: 0; }
 .part-production-rate-actions, .part-production-rate-actions-header { width: 1%; white-space: nowrap; text-align: right; }
 .part-production-rate-actions .button { min-height: 2.15rem; padding: .35rem .65rem; }
-.part-production-new-rate { background: #edf7fc; }
-.part-production-new-rate select, .part-production-rates-table ::deep .part-production-rate-input { width: 100%; min-height: 2.15rem; padding: .35rem .5rem; border: 1px solid #aebcc7; border-radius: .25rem; }
+.part-production-new-rate { background: var(--accent-soft); }
+.part-production-new-rate select, .part-production-rates-table ::deep .part-production-rate-input { width: 100%; min-height: 2.15rem; padding: .35rem .5rem; border: 1px solid var(--input-border); border-radius: .25rem; }
 
 @media (max-width: 760px) {
     .part-production-list { width: auto; }

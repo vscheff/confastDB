@@ -1,0 +1,192 @@
+@page "/appearance"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Confast.Web.Features.Navigation
+@implements IDisposable
+@inject AppearanceSession Session
+@inject IJSRuntime JS
+@inject ILogger<Appearance> Logger
+
+<PageTitle>Appearance</PageTitle>
+
+<div class="appearance-page" @ref="editor" data-appearance-editor>
+    <div class="page-heading">
+        <div>
+            <h1>Appearance</h1>
+            <p>Your appearance settings follow your account.</p>
+        </div>
+        @if (Session.Current is not null)
+        {
+            <button class="button button-secondary" type="button" aria-disabled="@Busy" @onclick="RestoreAsync">Restore defaults</button>
+        }
+    </div>
+
+    @if (error is not null)
+    {
+        <p class="alert alert-error" role="alert">@error</p>
+    }
+    <div class="visually-hidden" role="status">@status</div>
+
+    @if (Session.Current is { } current)
+    {
+        <div class="appearance-workspace">
+            <div class="appearance-options">
+                <fieldset class="appearance-panel">
+                    <legend>Color mode</legend>
+                    <div class="appearance-modes">
+                        @foreach (var mode in Modes)
+                        {
+                            <button type="button" aria-pressed="@(current.Mode == mode ? "true" : "false")"
+                                    aria-disabled="@Busy" @onclick="() => SaveAsync(mode, null)">@mode</button>
+                        }
+                    </div>
+                    <p class="field-help">System follows the appearance of this device.</p>
+                </fieldset>
+
+                <fieldset class="appearance-panel">
+                    <legend>Accent color</legend>
+                    <div class="appearance-presets">
+                        @foreach (var preset in AppearancePreference.Presets)
+                        {
+                            <button type="button" class="appearance-preset" style="--swatch-color: @preset.Color"
+                                    aria-pressed="@(current.AccentColor == preset.Color ? "true" : "false")"
+                                    aria-disabled="@Busy" @onclick="() => SaveAsync(null, preset.Color)">
+                                <span class="appearance-swatch" aria-hidden="true"></span>
+                                @preset.Name
+                            </button>
+                        }
+                    </div>
+                    <form class="appearance-custom" @ref="customForm" data-appearance-custom @onsubmit="SaveCustomAsync" @onsubmit:preventDefault>
+                        <div class="form-field">
+                            <label for="accent-picker">Custom color</label>
+                            <input type="color" id="accent-picker" name="picker" value="@current.AccentColor" />
+                        </div>
+                        <div class="form-field">
+                            <label for="accent-hex">HEX color</label>
+                            <input type="text" id="accent-hex" name="hex" value="@current.AccentColor" maxlength="12"
+                                   spellcheck="false" autocomplete="off" autocapitalize="characters" aria-describedby="accent-hint" required />
+                        </div>
+                        <button class="button button-secondary" type="submit" aria-disabled="@Busy">Apply custom color</button>
+                        <p class="field-help" id="accent-hint">Enter a color such as #176B9C or #369.</p>
+                    </form>
+                </fieldset>
+            </div>
+
+            <section class="appearance-preview-section" aria-labelledby="appearance-preview-title">
+                <h2 id="appearance-preview-title">Live preview</h2>
+                <div class="appearance-preview" data-theme-preview>
+                    <div class="app-header preview-header"><span class="brand">ConFastDB</span></div>
+                    <div class="preview-workspace">
+                        <div class="application-navigation preview-sidebar" aria-label="Sample sidebar">
+                            <span class="navigation-row navigation-home is-current" aria-current="page">
+                                <NavigationIcon Icon="NavigationIconName.Home" /> Home
+                            </span>
+                            <span class="navigation-row navigation-accent-quality">
+                                <NavigationIcon Icon="NavigationIconName.ClipboardCheck" /> Quality
+                            </span>
+                        </div>
+                        <div class="preview-main">
+                            <section class="table-shell preview-card" aria-labelledby="preview-card-title">
+                                <h3 id="preview-card-title">Recent inspections</h3>
+                                <form class="form-field preview-filter" @onsubmit="FilterPreview" @onsubmit:preventDefault>
+                                    <label for="preview-filter">Part number</label>
+                                    <div>
+                                        <input type="text" id="preview-filter" placeholder="All parts" @bind="previewQuery" />
+                                        <button type="submit" class="button button-primary">Filter</button>
+                                    </div>
+                                </form>
+                                <table class="data-table preview-table">
+                                    <thead><tr><th scope="col">Part</th><th scope="col">Result</th></tr></thead>
+                                    <tbody>
+                                        @if ("CF-1042".Contains(previewFilter, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <tr><td>CF-1042</td><td><span class="status-pill status-active">Passed</span></td></tr>
+                                        }
+                                        else
+                                        {
+                                            <tr><td colspan="2">No matching parts</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                <div class="preview-statuses">
+                                    <span class="status-pill status-draft">Pending</span>
+                                    <span class="status-pill status-fail">Failed</span>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    }
+    else if (error is null)
+    {
+        <p class="muted" role="status">Loading appearance settings…</p>
+    }
+</div>
+
+@code {
+    private static readonly AppearanceMode[] Modes = [AppearanceMode.Light, AppearanceMode.Dark, AppearanceMode.System];
+    private ElementReference editor, customForm;
+    private bool saving, disposed;
+    private string? status, error;
+    private string previewQuery = "", previewFilter = "";
+    private string? Busy => saving ? "true" : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += AppearanceChanged;
+        try { await Session.LoadAsync(); }
+        catch (AuthorizationDeniedException) { error = "Sign in again to open your appearance settings."; }
+        catch (Npgsql.NpgsqlException exception)
+        {
+            Logger.LogWarning(exception, "Could not load the account's appearance settings.");
+            error = "Could not load your appearance settings. Reload the page to try again.";
+        }
+    }
+
+    private void AppearanceChanged(AppearancePreference preference) => _ = InvokeAsync(StateHasChanged);
+
+    private void FilterPreview() => previewFilter = previewQuery.Trim();
+
+    private Task RestoreAsync() => SaveAsync(AppearancePreference.Default.Mode, AppearancePreference.Default.AccentColor);
+
+    private Task SaveCustomAsync() => SaveAsync(null, null, readCustom: true);
+
+    private async Task SaveAsync(AppearanceMode? mode, string? accent, bool readCustom = false)
+    {
+        if (saving || disposed) return;
+        saving = true;
+        error = status = null;
+        try
+        {
+            if (readCustom)
+            {
+                var input = await JS.InvokeAsync<string>("confastAppearance.readCustomAccent", customForm);
+                accent = AppearancePreference.NormalizeAccent(input);
+                if (accent is null)
+                {
+                    error = "Enter a valid three- or six-digit HEX color.";
+                    return;
+                }
+            }
+            var saved = await Session.SaveAsync(mode, accent);
+            status = "Appearance saved.";
+            if (accent is not null && !disposed)
+                await JS.InvokeVoidAsync("confastAppearance.resetEditor", editor, saved.AccentColor);
+        }
+        catch (JSDisconnectedException) { }
+        catch (AuthorizationDeniedException) { error = "Sign in again to change your appearance."; }
+        catch (Npgsql.NpgsqlException exception)
+        {
+            Logger.LogWarning(exception, "Could not save the account's appearance settings.");
+            error = "Could not save your appearance. Try again.";
+        }
+        finally { saving = false; }
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        Session.Changed -= AppearanceChanged;
+    }
+}

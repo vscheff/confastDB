@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using Confast.Web.Components;
+using Confast.Web.Components.Layout;
 using Confast.Web.Data;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Chat;
@@ -118,6 +119,8 @@ builder.Services.AddScoped<ICertificationEmailTemplateService, CertificationEmai
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<QuickAccessService>();
 builder.Services.AddScoped<NavigationActivityService>();
+builder.Services.AddScoped<AppearancePreferenceService>();
+builder.Services.AddScoped<AppearanceSession>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DevelopmentDateOverrideTimeProvider>();
 builder.Services.AddSingleton<BusinessDateProvider>();

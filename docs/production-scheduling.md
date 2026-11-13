@@ -1,45 +1,81 @@
 # Production Scheduling
 
-Open **Production Scheduling** in the main navigation. Active authenticated users can read the schedule; Production and Administrator users can plan work. Scheduling settings require Administrator access. The service checks current database roles and account status for every operation.
+Open **Production Scheduling** under **Production**. The schedule requires
+`ProductionSchedules.Read`. Job edits, queue arrangement, start, progress,
+completion, and optimization each require their own permissions. **Scheduling
+Settings** shows the sections the user has permission to read and enables edits
+with the corresponding update or management permissions.
 
-## Deployment and configuration
+## Configuration
 
-Apply the checked-in `AddProductionScheduling` and `AddProductionSchedulingIntegrity` migrations with the normal EF deployment process. They add scheduling tables and a nullable `parts.box_quantity`; existing parts remain intact. The only seeded configuration is application-wide efficiency at 91%. The integrity migration adds deferred allocation/requirement checks and production-history protection triggers.
-
-Configure machines, including a machine named for manual sorting, and their actual weekday hours. No machine names, rates, or workweeks are assumed. Add eligible parts with target PPH; optionally provide the Part's box quantity. Configure global holidays and selectable downtime reasons. Missing rates, inactive machines, missing working capacity, and missing box quantities are shown explicitly. Eligibility cannot be removed while that part has unfinished work on the machine.
-
-These records are authoritative in ConFastDB. When the schedule is opened, each container whose Estimated Departure has passed is picked up once: every positive-quantity container line with an active preferred machine becomes a source-linked job at the end of that machine's queue. Its PO is carried forward and its Estimated Arrival is its hard earliest-start date until the container is received; then the received date becomes the hard earliest-start date. Lines without an active preferred machine stay unscheduled without blocking eligible sibling lines; Container Tracking marks the container as missing eligibility, highlights the affected line, and offers a retry after eligibility is configured. Those jobs retain their ordinary segment status; their pending blocker reads **Material En Route** until the source container is received. The automatic job is retained with its container-line source rather than being deletable as an unrelated planner job.
+Configure sorting machines, including manual sorting where applicable, and set
+their weekday hours. A machine can follow the default workweek or use its own
+hours. New databases start with an eight-hour Monday–Friday default calendar
+and 91% efficiency. Configure holidays and downtime reasons, then add eligible
+parts with target pieces per hour (PPH). Set a preferred machine for inbound
+container work. An optional part box quantity enables job box estimates.
 
 ## Planner workflow
 
-1. Select a machine and add a job with part, PO/MO references, total quantity, and notes. The initial allocation is one pending segment. An unsplit pending job's part and quantity can be edited; references and notes remain editable afterward.
-2. Optionally enter its next shortage date and additional pieces needed. A blank quantity fixes the cumulative requirement at the total job quantity. The date is inclusive: finishing on the shortage date is on time.
-3. Use Earlier/Later to change pending order. Start/pin sets a visible, removable **start no earlier than** constraint. A pin fixes the queue position during optimization, while projected dates can still change.
-4. Start the front pending segment explicitly. Record cumulative completed pieces for that segment through the end of the selected date. Corrections replace the current cumulative amount and append a checkpoint; they are never added as new output. Start and completion cannot be inferred from projected dates.
-5. Complete a segment by explicitly recording its full allocation. Other segments of the same job remain pending or running. Job completion follows the quantities across all segments.
-6. To interrupt work, create a quantity cut-in, specifying cumulative completion for the original job and another pending segment on the same machine. The scheduler creates stop → interruption → resume dependencies. It never marks the stop segment complete or starts the interruption automatically.
-7. Reassignment is explicit and validates the destination. Running reassignment requires a checkpoint from today or yesterday, closes the performed allocation on the original machine, and creates a pending remainder on the destination. Unfinished cut-in dependencies must finish first.
-8. Optimize Schedule previews order, dates, and requirement risks before application. A changed scheduling revision or planning date invalidates the preview.
+1. Select a machine and add a job with part, quantity, PO/MO references, and
+   notes. It starts with one pending segment.
+2. Optionally enter a shortage date and additional pieces needed. Requirements
+   are cumulative per part across its jobs. A blank quantity uses the part's
+   total scheduled quantity. The due date is inclusive.
+3. Move pending work earlier or later in the queue. Use **Pin** to set a
+   start-no-earlier-than date, fix the queue position during optimization, or
+   both. A queue pin still allows an explicit move and projected dates can change.
+4. Start the front pending segment explicitly. Start requires a matching
+   accepted inspection by part number and PO, completed non-sort secondary
+   processes on an accepted match, and a completed cut-in predecessor if one
+   exists. The service also checks the earliest-start date, machine capacity,
+   and whether the machine already has running work.
+5. Record additional pieces through the selected day. **Correct Total** replaces
+   the cumulative completed quantity and appends an audited checkpoint.
+   Complete the segment explicitly. If the final count differs from its
+   allocation, confirm the change to the next segment or the job total.
+6. Use **Cut-In** to define a cumulative job quantity at which to stop and
+   insert another pending segment on the same machine. The queue preserves
+   stop → cut-in → resume order. Reassigning running work requires a checkpoint
+   from today or yesterday. It closes the performed allocation on its original
+   machine and adds a pending remainder to the destination.
+7. **Optimize Schedule** previews queue order, forecast dates, and requirement
+   risks. A change to the schedule revision or planning date invalidates the
+   preview.
 
-## Calculation conventions
+## Jobs from inbound containers
 
-- Effective PPH = target PPH × efficiency / 100. Effective PPH is used once for all duration, remainder, requirement, and optimization calculations. Calendar hours are not reduced again.
-- The scheduler allocates decimal hours, retaining unused daily capacity between pending segments. No job is internally rounded to whole days.
-- Machine-specific weekdays provide capacity. Global holidays and inclusive full-day downtime remove it; overlapping downtime removes a day only once.
-- Equivalent days = hours / the machine's average positive configured weekday hours. This is a display measure, not a substitute for calendar allocation. Elapsed working days count actual calendar working dates through yesterday, or through completion for completed segments. Completed elapsed days are frozen on completion.
-- Checkpoints represent cumulative segment production through **end of day**. Remaining work starts no earlier than the next day and the current server-local planning date. A completion checkpoint closes that machine's recorded day for forecasting. Two planned four-hour jobs fit in one eight-hour day; once an end-of-day checkpoint is recorded, forecasts do not claim unused capacity on that date. Explicit actual starts/completions may still share a date. Intraday actual time entry is outside this date-based slice.
-- Forecasts never assume unreported production. Stale running checkpoints are marked. An unfinished segment with all pieces reported still requires explicit completion.
-- Original duration, target PPH, and efficiency estimates remain immutable. Current forecasts use current settings. Progress history records actor, recorded time, prior and replacement cumulative quantity, checkpoint date, and notes.
-- Job boxes = ceiling(job total / Part box quantity). Segment box rounding is not summed. Missing box quantity means the box estimate is unavailable.
-- Requirements store stable cumulative targets. Additional requirements accumulate in date order, using the greater of current completed quantity and earlier cumulative targets as the baseline. The simple editor maintains the next unmet requirement. Already satisfied requirements retain history; future cumulative targets are not silently rewritten when another requirement is edited. The model/service supports multiple dated requirements without requiring complete shipment forecasts.
-- Requirement forecasts combine production across a job's machine segments and compare when its cumulative target is reached, not when the entire job ends. Remaining balance with no unmet requirement is labeled **No further requirement known** and stays scheduled.
-- The forecast horizon is ten years. Impossible capacity and constraints beyond that horizon produce an explanation rather than an invented finish date or an unbounded search.
+Opening the schedule adds eligible lines from containers with an ETD before
+today and an ETA. A positive-quantity line for an active part with an active
+preferred machine becomes one source-linked job at the end of that machine's
+queue. The job carries the line's expected quantity and PO. Ineligible lines
+stay unscheduled without blocking eligible lines in the same container. After
+fixing eligibility, use the retry action in **Container Tracking** if available.
 
-## Optimization and integrity
+The earliest forecast date for container work is its ETA until receipt, then
+its actual received date. Pending jobs show **Material En Route** until receipt.
+The job remains linked to its source line and cannot be deleted from the schedule.
 
-The deterministic heuristic ranks movable pending work by latest safe start for its next unmet requirement, accounting for effective rate, weekday capacity, holidays, and downtime. Equal priorities retain queue order; work without a known deadline stays in stable order behind dated work in its movable range. Running work, pins, and explicit cut-in chains form barriers. The preview applies all start constraints and consumes each segment's **full remaining quantity**, even when its earliest requirement needs only part of it. Misses remain visible for planner decisions; the heuristic is not a globally optimal scheduling guarantee.
+## Forecasts and concurrency
 
-The service uses a transaction, locks the singleton settings row, and checks a shared scheduling revision. This intentionally serializes planner writes across machines so global calendar/rate changes and optimization previews are consistent. The settings row also uses PostgreSQL `xmin`. Read snapshots use repeatable-read isolation. PostgreSQL checks protect positive rates, valid hours/dates, over-completion, one running segment per machine, job allocation totals, requirement bounds, immutable original/completed history, and append-only audit/checkpoint records.
-
-Completed checkpoint corrections, date-based cut-ins, automatic balancing, rate learning, MISys integration, and automatic production-sheet progress are not implemented. The application currently reads the complete scheduling dataset for planning; archive/paging work can be added when production volume warrants it.
-
+- Effective PPH is target PPH multiplied by efficiency. The scheduler consumes
+  decimal hours, carries unused daily capacity forward to the next segment,
+  and excludes holidays and full-day downtime. Equivalent days use the
+  machine's average positive workday hours and are a display measure. A job's
+  box estimate rounds up the job quantity divided by the part's box quantity.
+- A progress checkpoint covers work through the end of its date. Remaining
+  work forecasts from the following day or the current planning date,
+  whichever is later. Completed segments preserve their original estimates,
+  checkpoints, and elapsed working days.
+- Requirement forecasts combine work for the same part across jobs and
+  machines. They compare when each cumulative target is reached against its
+  due date. Satisfied targets retain their history.
+- Missing rates or capacity and work beyond the ten-year forecast horizon
+  produce a forecast error.
+- Optimization prioritizes movable work by latest safe start for the next
+  unmet requirement. Running work, pins, and cut-in chains constrain the
+  reorder. The preview budgets each segment's full remaining quantity and
+  shows misses for the planner to review.
+- Schedule writes serialize through the shared settings row and use the
+  schedule revision to reject stale changes. PostgreSQL constraints protect
+  quantities, one running segment per machine, and completed history.

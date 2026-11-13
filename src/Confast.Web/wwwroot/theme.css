@@ -1,0 +1,196 @@
+/* Only roots that own a palette declare tokens. Scoped Razor CSS inherits them. */
+:where(:root, [data-theme-preview][data-theme]) {
+    color-scheme: light;
+    --page-bg: #f4f6f8;
+    --surface: #fff;
+    --surface-raised: #fff;
+    --surface-muted: #f8fafb;
+    --surface-inset: #f3f6f8;
+    --input-bg: #fff;
+    --sidebar-bg: #fff;
+    --hover-bg: #eaf0f5;
+    --row-hover: #f8fbfd;
+    --border: #d5dce1;
+    --border-subtle: #e2e7eb;
+    --input-border: #7d8b97;
+    --text: #1d2935;
+    --text-strong: #17324a;
+    --text-label: #344757;
+    --text-secondary: #526373;
+    --text-muted: #617080;
+
+    --header: #17324a;
+    --on-header: #fff;
+    --on-header-muted: #d8e5ef;
+    --header-border: #6d8496;
+    --header-hover: rgb(255 255 255 / 10%);
+    --header-focus: #9ddcf9;
+    --accent: #176b9c;
+    --on-accent: #fff;
+    --accent-hover: #10577f;
+    --accent-active: #10496c;
+    --accent-text: #175d8d;
+    --accent-text-hover: #10577f;
+    --accent-border: #266a97;
+    --accent-soft: #e8f3f8;
+    --accent-selected: #dcecf4;
+    --accent-highlight: #b8d9ed;
+    --focus-ring: var(--accent-border);
+
+    --success-bg: #dcf5e8;
+    --success-text: #17613c;
+    --success-border: #7fbd9e;
+    --success-solid: #087941;
+    --on-success: #fff;
+    --warning-bg: #fff5d6;
+    --warning-text: #684c08;
+    --warning-border: #b9811e;
+    --warning-solid: #a63a20;
+    --on-warning: #fff;
+    --danger-bg: #fde9e8;
+    --danger-text: #8f2525;
+    --danger-border: #b52b27;
+    --danger-solid: #a52a26;
+    --danger-hover: #84201d;
+    --on-danger: #fff;
+    --info-bg: #e7f2fb;
+    --info-text: #174d6b;
+    --info-border: #739bb4;
+    --info-solid: #173f56;
+    --info-solid-alt: #28749a;
+    --on-info: #fff;
+
+    --department-production: #316fae;
+    --department-receiving: #966221;
+    --department-quality: #167968;
+    --department-master-data: #7357a3;
+    --department-slate: #596c7e;
+
+    --backdrop: rgb(25 45 60 / 45%);
+    --shadow-subtle: rgb(25 45 60 / 6%);
+    --shadow-raised: rgb(25 45 60 / 20%);
+    --shadow-deep: rgb(13 33 46 / 34%);
+    --code-keyword: #7437a6;
+    --code-number: #9b5a14;
+    --file-icon: #5767b6;
+    --on-media: #fff;
+    --media-matte: #2d2e32;
+}
+
+:where(:root, [data-theme-preview])[data-theme="dark"] {
+    color-scheme: dark;
+    --page-bg: #151e28;
+    --surface: #212c38;
+    --surface-raised: #2a3746;
+    --surface-muted: #1b2530;
+    --surface-inset: #19232e;
+    --input-bg: #19232e;
+    --sidebar-bg: #1b2531;
+    --hover-bg: #2d3b49;
+    --row-hover: #293745;
+    --border: #435260;
+    --border-subtle: #344150;
+    --input-border: #7e8e9e;
+    --text: #e8eff6;
+    --text-strong: #eaf2fa;
+    --text-label: #d1dce7;
+    --text-secondary: #becad6;
+    --text-muted: #a8b7c7;
+
+    --header: #182d40;
+    --header-border: #526c81;
+    --accent: #6db6e2;
+    --on-accent: #10202e;
+    --accent-hover: #8ac9ec;
+    --accent-active: #9bd6f8;
+    --accent-text: #8acbef;
+    --accent-text-hover: #ade0fb;
+    --accent-border: #6db6e2;
+    --accent-soft: #283d4e;
+    --accent-selected: #30485c;
+    --accent-highlight: #354e64;
+
+    --success-bg: #213c33;
+    --success-text: #9ee2be;
+    --success-border: #579c7a;
+    --success-solid: #76d3a4;
+    --on-success: #10281e;
+    --warning-bg: #40341f;
+    --warning-text: #f1d088;
+    --warning-border: #ce9e46;
+    --warning-solid: #efb86d;
+    --on-warning: #2a1d0b;
+    --danger-bg: #45292e;
+    --danger-text: #ffb4b0;
+    --danger-border: #d97676;
+    --danger-solid: #f29692;
+    --danger-hover: #ffc0ba;
+    --on-danger: #331819;
+    --info-bg: #24394d;
+    --info-text: #b6daf5;
+    --info-border: #759fbd;
+    --info-solid: #244864;
+    --info-solid-alt: #315975;
+
+    --department-production: #83b9ed;
+    --department-receiving: #e6b671;
+    --department-quality: #78cfb8;
+    --department-master-data: #c5a9f1;
+    --department-slate: #aabfd2;
+
+    --backdrop: rgb(8 13 20 / 70%);
+    --shadow-subtle: rgb(0 0 0 / 20%);
+    --shadow-raised: rgb(0 0 0 / 36%);
+    --shadow-deep: rgb(0 0 0 / 55%);
+    --code-keyword: #d7b8ff;
+    --code-number: #f4c581;
+    --file-icon: #b1bcff;
+}
+
+/* Custom accent colors use the same tints on the page and in a draft preview. */
+:where(:root, [data-theme-preview])[data-custom-accent] {
+    --accent-soft: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    --accent-selected: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    --accent-highlight: color-mix(in srgb, var(--accent) 20%, var(--surface));
+    --header-focus: var(--on-header);
+}
+
+:where(:root, [data-theme-preview][data-theme]) { accent-color: var(--accent); }
+
+@media not (forced-colors: active) {
+    input[type="checkbox"]:not(.visually-hidden, :disabled),
+    input[type="radio"]:not(.visually-hidden, :disabled) {
+        appearance: none;
+        display: inline-grid;
+        place-content: center;
+        inline-size: 1em;
+        block-size: 1em;
+        margin-block: 0;
+        flex: none;
+        vertical-align: -.12em;
+        border: 1px solid var(--input-border);
+        border-radius: .18em;
+        background-color: var(--input-bg);
+        cursor: pointer;
+    }
+    input[type="radio"]:not(.visually-hidden, :disabled) { border-radius: 50%; }
+    input:is([type="checkbox"], [type="radio"]):checked:not(.visually-hidden, :disabled) {
+        border-color: var(--accent);
+        background-color: var(--accent);
+    }
+    input[type="checkbox"]:checked:not(.visually-hidden, :disabled)::before {
+        content: "";
+        width: .52em;
+        height: .29em;
+        border: solid var(--on-accent);
+        border-width: 0 0 2px 2px;
+        transform: translateY(-.05em) rotate(-45deg);
+    }
+    input[type="radio"]:checked:not(.visually-hidden, :disabled) {
+        background-image: radial-gradient(circle, var(--on-accent) 0 32%, transparent 34%);
+    }
+}
+
+@media (forced-colors: active) {
+    :focus-visible { outline-color: Highlight; }
+}

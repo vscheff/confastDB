@@ -1,15 +1,23 @@
+@using Confast.Web.Features.Navigation
+@using Confast.Web.Features.Inspections
+@inject AppearancePreferenceService AppearancePreferences
+@inject ILogger<App> Logger
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appearance-mode="@appearance.ModeName" data-accent-color="@appearance.AccentColor"
+      data-theme="@(appearance.Mode == AppearanceMode.System ? null : appearance.ModeName)">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    <script src="@Assets["theme.js"]"></script>
     <ResourcePreloader />
     <link rel="icon" type="image/png" href="@Assets["images/conformance-favicon.png"]" />
+    <link rel="stylesheet" href="@Assets["theme.css"]" />
+    <link rel="stylesheet" href="@Assets["lib/quill/quill.snow.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["navigation.css"]" />
-    <link rel="stylesheet" href="@Assets["lib/quill/quill.snow.css"]" />
     <link rel="stylesheet" href="@Assets["Confast.Web.styles.css"]" />
     <ImportMap />
     <HeadOutlet @rendermode="PageRenderMode" />
@@ -40,6 +48,24 @@
 
     private static readonly InteractiveServerRenderMode InteractiveServerWithoutPrerendering =
         new(prerender: false);
+
+    private AppearancePreference appearance = AppearancePreference.Default;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (HttpContext.User.Identity?.IsAuthenticated != true
+            || HttpContext.User.Identity.AuthenticationType == InspectionPrintRenderAuthenticationHandler.SchemeName)
+            return;
+
+        // Resolve the account before emitting the document head, including on
+        // static routes such as the logout confirmation.
+        try { appearance = await AppearancePreferences.LoadAsync(HttpContext.User, HttpContext.RequestAborted); }
+        catch (AuthorizationDeniedException) { }
+        catch (Npgsql.NpgsqlException exception)
+        {
+            Logger.LogWarning(exception, "Could not load appearance preferences for this request.");
+        }
+    }
 
     // The headless PDF renderer has a short-lived request token, not a browser
     // authentication cookie for a subsequent SignalR circuit. Keep print routes
