@@ -6,6 +6,8 @@ using System.Text.Encodings.Web;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Web;
+using Confast.Web.Components.Pages.Administration;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Data;
 using Microsoft.AspNetCore.Authentication;
@@ -462,8 +464,50 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
             Assert.NotEqual("application/pdf", response.Content.Headers.ContentType?.MediaType);
             if (authenticated) Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
         }
-        foreach (var path in new[] { "/customers", "/parts", "/gages", "/gage-types", "/inspections", "/suppliers", "/admin/certification-email-templates", "/admin/certification-email-settings", "/admin/nominal-tolerance" })
+        foreach (var path in new[] { "/customers", "/parts", "/gages", "/gage-types", "/inspections", "/suppliers", "/admin/certification-email-templates", "/admin/nominal-tolerance" })
             Assert.Equal(authenticated ? HttpStatusCode.Forbidden : HttpStatusCode.Redirect, (await client.GetAsync(path)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData(Permissions.CertificationEmailSettings.Update, true)]
+    [InlineData(Permissions.CertificationEmailTemplates.Read, false)]
+    public async Task CertificationEmailAdministrationRendersOnlyGrantedSection(string permission, bool settingsOnly)
+    {
+        await database.ResetAsync();
+        using var session = new AuthorizationTestSession(database);
+        await session.ProvisionRootAsync();
+
+        var actor = new ApplicationUser { UserName = "email.fixture", DisplayName = "Email Fixture", SecurityStamp = Guid.NewGuid().ToString() };
+        var role = new ApplicationRole { Name = "Email fixture", NormalizedName = "EMAIL FIXTURE" };
+        await using (var db = database.CreateDbContext())
+        {
+            db.Users.Add(actor);
+            db.Roles.Add(role);
+            db.RolePermissions.AddRange(PermissionCatalog.ExpandRequirements([permission])
+                .Select(key => new RolePermission { RoleId = role.Id, PermissionKey = key }));
+            db.UserRoles.Add(new() { UserId = actor.Id, RoleId = role.Id });
+            await db.SaveChangesAsync();
+        }
+
+        await using var factory = CreateAuthenticatedFactory(role.Name, actor.Id, actor.SecurityStamp!);
+        using var client = factory.CreateClient(new() { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/admin/certification-email-templates")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/admin/certification-email-settings")).StatusCode);
+
+        await session.SignInAsync(actor.Id);
+        var templateRenderer = new CertificationEmailTemplateRenderer();
+        var sanitizer = new CertificationEmailHtmlSanitizer();
+        await using var services = new ServiceCollection().AddLogging()
+            .AddSingleton(session.Evaluator)
+            .AddSingleton(templateRenderer)
+            .AddSingleton(sanitizer)
+            .AddSingleton<ICertificationEmailTemplateService>(new CertificationEmailTemplateService(database, templateRenderer, sanitizer, session.Guard))
+            .BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, services.GetRequiredService<ILoggerFactory>());
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+            (await renderer.RenderComponentAsync<CertificationEmailTemplates>()).ToHtmlString());
+        Assert.Equal(settingsOnly, html.Contains("id=\"implicit-cc-address\"", StringComparison.Ordinal));
+        Assert.Equal(!settingsOnly, html.Contains("id=\"template-subject\"", StringComparison.Ordinal));
     }
 
     [Fact]

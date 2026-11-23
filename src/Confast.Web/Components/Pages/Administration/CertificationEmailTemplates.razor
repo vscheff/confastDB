@@ -1,5 +1,5 @@
 @inherits PermissionComponentBase
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:CertificationEmailTemplates.Read")]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = PermissionPolicies.CertificationEmailAdministrationRead)]
 @page "/admin/certification-email-templates"
 @using Confast.Web.Features.Inspections
 @inject ICertificationEmailTemplateService TemplateService
@@ -12,17 +12,15 @@
     <div class="page-heading">
         <div>
             <h1>Certification Email Templates</h1>
-            <p>These application-wide templates are expanded before the sender reviews each certification email.</p>
+            @if (Can(Permissions.CertificationEmailTemplates.Read))
+            {
+                <p>These application-wide templates are expanded before the sender reviews each certification email.</p>
+            }
         </div>
     </div>
 
-    @if (editors.Count == 0)
+    @if (Can(Permissions.CertificationEmailSettings.Read) && settingsLoaded)
     {
-        <p>Loading templates…</p>
-    }
-    else
-    {
-@if (Can(Permissions.CertificationEmailSettings.Read)) {
         <section class="email-template-settings">
             <h2>Implicit CC</h2>
             <p>Optional application-wide recipient added as a CC to every certification email. Leave blank to add none.</p>
@@ -38,7 +36,14 @@
                 }
             </div>
         </section>
-}
+    }
+
+    @if (Can(Permissions.CertificationEmailTemplates.Read) && editors is null)
+    {
+        <p>Loading templates…</p>
+    }
+    else if (Can(Permissions.CertificationEmailTemplates.Read) && editors is { Count: > 0 })
+    {
         <div class="revision-tabs" role="tablist" aria-label="Certification email template type">
             @foreach (var editor in editors)
             {
@@ -65,7 +70,12 @@
                 <div class="form-field form-field-wide">
                     <label>HTML body template</label>
                     @if (Can(Permissions.CertificationEmailTemplates.Update)) { <RichTextEditor Value="@Current.HtmlBody" ValueChanged="@(html => Current.HtmlBody = html)" /> }
-                    else { <div class="email-html-preview">@((MarkupString)Sanitizer.SanitizeForEmail(Current.HtmlBody))</div> }
+                    else
+                    {
+                        <confast-email-surface>
+                            <div class="email-html-preview">@((MarkupString)Sanitizer.SanitizeForEmail(Current.HtmlBody))</div>
+                        </confast-email-surface>
+                    }
                     <div class="filename-token-list">
                         @foreach (var token in CertificationEmailTemplateRenderer.BodyTokensFor(Current.Type))
                         {
@@ -82,34 +92,72 @@
                 </div>
             </div>
             <aside class="email-template-preview">
-                <h2>Sample preview</h2>
+                <div class="email-preview-heading">
+                    <h2>Sample preview</h2>
+                    <label class="email-light-reference">
+                        <input type="checkbox" @bind="showLightPreview" aria-controls="email-sample-preview" />
+                        Show light background
+                    </label>
+                </div>
                 <div><strong>Subject:</strong> @Preview(Current).Subject</div>
-                <div class="email-html-preview">@((MarkupString)Sanitizer.SanitizeForEmail(Preview(Current).HtmlBody))</div>
+                <confast-email-surface id="email-sample-preview" data-light-reference="@(showLightPreview ? "true" : null)">
+                    <div class="email-html-preview">@((MarkupString)Sanitizer.SanitizeForEmail(Preview(Current).HtmlBody))</div>
+                </confast-email-surface>
             </aside>
         </section>
     }
 </div>
 
 @code {
-    private readonly List<TemplateEditor> editors = [];
+    private IReadOnlyList<TemplateEditor>? editors;
     private CertificationEmailTemplateType selectedType;
     private string? message;
     private bool succeeded;
     private bool saving;
+    private bool showLightPreview;
+    private bool settingsLoaded;
     private string? implicitCcAddress;
     private string? settingsMessage;
     private bool settingsSucceeded;
     private bool savingSettings;
-    private TemplateEditor Current => editors.Single(x => x.Type == selectedType);
+    private TemplateEditor Current => editors!.Single(x => x.Type == selectedType);
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => LoadAvailableSectionsAsync();
+
+    protected override Task OnPermissionsChangedAsync() => LoadAvailableSectionsAsync();
+
+    private async Task LoadAvailableSectionsAsync()
     {
-        var templatesTask = TemplateService.GetAllAsync();
-        var settingsTask = Can(Permissions.CertificationEmailSettings.Read) ? TemplateService.GetSettingsAsync() : Task.FromResult(new CertificationEmailSettingsEditModel(null));
-        await Task.WhenAll(templatesTask, settingsTask);
-        editors.AddRange(templatesTask.Result.Select(x => new TemplateEditor(x)));
-        implicitCcAddress = settingsTask.Result.ImplicitCcAddress;
-        selectedType = editors[0].Type;
+        try
+        {
+            await Task.WhenAll(LoadSettingsAsync(), LoadTemplatesAsync());
+        }
+        catch (AuthorizationDeniedException)
+        {
+            await RefreshPermissionsAsync();
+        }
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        if (settingsLoaded || !Can(Permissions.CertificationEmailSettings.Read)) return;
+
+        var settings = await TemplateService.GetSettingsAsync();
+        if (settingsLoaded) return;
+
+        implicitCcAddress = settings.ImplicitCcAddress;
+        settingsLoaded = true;
+    }
+
+    private async Task LoadTemplatesAsync()
+    {
+        if (editors is not null || !Can(Permissions.CertificationEmailTemplates.Read)) return;
+
+        var templates = await TemplateService.GetAllAsync();
+        if (editors is not null) return;
+
+        editors = templates.Select(template => new TemplateEditor(template)).ToArray();
+        selectedType = editors.FirstOrDefault()?.Type ?? default;
     }
 
     private async Task SaveSettingsAsync()

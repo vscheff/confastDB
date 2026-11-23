@@ -277,6 +277,24 @@ public sealed partial class DelegatedAdministrationTests
                 await page.GotoAsync(origin + route);
                 await Expect(page.Locator(selector).First).ToBeVisibleAsync();
                 await Expect(page.Locator("html")).ToHaveAttributeAsync("data-theme", "dark");
+                if (route == "/production-tracking")
+                {
+                    var picker = page.Locator(selector);
+                    var machine = page.GetByLabel("Machine", new() { Exact = true });
+                    var accent = await picker.EvaluateAsync<string>("""
+                        element => {
+                            const probe = document.createElement('span');
+                            probe.style.color = 'var(--accent-border)';
+                            element.append(probe);
+                            const color = getComputedStyle(probe).color;
+                            probe.remove();
+                            return color;
+                        }
+                        """);
+                    await Expect(picker).ToHaveCSSAsync("background-color", await BackgroundAsync(page.Locator("header.app-header")));
+                    await Expect(picker).ToHaveCSSAsync("border-top-color", accent);
+                    await Expect(machine).ToHaveCSSAsync("border-top-color", accent);
+                }
             }
             await page.GotoAsync(origin + "/production-scheduling/settings");
             await Expect(page.Locator(".default-working-days")).ToBeVisibleAsync();

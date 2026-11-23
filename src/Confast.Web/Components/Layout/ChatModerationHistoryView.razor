@@ -1,32 +1,50 @@
 @using Confast.Web.Features.Chat
+@using System.Globalization
 @inherits Confast.Web.Components.PermissionComponentBase
 @inject ChatService Chat
+@inject IJSRuntime JS
 
-<section class="moderation-history" role="dialog" aria-labelledby="moderation-history-title" @onkeydown="HandleKeyAsync">
-    <div class="section-heading"><h3 id="moderation-history-title">Moderation History</h3>
-        <button class="button button-secondary" type="button" @ref="closeButton" @onclick="Close">Close</button></div>
-    <p>Latest 200 Entries In This Channel. Read Only; Deleted Message Content Is Withheld.</p>
+<section class="moderation-history" role="dialog" aria-labelledby="audit-log-title" aria-describedby="audit-log-description" @onkeydown="HandleKeyAsync">
+    <header class="history-heading">
+        <div>
+            <h3 id="audit-log-title">Audit Log</h3>
+            <p id="audit-log-description">Latest 200 Entries In #@(ChannelName). Read Only. Deleted Message Content Is Withheld.</p>
+        </div>
+        <div class="history-actions">
+            <button class="button button-secondary" type="button" disabled="@busy" @onclick="LoadAsync">Refresh History</button>
+            <button class="button button-secondary" type="button" @ref="closeButton" @onclick="Close">Close</button>
+        </div>
+    </header>
     @if (error is not null) { <p role="alert">@error</p> }
-    <button class="button button-secondary" type="button" disabled="@busy" @onclick="LoadAsync">Refresh History</button>
     @if (rows is not null)
     {
-        @if (rows.Count == 0) { <p>No Moderation History.</p> }
+        @if (rows.Count == 0) { <p>No Audit Log Entries.</p> }
         else
         {
             <div class="history-scroll" tabindex="0" aria-label="Moderation Entries"><table class="data-table">
-                <thead><tr><th>Deleted At (UTC)</th><th>Moderator</th><th>Original Sender</th><th>Reason</th></tr></thead>
-                <tbody>@foreach (var row in rows) { <tr><td>@row.DeletedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
-                    <td>@Name(row.ModeratorUserId)</td><td>@Name(row.OriginalSenderUserId)</td><td>@row.Reason</td></tr> }</tbody>
+                <thead><tr><th>Deleted At</th><th>Moderator</th><th>Original Sender</th><th>Reason</th></tr></thead>
+                <tbody>
+                    @foreach (var (row, utc, localTime) in rows)
+                    {
+                        <tr>
+                            <td><time datetime="@utc">@localTime</time></td>
+                            <td>@Name(row.ModeratorUserId)</td>
+                            <td>@Name(row.OriginalSenderUserId)</td>
+                            <td>@row.Reason</td>
+                        </tr>
+                    }
+                </tbody>
             </table></div>
         }
     }
 </section>
 @code {
     [Parameter] public long ConversationId { get; set; }
+    [Parameter] public string ChannelName { get; set; } = string.Empty;
     [Parameter] public IReadOnlyDictionary<string, string> Names { get; set; } = new Dictionary<string, string>();
     [Parameter] public EventCallback Close { get; set; }
     [Parameter] public EventCallback AuthorizationChanged { get; set; }
-    private IReadOnlyList<ChatModerationHistory>? rows;
+    private IReadOnlyList<(ChatModerationHistory Row, string Utc, string LocalTime)>? rows;
     private bool busy;
     private string? error;
     private long loadedId;
@@ -43,10 +61,24 @@
     private async Task LoadAsync()
     {
         if (busy) return;
-        busy = true; error = null;
-        try { rows = await Chat.GetModerationHistoryAsync(ConversationId); }
+        busy = true;
+        error = null;
+        try
+        {
+            var history = await Chat.GetModerationHistoryAsync(ConversationId);
+            var utcTimes = history.Select(row => row.DeletedAtUtc.ToString("O", CultureInfo.InvariantCulture)).ToArray();
+            var localTimes = utcTimes.Length == 0
+                ? []
+                : await JS.InvokeAsync<string[]>("confastChatTime.formatLocalDateTimes", (object)utcTimes);
+            rows = history.Select((row, index) => (row, utcTimes[index], localTimes[index])).ToArray();
+        }
         catch (Exception ex) when (ex is AuthorizationDeniedException or UnauthorizedAccessException)
-        { rows = null; error = "Moderation History Requires Current Channel Membership And Moderation Authority."; await AuthorizationChanged.InvokeAsync(); }
+        {
+            rows = null;
+            error = "The Audit Log Requires Current Channel Membership And Moderation Authority.";
+            await AuthorizationChanged.InvokeAsync();
+        }
+        catch (JSDisconnectedException) { }
         finally { busy = false; }
     }
 }

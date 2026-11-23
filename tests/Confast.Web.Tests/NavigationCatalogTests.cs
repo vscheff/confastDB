@@ -19,7 +19,7 @@ public sealed class NavigationCatalogTests
             "/received-parts", "/container-tracking", "/inspections", "/gages", "/gage-types",
             "/parts", "/customers", "/suppliers", "/admin/users", "/admin/roles",
             "/production-scheduling/settings", "/production-tracking/settings",
-            "/admin/certification-email-templates", "/admin/certification-email-settings", "/admin/nominal-tolerance"
+            "/admin/certification-email-templates", "/admin/nominal-tolerance"
         };
         var items = NavigationCatalog.Destinations.Prepend(NavigationCatalog.Home).ToArray();
         Assert.Equal(expected, items.Select(item => item.Route));
@@ -52,7 +52,7 @@ public sealed class NavigationCatalogTests
             group => CheckGroup(group, "Master Data", "Parts", "Customers", "Suppliers"),
             group => CheckGroup(group, "Administration", "Users", "Roles"),
             group => CheckGroup(group, "Settings", "Scheduling Settings", "Sort Log Downtime Causes",
-                "Email Templates", "Email Settings", "Nominal Tolerance"));
+                "Email Templates", "Nominal Tolerance"));
         Assert.Equal(NavigationCatalog.Home, NavigationCatalog.FindActive("/", groups));
     }
 
@@ -74,6 +74,16 @@ public sealed class NavigationCatalogTests
         Assert.Empty(NavigationCatalog.GetVisibleGroups(noPermissions));
         Assert.Equal(NavigationCatalog.Home, NavigationCatalog.FindActive("/", []));
         Assert.Empty(NavigationCatalog.GetVisibleGroups(null));
+    }
+
+    [Theory]
+    [InlineData(Permissions.CertificationEmailSettings.Read)]
+    [InlineData(Permissions.CertificationEmailTemplates.Read)]
+    public void CertificationEmailReadersHaveOneAdministrationDestination(string permission)
+    {
+        var group = Assert.Single(NavigationCatalog.GetVisibleGroups(Snapshot(false, permission)));
+        CheckGroup(group, "Settings", "Email Templates");
+        Assert.Equal("/admin/certification-email-templates", Assert.Single(group.Items).Route);
     }
 
     [Theory]

@@ -1,4 +1,9 @@
 .moderation-history { position: absolute; inset: 3.5rem .75rem .75rem; z-index: 25; overflow: auto; padding: 1rem; font-size: .85rem; background: var(--surface-raised); color: var(--text); border: 1px solid var(--border); border-radius: .5rem; box-shadow: 0 8px 30px var(--shadow-raised); }
+.history-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0 .75rem; }
+.history-heading > :first-child { flex: 1 1 14rem; min-width: 0; }
+.history-heading h3 { margin: 0; }
+.history-heading p { overflow-wrap: anywhere; }
+.history-actions { display: flex; gap: .5rem; margin-inline-start: auto; }
 .history-scroll { overflow-x: auto; }
 table { min-width: 580px; }
 td { vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }

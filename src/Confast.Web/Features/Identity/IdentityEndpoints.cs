@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Confast.Web.Data;
@@ -16,6 +17,17 @@ public static class IdentityEndpoints
                         ? Results.NoContent()
                         : Results.Text("Unauthorized", statusCode: StatusCodes.Status401Unauthorized))
             .AllowAnonymous();
+
+        endpoints.MapGet(
+                "/account/profile-picture",
+                async Task<IResult> (HttpContext context, UserProfilePictureService pictures, CancellationToken cancellationToken) =>
+                {
+                    context.Response.Headers.CacheControl = "private, no-store";
+                    context.Response.Headers.XContentTypeOptions = "nosniff";
+                    var picture = await pictures.GetCurrentForHttpAsync(cancellationToken);
+                    return picture is { } file ? Results.File(file.Data, file.ContentType) : Results.NotFound();
+                })
+            .RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = IdentityConstants.ApplicationScheme });
 
         endpoints.MapPost(
                 "/account/login",

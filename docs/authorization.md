@@ -114,9 +114,10 @@ operator history. For a Ready installation with lost Root credentials, use
   and delivery receipt together. Delivery has a seven-day window and up to five
   attempts for transient failures. Failed drafts remain available to the sender
   with current chat access and destination membership.
-- **Moderation History** shows recent channel moderation records to current
-  members with `Chat.Access` and `Chat.DeleteOthersMessages`. It displays
-  the moderator, sender, time, and reason.
+- **Audit Log** is the last option in the channel context menu for current
+  members with `Chat.Access` and `Chat.DeleteOthersMessages`. It shows the
+  moderator, sender, deletion reason, and deletion time in the browser's
+  local time zone.
 - An inspection print capability permits only its exact print resource and
   options for two minutes.
 

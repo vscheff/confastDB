@@ -7,10 +7,10 @@
 .eyebrow { margin: 0 0 .2rem; color: var(--text-secondary); font-size: .76rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .tracking-workspace { margin: 0; padding: 0; border: 0; min-width: 0; }
 .tracking-card { padding: 1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); box-shadow: 0 2px 8px var(--shadow-subtle); }
-.machine-picker { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(14rem, 28rem); align-items: center; gap: 1rem; margin-bottom: 1rem; background: var(--info-solid); color: var(--on-info); }
+.machine-picker { display: grid; grid-template-columns: minmax(8rem, 12rem) minmax(14rem, 28rem); align-items: center; gap: 1rem; margin-bottom: 1rem; border-color: var(--accent-border); background: var(--header); color: var(--on-header); }
 .machine-picker :focus-visible { outline-color: var(--header-focus); }
 .machine-picker label { font-size: 1.15rem; font-weight: 800; }
-.machine-picker select { min-height: 3.25rem; font-size: 1.08rem; }
+.machine-picker select { min-height: 3.25rem; border: 1px solid var(--accent-border); border-radius: .35rem; font-size: 1.08rem; }
 .tracking-columns { display: grid; grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .tracking-sidebar, .tracking-main { display: grid; gap: 1rem; min-width: 0; }
 .tracking-sidebar { max-height: calc(100vh - 11rem); overflow-y: auto; padding-right: .25rem; scrollbar-gutter: stable; align-content: start; }

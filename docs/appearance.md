@@ -29,8 +29,11 @@ icons. The active destination uses the user's accent.
 
 The PDF viewer inherits the host palette in a same-origin frame. It applies the palette
 to the toolbar and surrounding surfaces. The canvas and printable inspection sheets
-retain their document colors. The rich-text toolbar and its menus use the theme, while
-the email editing and preview surfaces show authored text colors on paper backgrounds.
+retain their document colors. Certification email editors and previews use the app
+palette. Dark mode adjusts low-contrast authored text through a display stylesheet
+and gives embedded images a light backing. **Show light background** in the sample
+preview shows the authored colors on paper. The saved and sent HTML comes from the
+underlying email content.
 
 ## Rendering and contrast
 

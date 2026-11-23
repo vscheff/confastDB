@@ -75,10 +75,9 @@ public static class NavigationCatalog
             NavigationIconName.Calendar, 10, PermissionPolicies.ProductionConfigurationRead, [.. PermissionPolicies.ProductionConfigurationReadKeys]),
         Page("downtime-causes", "Sort Log Downtime Causes", "/production-tracking/settings", NavigationCategoryId.Settings,
             NavigationIconName.Settings, 20, Permissions.SortLogDowntimeCauses.Read),
-        Page("email-templates", "Email Templates", "/admin/certification-email-templates", NavigationCategoryId.Settings,
-            NavigationIconName.Mail, 30, Permissions.CertificationEmailTemplates.Read),
-        Page("email-settings", "Email Settings", "/admin/certification-email-settings", NavigationCategoryId.Settings,
-            NavigationIconName.Mail, 40, Permissions.CertificationEmailSettings.Read),
+        new("email-templates", "Email Templates", "/admin/certification-email-templates", NavigationCategoryId.Settings,
+            NavigationIconName.Mail, 30, PermissionPolicies.CertificationEmailAdministrationRead,
+            [.. PermissionPolicies.CertificationEmailAdministrationReadKeys]),
         Page("nominal-tolerance", "Nominal Tolerance", "/admin/nominal-tolerance", NavigationCategoryId.Settings,
             NavigationIconName.Ruler, 50, Permissions.NominalToleranceSettings.Read)
     ];

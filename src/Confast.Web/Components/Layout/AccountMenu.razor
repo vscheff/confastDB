@@ -1,14 +1,25 @@
 @using Confast.Web.Features.Navigation
 @implements IDisposable
 @inject AppearanceSession Appearance
+@inject UserProfilePictureService ProfilePictures
 @inject IJSRuntime JS
 @inject ILogger<AccountMenu> Logger
 
 <div class="user-menu" @ref="host" data-saved-mode="@Appearance.Current?.ModeName" data-saved-accent="@Appearance.Current?.AccentColor">
     <button class="user-menu-trigger" type="button" popovertarget="account-popover" aria-controls="account-popover"
             aria-label="@($"{DisplayName} account menu")">
-        <span>@DisplayName</span>
-        <NavigationIcon Icon="NavigationIconName.Chevron" />
+        <span class="user-menu-name">@DisplayName</span>
+        <span class="user-menu-avatar" aria-hidden="true">
+            @if (pictureVersion is { } version)
+            {
+                <img @key="version" src="@($"/account/profile-picture?v={version:N}")" alt=""
+                     @onerror="() => PictureLoadFailed(version)" />
+            }
+            else
+            {
+                @Initials
+            }
+        </span>
     </button>
     <div id="account-popover" class="user-menu-popover" popover="auto" data-account-popover>
         <a href="/appearance" data-account-destination>Appearance</a>
@@ -31,13 +42,32 @@
     [Parameter, EditorRequired] public string DisplayName { get; set; } = "";
 
     private ElementReference host;
+    private Guid? pictureVersion;
+    private bool pictureChanged;
     private bool saving;
     private string? error;
 
-    protected override void OnInitialized()
+    private string Initials => new(DisplayName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Take(2).Select(part => char.ToUpperInvariant(part[0])).ToArray());
+
+    protected override async Task OnInitializedAsync()
     {
         if (RendererInfo.IsInteractive)
+        {
             Appearance.Changed += AppearanceChanged;
+            ProfilePictures.CurrentPictureChanged += CurrentPictureChanged;
+        }
+
+        try
+        {
+            var version = await ProfilePictures.GetCurrentVersionAsync();
+            if (!pictureChanged) pictureVersion = version;
+        }
+        catch (AuthorizationDeniedException) { }
+        catch (Npgsql.NpgsqlException exception)
+        {
+            Logger.LogWarning(exception, "Could not load the account's profile picture version.");
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -48,6 +78,18 @@
     }
 
     private void AppearanceChanged(AppearancePreference preference) => _ = InvokeAsync(StateHasChanged);
+
+    private void CurrentPictureChanged(Guid? version) => _ = InvokeAsync(() =>
+    {
+        pictureChanged = true;
+        pictureVersion = version;
+        StateHasChanged();
+    });
+
+    private void PictureLoadFailed(Guid version)
+    {
+        if (pictureVersion == version) pictureVersion = null;
+    }
 
     private async Task ToggleModeAsync()
     {
@@ -72,5 +114,9 @@
         finally { saving = false; }
     }
 
-    public void Dispose() => Appearance.Changed -= AppearanceChanged;
+    public void Dispose()
+    {
+        Appearance.Changed -= AppearanceChanged;
+        ProfilePictures.CurrentPictureChanged -= CurrentPictureChanged;
+    }
 }

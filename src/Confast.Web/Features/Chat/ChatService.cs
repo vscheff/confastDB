@@ -23,7 +23,7 @@ public sealed record ChatChannelThreadRow(long Id, long ConversationId, string T
     DateTime CreatedAtUtc, DateTime LastMessageAtUtc, int MessageCount, string? LatestMessage,
     long? StartedFromMessageId, string? StartedFromMessage);
 public sealed record ChatMessageRow(long Id, ChatMessageType Type, string? SenderUserId, string SenderName, string? Body,
-    DateTime SentAtUtc, DateTime? EditedAtUtc, bool IsDeleted, DateTime? PinnedAtUtc,
+    DateTime SentAtUtc, DateTime? EditedAtUtc, DateTime? PinnedAtUtc,
     IReadOnlyList<ChatReactionRow> Reactions, IReadOnlyList<ChatMessagePart> Parts,
     long? ReplyToMessageId, string? ReplyToSenderUserId, string? ReplyToSenderName, string? ReplyToBody,
     IReadOnlyList<ChatAttachmentRow> Attachments, long? ChannelThreadId = null, ChatPollRow? Poll = null, string? GiphyId = null);
@@ -978,7 +978,7 @@ public sealed partial class ChatService(
                     && x.Id == targetId && x.DeletedAtUtc == null, cancellationToken))
             throw new InvalidOperationException("The original message is no longer available.");
         var messages = await db.ChatMessages.AsNoTracking().Where(x => x.ConversationId == conversationId
-                && (x.DeletedAtUtc == null || db.Set<ChatModerationHistory>().Any(history => history.MessageId == x.Id))
+                && x.DeletedAtUtc == null
                 && (channelThreadId == null
                     ? x.ChannelThreadId == null || x.Type == ChatMessageType.ThreadNotice
                     : x.ChannelThreadId == channelThreadId && x.Type != ChatMessageType.ThreadNotice)
@@ -986,18 +986,16 @@ public sealed partial class ChatService(
             .OrderByDescending(x => x.Id).Take(100).OrderBy(x => x.Id)
             .Select(x => new ChatMessageRow(x.Id, x.Type, x.SenderUserId,
                 x.SenderUser == null ? "System" : x.SenderUser.DisplayName,
-                x.DeletedAtUtc == null ? x.Body : null, x.SentAtUtc, x.EditedAtUtc, x.DeletedAtUtc != null, x.PinnedAtUtc,
+                x.Body, x.SentAtUtc, x.EditedAtUtc, x.PinnedAtUtc,
                 Array.Empty<ChatReactionRow>(), Array.Empty<ChatMessagePart>(),
                 x.ReplyToMessageId,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUserId,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUser == null
                     ? "System" : x.ReplyToMessage.SenderUser.DisplayName,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.DeletedAtUtc == null
-                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null,
-                x.DeletedAtUtc == null ? x.GiphyId : null))
+                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null, x.GiphyId))
             .ToListAsync(cancellationToken);
-        // Tombstones must not carry attachment text/metadata, GIF IDs, tags or reactions.
-        var messageIds = messages.Where(x => !x.IsDeleted).Select(x => x.Id).ToArray();
+        var messageIds = messages.Select(x => x.Id).ToArray();
         var polls = await ReadPollsAsync(db, messageIds, userId, cancellationToken);
         var attachmentRows = await db.ChatAttachments.AsNoTracking()
             .Where(x => messageIds.Contains(x.MessageId))

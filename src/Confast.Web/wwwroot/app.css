@@ -576,13 +576,35 @@ h1:focus { outline: none; }
 .ql-snow .ql-tooltip { box-shadow: 0 0 5px var(--shadow-raised); }
 .ql-snow .ql-tooltip input[type="text"] { border-color: var(--input-border); }
 .ql-snow a { color: var(--accent-text); }
-/* Authored email content uses a paper surface so explicit text colors remain readable. */
-.rich-text-editor .ql-editor { color-scheme: light; color: #1d2935; background: #fff; }
-.rich-text-editor .ql-editor.ql-blank::before { color: #617080; }
-.rich-text-editor .ql-editor a { color: #175d8d; }
+confast-email-surface {
+    display: block;
+    --email-text: var(--text);
+    --email-background: var(--input-bg);
+    --email-link: var(--accent-text);
+}
+.rich-text-surface { display: grid; gap: .35rem; min-width: 0; }
+html[data-theme="dark"] confast-email-surface[data-light-reference] {
+    color-scheme: light;
+    --email-text: #1d2935;
+    --email-background: #f8fafb;
+    --email-link: #175d8d;
+}
+.rich-text-editor .ql-editor, .email-html-preview { color: var(--email-text); background: var(--email-background); }
+.rich-text-editor .ql-editor { caret-color: var(--email-text); }
+.rich-text-editor .ql-editor.ql-blank::before { color: var(--text-muted); }
+.rich-text-editor .ql-editor a, .email-html-preview a {
+    color: var(--email-link);
+    -webkit-text-fill-color: currentColor;
+}
 .rich-text-editor.ql-container .ql-editor img { max-width: 100%; height: auto; }
-.email-html-preview { min-height: 12rem; margin-top: .75rem; padding: .75rem; overflow-wrap: anywhere; color: #1d2935; background: #f8fafb; border: 1px solid var(--border); border-radius: .35rem; }
-.email-html-preview a { color: #175d8d; }
+.email-html-preview { min-height: 12rem; margin-top: .75rem; padding: .75rem; overflow-wrap: anywhere; border: 1px solid var(--border); border-radius: .35rem; }
+html:not([data-theme="dark"]) .email-html-preview { background: var(--surface-muted); }
+.email-html-preview img { max-width: 100%; }
+html[data-theme="dark"] confast-email-surface:not([data-light-reference]) :is(.ql-editor, .email-html-preview) img { background-color: #fff; }
+.email-preview-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem 1rem; margin-bottom: .75rem; }
+.email-preview-heading h2 { margin: 0; }
+.email-light-reference { display: none; }
+html[data-theme="dark"] .email-light-reference { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
 .certification-email-compose-modal { max-width: 900px; padding: 1.25rem; background: var(--surface-raised); border: 1px solid var(--border); border-radius: .6rem; box-shadow: 0 4px 18px var(--shadow-raised); }
 .certification-email-metadata { display: grid; gap: .3rem; margin: .75rem 0; padding: .65rem; background: var(--surface-muted); border: 1px solid var(--border); border-radius: .35rem; font-size: .86rem; }
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: start center; min-height: 100dvh; max-height: 100dvh; padding: max(1rem, 6vh) 1rem 1rem; overflow-y: auto; background: var(--backdrop); }

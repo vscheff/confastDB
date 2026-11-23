@@ -23,6 +23,8 @@ public sealed class UserProfilePictureService(
     public const int MaximumPictureBytes = 1_048_576;
     public const long MaximumSourcePictureBytes = 25L * 1024 * 1024;
 
+    internal event Action<Guid?>? CurrentPictureChanged;
+
     public async Task<IReadOnlyDictionary<string, Guid>> GetVersionsAsync(CancellationToken cancellationToken = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -39,6 +41,23 @@ public sealed class UserProfilePictureService(
         var userId = operation.ActorUserId;
         return await db.Users.AsNoTracking().Where(x => x.Id == userId)
             .Select(x => x.DisplayName).SingleAsync(cancellationToken);
+    }
+
+    internal async Task<Guid?> GetCurrentVersionAsync(CancellationToken cancellationToken = default)
+    {
+        using var operation = await authorization.BeginAsync(nameof(GetCurrentVersionAsync), new("OwnProfile"), [], cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await db.UserProfilePictures.AsNoTracking()
+            .Where(picture => picture.UserId == operation.ActorUserId && picture.User.IsActive)
+            .Select(picture => (Guid?)picture.Version)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    internal async Task<(byte[] Data, string ContentType)?> GetCurrentForHttpAsync(CancellationToken cancellationToken)
+    {
+        using var operation = await authorization.BeginHttpAsync(nameof(GetCurrentForHttpAsync), new("OwnProfile"), [], cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await FindPictureAsync(db, operation.ActorUserId, cancellationToken);
     }
 
     public async Task<(byte[] Data, string ContentType)?> GetAsync(string userId,
@@ -85,6 +104,7 @@ public sealed class UserProfilePictureService(
                 content_type = EXCLUDED.content_type,
                 version = EXCLUDED.version
             """, cancellationToken);
+        CurrentPictureChanged?.Invoke(version);
         await NotifyUsersAsync(db, cancellationToken);
     }
 
@@ -94,6 +114,7 @@ public sealed class UserProfilePictureService(
         using var operation = await authorization.BeginAsync(nameof(RemoveAsync), new("OwnProfile"), [], cancellationToken);
         var userId = operation.ActorUserId;
         await db.UserProfilePictures.Where(x => x.UserId == userId).ExecuteDeleteAsync(cancellationToken);
+        CurrentPictureChanged?.Invoke(null);
         await NotifyUsersAsync(db, cancellationToken);
     }
 

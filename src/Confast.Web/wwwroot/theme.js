@@ -162,6 +162,11 @@
 
     window.confastAppearance = {
         resolvedTheme: () => root.dataset.theme,
+        darkSurfaceTextColor(foreground, background) {
+            return contrast(foreground, background) < 4.5
+                ? hex(withContrast(foreground, background, 4.5, white))
+                : null;
+        },
         watchAccount(element) {
             function sync() {
                 if (!element.isConnected) return;

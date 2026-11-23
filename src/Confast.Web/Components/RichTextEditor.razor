@@ -1,7 +1,9 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<div class="rich-text-editor" @ref="host"></div>
+<confast-email-surface class="rich-text-surface">
+    <div class="rich-text-editor" @ref="host"></div>
+</confast-email-surface>
 
 @code {
     [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;

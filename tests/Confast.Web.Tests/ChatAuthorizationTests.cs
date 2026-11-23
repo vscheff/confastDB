@@ -150,8 +150,10 @@ public sealed class ChatAuthorizationTests(PostgresTestDatabase database) : IAsy
         var history = Assert.Single(await first.GetModerationHistoryAsync(channel));
         Assert.Equal(senderId, history.OriginalSenderUserId); Assert.Contains(history.ModeratorUserId, new[] { actorId, outsiderId }); Assert.True(history.WasPinned);
         Assert.NotEqual(Guid.Empty, history.OperationId);
-        var message = (await first.GetThreadAsync(channel)).Messages.Single(x => x.Id == otherMessage);
-        Assert.True(message.IsDeleted); Assert.Null(message.Body); Assert.Empty(message.Attachments); Assert.Null(message.PinnedAtUtc);
+        var thread = await first.GetThreadAsync(channel);
+        Assert.DoesNotContain(thread.Messages, message => message.Id == otherMessage);
+        Assert.Empty(thread.PinnedMessages);
+        Assert.Null(await first.GetIncomingMessagePreviewAsync(otherMessage));
         await using var db = database.CreateDbContext();
         var stored = (await db.ChatMessages.FindAsync(otherMessage))!;
         Assert.Equal(senderId, stored.SenderUserId); Assert.Equal(history.ModeratorUserId, stored.DeletedByUserId);
@@ -321,10 +323,12 @@ public sealed class ChatAuthorizationTests(PostgresTestDatabase database) : IAsy
         var threaded = await Chat(sender).SendAsync(channel, "Thread message", channelThreadId: threadId);
         await Chat(actor).DeleteOthersMessageAsync(threaded, "Thread rules");
         Assert.Equal(threadId, Assert.Single(await Chat(actor).GetModerationHistoryAsync(channel)).ChannelThreadId);
+        Assert.DoesNotContain((await Chat(sender).GetThreadAsync(channel, channelThreadId: threadId)).Messages,
+            message => message.Id == threaded);
         var publicId = await Chat(sender).CreateChannelAsync("Public moderation", ChannelVisibility.Public, []);
         var message = await Chat(sender).SendAsync(publicId, "Public message");
         await Chat(actor).DeleteOthersMessageAsync(message, "Public rules");
-        Assert.True((await Chat(actor).GetThreadAsync(publicId)).Messages.Single(x => x.Id == message).IsDeleted);
+        Assert.DoesNotContain((await Chat(actor).GetThreadAsync(publicId)).Messages, row => row.Id == message);
         await Grants(actorId, Permissions.Chat.Access);
         await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Chat(actor).DeleteOthersMessageAsync(otherMessage, "Stale confirmation"));
         await using var db = database.CreateDbContext();

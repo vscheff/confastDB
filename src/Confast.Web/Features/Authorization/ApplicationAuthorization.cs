@@ -46,6 +46,10 @@ public static class PermissionPolicies
     public static readonly string[] ProductionConfigurationReadKeys =
     [Permissions.SortingMachines.Read, Permissions.ProductionCalendars.Read, Permissions.ProductionHolidays.Read,
         Permissions.ProductionDowntimeReasons.Read, Permissions.ProductionSettings.Read];
+
+    public const string CertificationEmailAdministrationRead = "CertificationEmailAdministrationRead";
+    public static readonly string[] CertificationEmailAdministrationReadKeys =
+        [Permissions.CertificationEmailTemplates.Read, Permissions.CertificationEmailSettings.Read];
 }
 
 public sealed record AnyPermissionRequirement(IReadOnlyList<string> Keys) : IAuthorizationRequirement;
@@ -121,6 +125,8 @@ public static class AuthorizationRegistration
         {
             options.AddPolicy(PermissionPolicies.ProductionConfigurationRead, policy => policy.RequireAuthenticatedUser()
                 .AddRequirements(new AnyPermissionRequirement(PermissionPolicies.ProductionConfigurationReadKeys)));
+            options.AddPolicy(PermissionPolicies.CertificationEmailAdministrationRead, policy => policy.RequireAuthenticatedUser()
+                .AddRequirements(new AnyPermissionRequirement(PermissionPolicies.CertificationEmailAdministrationReadKeys)));
             foreach (var definition in PermissionCatalog.All)
                 options.AddPolicy(PolicyName(definition.Key), policy =>
                     policy.RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(definition.Key)));

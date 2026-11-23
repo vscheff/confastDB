@@ -318,6 +318,10 @@ window.confastChatTime = {
         this.sidebarResizeCleanup?.();
         this.sidebarResizeCleanup = null;
     },
+    formatLocalDateTimes(utcValues) {
+        const formatter = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
+        return utcValues.map(value => formatter.format(new Date(value)));
+    },
     formatMessageTimes(utcValues) {
         const formatter = new Intl.DateTimeFormat(undefined, {
             month: "short",
@@ -913,6 +917,9 @@ window.confastChatTime = {
     },
     copyMessageText(text) {
         return navigator.clipboard.writeText(text);
+    },
+    focusChannelSettings(channelId) {
+        document.querySelector(`[data-chat-settings-toggle="${channelId}"]`)?.focus({ preventScroll: true });
     },
     positionChannelSettings(channelId) {
         const popover = document.getElementById(`chat-channel-settings-${channelId}`);

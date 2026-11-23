@@ -511,10 +511,6 @@
                                         Selected="mode => SetChannelNotificationsAsync(thread.Conversation.Id, mode)" Muted="mute => MuteChannelAsync(thread.Conversation.Id, mute)" />
                                 </section>
                             }
-                            @if (thread.Conversation.Kind == ConversationKind.Channel && Can(Permissions.Chat.DeleteOthersMessages))
-                            {
-                                <button type="button" class="button button-secondary button-compact" @ref="moderationHistoryButton" @onclick="() => showModerationHistory = !showModerationHistory">Moderation History</button>
-                            }
                             <div class="chat-pinned-control">
                                 <button type="button" class="chat-icon-button" title="Pinned messages" aria-label="Pinned messages"
                                         data-chat-pinned-trigger aria-haspopup="dialog"
@@ -796,7 +792,7 @@
                                         }
                                     </div>
                                 }
-                                @if (!message.IsDeleted && message.Type == ChatMessageType.Text && editingMessageId != message.Id)
+                                @if (message.Type == ChatMessageType.Text && editingMessageId != message.Id)
                                 {
                                     <div class="chat-reaction-actions" aria-label="Message actions">
                                         @foreach (var reaction in QuickReactions)
@@ -930,7 +926,7 @@
                                         </div>
                                     }
                                 }
-                                @if (!message.IsDeleted && message.Reactions.Count > 0)
+                                @if (message.Reactions.Count > 0)
                                 {
                                     <div class="chat-reactions" aria-label="Message reactions">
                                         @foreach (var reaction in message.Reactions)
@@ -1486,11 +1482,11 @@
                 </form>
             </div>
         }
-    @if (showModerationHistory && thread?.Conversation.Kind == ConversationKind.Channel && Can(Permissions.Chat.DeleteOthersMessages))
-    {
-        <ChatModerationHistoryView @key="thread.Conversation.Id" ConversationId="thread.Conversation.Id"
-            Names="users.ToDictionary(x => x.Id, x => x.Name)" Close="CloseModerationHistoryAsync" AuthorizationChanged="HandlePermissionDenialAsync" />
-    }
+        @if (auditLogChannel is { } auditChannel && Can(Permissions.Chat.DeleteOthersMessages))
+        {
+            <ChatModerationHistoryView @key="auditChannel.Id" ConversationId="auditChannel.Id" ChannelName="@auditChannel.Name"
+                Names="users.ToDictionary(x => x.Id, x => x.Name)" Close="CloseAuditLogAsync" AuthorizationChanged="HandlePermissionDenialAsync" />
+        }
     </section>
     @if (expandedAttachment is not null || expandedGif is not null || expandedProfilePicture is not null)
     {
@@ -1680,6 +1676,11 @@
             <button type="button" role="menuitem" @onclick="() => BeginDuplicateChannel(contextChannel)" disabled="@(!Can(Permissions.Chat.CreateChannels))">Duplicate Channel</button>
             <button type="button" role="menuitem" @onclick="() => StartNewChannel(contextChannel.ChannelGroupId)" disabled="@(!Can(Permissions.Chat.CreateChannels))">Create Channel</button>
             <button type="button" role="menuitem" @onclick="() => BeginDeleteChannel(contextChannel)" disabled="@(!Can(Permissions.Chat.DeleteChannels) || (!contextChannel.IsOwner && !canAdministerChannels))">Delete Channel</button>
+            @if (Can(Permissions.Chat.DeleteOthersMessages))
+            {
+                <hr />
+                <button type="button" role="menuitem" @onclick="() => OpenAuditLog(contextChannel.Id)">Audit Log</button>
+            }
         </section>
     }
     @if (duplicateChannelSource is { } duplicateSource)
@@ -1771,8 +1772,10 @@
             <section class="chat-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="chat-moderation-title">
                 <h2 id="chat-moderation-title">Delete Message</h2>
                 <p>Delete this participant's message from the channel?</p>
-                <label for="chat-moderation-reason">Moderation Reason</label>
-                <textarea id="chat-moderation-reason" maxlength="1000" rows="3" @bind="moderationReason" @bind:event="oninput"></textarea>
+                <div class="form-field chat-moderation-field">
+                    <label for="chat-moderation-reason">Moderation Reason</label>
+                    <textarea id="chat-moderation-reason" maxlength="1000" rows="3" @bind="moderationReason" @bind:event="oninput"></textarea>
+                </div>
                 @if (error is not null) { <p role="alert">@error</p> }
                 <div class="chat-delete-actions">
                     <button type="button" class="button button-secondary" @onclick="() => moderationMessageId = null">Cancel</button>
@@ -1857,13 +1860,25 @@
 
 @code {
     private long? moderationMessageId;
-    private bool showModerationHistory;
-    private ElementReference moderationHistoryButton;
-    private async Task CloseModerationHistoryAsync()
-    { showModerationHistory = false; await moderationHistoryButton.FocusAsync(); }
+    private ChatConversationRow? auditLogChannel;
+    private void OpenAuditLog(long channelId)
+    {
+        channelContext = null;
+        if (Can(Permissions.Chat.DeleteOthersMessages))
+            auditLogChannel = conversations.FirstOrDefault(row => row.Id == channelId && row.Kind == ConversationKind.Channel);
+    }
+
+    private async Task CloseAuditLogAsync()
+    {
+        var channel = auditLogChannel;
+        auditLogChannel = null;
+        if (channel is not null)
+            await JS.InvokeVoidAsync("confastChatTime.focusChannelSettings", channel.Id);
+    }
+
     private string moderationReason = string.Empty;
     private bool CanModerate(ChatMessageRow message) => Can(Permissions.Chat.DeleteOthersMessages)
-        && thread?.Conversation.Kind == ConversationKind.Channel && !message.IsDeleted
+        && thread?.Conversation.Kind == ConversationKind.Channel
         && message.Type == ChatMessageType.Text && message.GiphyId is null
         && message.SenderUserId is not null && message.SenderUserId != currentUserId;
     private void BeginModeration(long id) { moreActionsMessageId = null; moderationMessageId = id; moderationReason = string.Empty; error = null; }
@@ -1904,6 +1919,7 @@
     {
         await RefreshPermissionsAsync();
         if (!Can(Permissions.Chat.Access)) RedactChat();
+        if (!Can(Permissions.Chat.DeleteOthersMessages)) auditLogChannel = null;
     }
 
     private void RedactChat()
@@ -1928,7 +1944,7 @@
         categoryContext = pendingDeleteCategory = null;
         showInbox = showNewMessageCard = showCreateChannelCard = creatingPoll = false;
         showMembers = showPinnedMessages = false;
-        showModerationHistory = false;
+        auditLogChannel = null;
         pendingLeaveConversation = null;
         channelActionsId = renamingFolderId = null;
         channelSettingsMembers = [];
@@ -2817,6 +2833,7 @@
         categoryContext = null;
         pendingDeleteCategory = null;
         channelContext = duplicateChannelSource = pendingDeleteChannel = null;
+        auditLogChannel = null;
         conversationContext = null;
         editContextGroupAfterRender = null;
         pendingLeaveConversation = null;
@@ -2889,6 +2906,7 @@
     {
         await RefreshPermissionsAsync();
         if (!Can(Permissions.Chat.Access)) { RedactChat(); throw new AuthorizationDeniedException(AuthorizationDenial.MissingPermission); }
+        if (!Can(Permissions.Chat.DeleteOthersMessages)) auditLogChannel = null;
         await EnsureCurrentUserContextAsync();
         var version = ++conversationRefreshVersion;
         var userId = currentUserId;
@@ -2905,6 +2923,8 @@
         if (conversationContext is { } conversationMenu)
             conversationContext = conversations.FirstOrDefault(x => x.Id == conversationMenu.Id);
         if (channelContext is { } context && conversations.All(x => x.Id != context.Id)) channelContext = null;
+        if (auditLogChannel is { } auditChannel)
+            auditLogChannel = conversations.FirstOrDefault(x => x.Id == auditChannel.Id);
         if (channelActionsId is long editId && conversations.All(x => x.Id != editId)) channelActionsId = null;
         if (selectedId is long currentId && conversations.All(x => x.Id != currentId))
         {
@@ -3052,6 +3072,7 @@
     }
     private void BackToList()
     {
+        auditLogChannel = null;
         creatingPoll = false;
         CancelCreateThread();
         sidebarThread = null;
@@ -3570,6 +3591,7 @@
 
     private async Task OpenThreadAsync(long id)
     {
+        auditLogChannel = null;
         CancelCreateThread();
         fullChannelThreadId = null;
         sidebarChannelThreadId = null;
@@ -4183,12 +4205,6 @@
 
     private RenderFragment RenderMessageBody(ChatMessageRow message) => builder =>
     {
-        if (message.IsDeleted)
-        {
-            builder.AddContent(0, "Message deleted");
-            return;
-        }
-
         var document = new HtmlParser().ParseDocument(ChatMarkdown.ToSafeHtml(message.Body ?? string.Empty));
         var tags = message.Parts.Where(part => part.IsTag).DistinctBy(part => part.Text).OrderByDescending(part => part.Text.Length).ToArray();
         var sequence = 0;
