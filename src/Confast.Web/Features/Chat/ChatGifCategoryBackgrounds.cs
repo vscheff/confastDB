@@ -6,11 +6,14 @@ namespace Confast.Web.Features.Chat;
 // across restarts. Search results and sent GIFs continue to resolve normally.
 public sealed class ChatGifCategoryBackgrounds(IWebHostEnvironment environment)
 {
+    internal const string StorageFileName = "chat-gif-category-backgrounds.json";
+    internal static string StoragePath(string contentRoot) => Path.Combine(contentRoot, "App_Data", StorageFileName);
+
     public static readonly IReadOnlyList<string> Categories =
         ["Hello", "LOL", "Love", "Happy Birthday", "Celebrate", "Thank You", "Facepalm", "Wow"];
 
     private readonly SemaphoreSlim gate = new(1, 1);
-    private readonly string cachePath = Path.Combine(environment.ContentRootPath, "App_Data", "chat-gif-category-backgrounds.json");
+    private readonly string cachePath = StoragePath(environment.ContentRootPath);
     private Dictionary<string, string>? backgrounds;
 
     public async Task<string?> GetAsync(string category, Func<Task<string?>> resolve)

@@ -1,4 +1,5 @@
 using Confast.Web.Features.Customers;
+using Confast.Web.Features.Backups;
 using Confast.Web.Features.Chat;
 using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.Suppliers;
@@ -18,6 +19,10 @@ namespace Confast.Web.Data;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, ApplicationRole, string>(options)
 {
+    internal DbSet<BackupSettings> BackupSettings => Set<BackupSettings>();
+    internal DbSet<BackupExecution> BackupExecutions => Set<BackupExecution>();
+    internal DbSet<BackupAuditEntry> BackupAudit => Set<BackupAuditEntry>();
+    internal DbSet<BackupAlert> BackupAlerts => Set<BackupAlert>();
     public DbSet<Confast.Web.Features.Authorization.PermissionManifest> Permissions => Set<Confast.Web.Features.Authorization.PermissionManifest>();
     public DbSet<Confast.Web.Features.Authorization.RolePermission> RolePermissions => Set<Confast.Web.Features.Authorization.RolePermission>();
     public DbSet<Confast.Web.Features.Authorization.RoleInheritance> RoleInheritance => Set<Confast.Web.Features.Authorization.RoleInheritance>();
@@ -120,6 +125,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     {
         base.OnModelCreating(modelBuilder);
         ChatMapping.Configure(modelBuilder);
+        BackupMapping.Configure(modelBuilder);
         Confast.Web.Features.ProductionScheduling.ProductionMapping.Configure(modelBuilder);
         ProductionTrackingMapping.Configure(modelBuilder);
         modelBuilder.Entity<Part>().Property(x => x.BoxQuantity).HasColumnName("box_quantity").HasPrecision(18, 3);

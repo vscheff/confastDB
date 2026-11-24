@@ -108,7 +108,7 @@
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
             await InvokeAsync(async () =>
             {
                 if (disposed || cancellationToken.IsCancellationRequested) return;

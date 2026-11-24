@@ -8,11 +8,11 @@ public sealed class PermissionCatalogTests
     [Fact]
     public void Manifest_HasExactReviewedClassificationsAndValidPrerequisites()
     {
-        Assert.Equal(164, PermissionCatalog.All.Length);
-        Assert.Equal(164, PermissionCatalog.ByKey.Count);
-        Assert.Equal(106, PermissionCatalog.All.Count(x => x.Kind == PermissionKind.Resource));
-        Assert.Equal(58, PermissionCatalog.All.Count(x => x.Kind == PermissionKind.Action));
-        Assert.Equal(163, PermissionCatalog.All.Count(x => x.Authority == PermissionAuthority.Ordinary));
+        Assert.Equal(173, PermissionCatalog.All.Length);
+        Assert.Equal(173, PermissionCatalog.ByKey.Count);
+        Assert.Equal(107, PermissionCatalog.All.Count(x => x.Kind == PermissionKind.Resource));
+        Assert.Equal(66, PermissionCatalog.All.Count(x => x.Kind == PermissionKind.Action));
+        Assert.Equal(172, PermissionCatalog.All.Count(x => x.Authority == PermissionAuthority.Ordinary));
         Assert.Equal(Permissions.Authorization.ManageSecurity,
             Assert.Single(PermissionCatalog.All.Where(x => x.Authority == PermissionAuthority.RootOnly)).Key);
         Assert.DoesNotContain("Roles.ManageDelegation", PermissionCatalog.ByKey.Keys);

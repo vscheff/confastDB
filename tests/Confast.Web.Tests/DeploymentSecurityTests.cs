@@ -41,6 +41,10 @@ public sealed partial class DeploymentSecurityTests(PostgresTestDatabase databas
     private string root = "";
     private static string Repository => Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
     private static string Script(string name) => Path.Combine(Repository, "scripts/security", name);
+    // Database creation and forced removal may wait for a cluster checkpoint
+    // after the full suite has written extensively to the source database.
+    private string MaintenanceConnection => new NpgsqlConnectionStringBuilder(database.ConnectionString)
+        { Pooling = false, CommandTimeout = 300 }.ConnectionString;
 
     public async Task InitializeAsync()
     {
@@ -164,7 +168,7 @@ public sealed partial class DeploymentSecurityTests(PostgresTestDatabase databas
         var dump = Path.Combine(output, "database.dump");
         var restored = new NpgsqlConnectionStringBuilder(database.ConnectionString) { Database = restoredName }.ConnectionString;
         await RunPostgres("pg_dump", database.ConnectionString, ["--format=custom", "--file", dump]);
-        await Sql(database.ConnectionString, $"CREATE DATABASE {restoredName} TEMPLATE template0");
+        await Sql(MaintenanceConnection, $"CREATE DATABASE {restoredName} TEMPLATE template0");
         try
         {
             await RunPostgres("pg_restore", restored, ["--exit-on-error", "--dbname", restoredName, dump], includeDatabase: false);
@@ -220,7 +224,7 @@ public sealed partial class DeploymentSecurityTests(PostgresTestDatabase databas
         finally
         {
             NpgsqlConnection.ClearAllPools();
-            await Sql(database.ConnectionString, $"DROP DATABASE {restoredName} WITH (FORCE)");
+            await Sql(MaintenanceConnection, $"DROP DATABASE {restoredName} WITH (FORCE)");
         }
     }
 

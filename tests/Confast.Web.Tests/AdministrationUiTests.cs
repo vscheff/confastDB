@@ -24,7 +24,7 @@ public sealed partial class DelegatedAdministrationTests
         var left = await Role([], true, source.Id); var right = await Role([Permissions.Chat.SendMessages], false, source.Id);
         var target = await Role([Permissions.Parts.Create], true, left.Id, right.Id);
         var view = await Roles.GetEditorAsync(target.Id);
-        Assert.Equal(164, view.Matrix.Count);
+        Assert.Equal(173, view.Matrix.Count);
         var send = view.Matrix.Single(x => x.Definition.Key == Permissions.Chat.SendMessages);
         Assert.False(send.Direct); Assert.True(send.Inherited); Assert.True(send.Effective); Assert.False(send.Usable);
         Assert.Equal([Permissions.Chat.Access], send.MissingPrerequisites);
@@ -236,7 +236,7 @@ public sealed partial class DelegatedAdministrationTests
         var target = await Role(); var readRole = await Role([Permissions.Roles.Read, Permissions.Users.Read]);
         var user = await User(); var actor = await User(readRole.Id); await session.SignInAsync(actor.Id);
         var editor = await Roles.GetEditorAsync(target.Id);
-        Assert.Equal(164, editor.Matrix.Count); Assert.All(editor.Matrix, x => { Assert.False(x.CanAdd); Assert.False(x.CanRemove); });
+        Assert.Equal(173, editor.Matrix.Count); Assert.All(editor.Matrix, x => { Assert.False(x.CanAdd); Assert.False(x.CanRemove); });
         var preview = await Roles.PreviewAsync((await Proposal(target.Id)) with { Name = "Denied" });
         Assert.False(preview.Permitted);
         Assert.NotEmpty((await Users.GetEffectiveAccessAsync(user.Id)).Matrix);

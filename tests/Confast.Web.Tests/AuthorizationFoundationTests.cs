@@ -282,7 +282,7 @@ public sealed class AuthorizationFoundationTests(PostgresTestDatabase database) 
         Assert.Equal(AuthorizationReadiness.PendingRoot, state.Readiness);
         Assert.Equal(PermissionCatalog.Version, state.CatalogVersion);
         Assert.NotEqual(Guid.Empty, state.InstallationGeneration);
-        Assert.Equal(164, await db.Permissions.CountAsync());
+        Assert.Equal(173, await db.Permissions.CountAsync());
         Assert.Equal(203, await db.RolePermissions.CountAsync());
         Assert.Equal(2, await db.RoleInheritance.CountAsync());
         Assert.Equal(AppRoles.Seeds.Select(x => x.Id).Order(), await db.Roles.OrderBy(x => x.Id).Select(x => x.Id).ToArrayAsync());
@@ -316,7 +316,7 @@ public sealed class AuthorizationFoundationTests(PostgresTestDatabase database) 
         var evaluator = Evaluator();
         var snapshot = await evaluator.EvaluateCurrentAsync();
         Assert.True(snapshot.IsRoot);
-        Assert.Equal(164, snapshot.Permissions.Count);
+        Assert.Equal(173, snapshot.Permissions.Count);
         Assert.False(snapshot.Has("Unknown.Permission"));
         Assert.Equal(AuthorizationDenial.UnknownPermission,
             (await Assert.ThrowsAsync<AuthorizationDeniedException>(() => Guard(evaluator).BeginAsync(
@@ -394,7 +394,7 @@ public sealed class AuthorizationFoundationTests(PostgresTestDatabase database) 
         await db.UserRoles.Where(x => x.UserId == root.Id && x.RoleId == AppRoles.ReadOnlyId).ExecuteDeleteAsync();
         authentication.Principal = Principal(root);
         var snapshot = await Evaluator().EvaluateCurrentAsync();
-        Assert.True(snapshot.IsRoot); Assert.Equal(164, snapshot.Permissions.Count);
+        Assert.True(snapshot.IsRoot); Assert.Equal(173, snapshot.Permissions.Count);
         Assert.Equal([AppRoles.RootId], await db.UserRoles.Where(x => x.UserId == root.Id).Select(x => x.RoleId).ToListAsync());
         await Assert.ThrowsAsync<PostgresException>(() => db.UserRoles.Where(x => x.UserId == root.Id && x.RoleId == AppRoles.RootId).ExecuteDeleteAsync());
     }

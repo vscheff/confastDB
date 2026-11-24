@@ -181,6 +181,15 @@ public static class PermissionCatalog
         new(Permissions.Roles.ManagePermissions, "Edit Ordinary Role Permission Grants", "Role Administration", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.Roles.Read]),
         new(Permissions.Roles.ManageInheritance, "Edit Ordinary Role Parents", "Role Administration", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.Roles.Read]),
         new(Permissions.Authorization.ManageSecurity, "Manage Protected Authorization and Root Security", "Authorization Security", PermissionKind.Action, PermissionAuthority.RootOnly, false, []),
+        new(Permissions.DatabaseBackups.View, "View Backup Manager", "Database Backups", PermissionKind.Resource, PermissionAuthority.Ordinary, false, []),
+        new(Permissions.DatabaseBackups.Create, "Create Backups", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.Configure, "Configure Backups", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.Pin, "Pin and Unpin Backups", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.EditMetadata, "Edit Backup Labels and Notes", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.Verify, "Verify Backup Integrity", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.Download, "Download Database Backups", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.Delete, "Delete Backups", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
+        new(Permissions.DatabaseBackups.Reconcile, "Reconcile Backup Catalog", "Database Backups", PermissionKind.Action, PermissionAuthority.Ordinary, false, [Permissions.DatabaseBackups.View]),
     ];
 
     public static FrozenDictionary<string, PermissionDefinition> ByKey { get; } =

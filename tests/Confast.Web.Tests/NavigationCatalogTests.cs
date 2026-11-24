@@ -18,6 +18,7 @@ public sealed class NavigationCatalogTests
             "/", "/production-tracking", "/production-scheduling", "/morning-production-review",
             "/received-parts", "/container-tracking", "/inspections", "/gages", "/gage-types",
             "/parts", "/customers", "/suppliers", "/admin/users", "/admin/roles",
+            "/admin/backups",
             "/production-scheduling/settings", "/production-tracking/settings",
             "/admin/certification-email-templates", "/admin/nominal-tolerance"
         };
@@ -50,7 +51,7 @@ public sealed class NavigationCatalogTests
             group => CheckGroup(group, "Receiving & Logistics", "Received Parts", "Container Tracking"),
             group => CheckGroup(group, "Quality", "Inspections", "Gages"),
             group => CheckGroup(group, "Master Data", "Parts", "Customers", "Suppliers"),
-            group => CheckGroup(group, "Administration", "Users", "Roles"),
+            group => CheckGroup(group, "Administration", "Users", "Roles", "Backup Manager"),
             group => CheckGroup(group, "Settings", "Scheduling Settings", "Sort Log Downtime Causes",
                 "Email Templates", "Nominal Tolerance"));
         Assert.Equal(NavigationCatalog.Home, NavigationCatalog.FindActive("/", groups));

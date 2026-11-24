@@ -265,7 +265,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Users.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Users",
                             DisplayName = "Read Users",
                             Kind = 0
@@ -275,7 +275,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Users.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Users",
                             DisplayName = "Create Users",
                             Kind = 0
@@ -285,7 +285,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Users.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Users",
                             DisplayName = "Update Users",
                             Kind = 0
@@ -295,7 +295,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Users.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Users",
                             DisplayName = "Delete Users",
                             Kind = 0
@@ -305,7 +305,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Users.ManageRoles",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Users",
                             DisplayName = "Assign User Roles",
                             Kind = 1
@@ -315,7 +315,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Users.ResetPasswords",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Users",
                             DisplayName = "Issue Password Reset Links",
                             Kind = 1
@@ -325,7 +325,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Customers.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Customers",
                             DisplayName = "Read Customers",
                             Kind = 0
@@ -335,7 +335,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Customers.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Customers",
                             DisplayName = "Create Customers",
                             Kind = 0
@@ -345,7 +345,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Customers.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Customers",
                             DisplayName = "Update Customers",
                             Kind = 0
@@ -355,7 +355,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Plants.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plants",
                             DisplayName = "Read Customer Plants",
                             Kind = 0
@@ -365,7 +365,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Plants.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plants",
                             DisplayName = "Create Customer Plants",
                             Kind = 0
@@ -375,7 +375,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Plants.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plants",
                             DisplayName = "Update Customer Plants",
                             Kind = 0
@@ -385,7 +385,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Plants.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plants",
                             DisplayName = "Delete Customer Plants",
                             Kind = 0
@@ -395,7 +395,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PlantCertificationRecipients.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plant Certification Delivery",
                             DisplayName = "Read Plant Certification Recipients",
                             Kind = 0
@@ -405,7 +405,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PlantCertificationRecipients.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plant Certification Delivery",
                             DisplayName = "Create Plant Certification Recipients",
                             Kind = 0
@@ -415,7 +415,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PlantCertificationRecipients.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plant Certification Delivery",
                             DisplayName = "Update Plant Certification Recipients",
                             Kind = 0
@@ -425,7 +425,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PlantCertificationRecipients.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plant Certification Delivery",
                             DisplayName = "Delete Plant Certification Recipients",
                             Kind = 0
@@ -435,7 +435,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PlantCertificationSettings.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plant Certification Delivery",
                             DisplayName = "Read Plant Certification Settings",
                             Kind = 0
@@ -445,7 +445,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PlantCertificationSettings.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Plant Certification Delivery",
                             DisplayName = "Update Plant Certification Settings",
                             Kind = 0
@@ -455,7 +455,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Parts.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Parts",
                             DisplayName = "Read Parts",
                             Kind = 0
@@ -465,7 +465,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Parts.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Parts",
                             DisplayName = "Create Parts",
                             Kind = 0
@@ -475,7 +475,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Parts.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Parts",
                             DisplayName = "Update Parts",
                             Kind = 0
@@ -485,7 +485,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Parts.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Parts",
                             DisplayName = "Delete Parts",
                             Kind = 0
@@ -495,7 +495,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartFlipDefinitions.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Part Flip Definitions",
                             DisplayName = "Read Part Flip Configuration",
                             Kind = 0
@@ -505,7 +505,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartFlipDefinitions.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Part Flip Definitions",
                             DisplayName = "Create Part Flip Definitions",
                             Kind = 0
@@ -515,7 +515,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartFlipDefinitions.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Part Flip Definitions",
                             DisplayName = "Update Part Flip Definitions",
                             Kind = 0
@@ -525,7 +525,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartFlipDefinitions.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Part Flip Definitions",
                             DisplayName = "Delete Part Flip Definitions",
                             Kind = 0
@@ -535,7 +535,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Gages.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Gages",
                             DisplayName = "Read Gages",
                             Kind = 0
@@ -545,7 +545,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Gages.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Gages",
                             DisplayName = "Create Gages",
                             Kind = 0
@@ -555,7 +555,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Gages.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Gages",
                             DisplayName = "Update Gages",
                             Kind = 0
@@ -565,7 +565,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "GageTypes.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Gages",
                             DisplayName = "Read Gage Types",
                             Kind = 0
@@ -575,7 +575,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "GageTypes.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Gages",
                             DisplayName = "Create Gage Types",
                             Kind = 0
@@ -585,7 +585,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "GageTypes.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Gages",
                             DisplayName = "Update Gage Types",
                             Kind = 0
@@ -595,7 +595,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "InspectionCriteria.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Read Inspection Criteria",
                             Kind = 0
@@ -605,7 +605,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "InspectionCriteria.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Create Inspection Criteria Revisions",
                             Kind = 0
@@ -615,7 +615,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "InspectionCriteria.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Update Inspection Criteria Revisions",
                             Kind = 0
@@ -625,7 +625,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "InspectionCriteria.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Delete Inspection Criteria Revisions",
                             Kind = 0
@@ -635,7 +635,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "InspectionCriteria.Publish",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Publish Inspection Criteria Revision",
                             Kind = 1
@@ -645,7 +645,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "MasterPrints.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Read Master Prints",
                             Kind = 0
@@ -655,7 +655,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "MasterPrints.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Upload or Replace Master Prints",
                             Kind = 0
@@ -665,7 +665,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "MasterPrints.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspection Criteria",
                             DisplayName = "Delete Master Prints",
                             Kind = 0
@@ -675,7 +675,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Read Inspections",
                             Kind = 0
@@ -685,7 +685,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Create Inspections",
                             Kind = 0
@@ -695,7 +695,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Update Inspections",
                             Kind = 0
@@ -705,7 +705,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Delete Inspections",
                             Kind = 0
@@ -715,7 +715,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.Duplicate",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Duplicate Inspection Lots",
                             Kind = 1
@@ -725,7 +725,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.Flip",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Flip Inspection to Another Part",
                             Kind = 1
@@ -735,7 +735,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.TransferQuantity",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Transfer Additional Lot Quantity",
                             Kind = 1
@@ -745,7 +745,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.UndoLineage",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Undo Lot Lineage Operation",
                             Kind = 1
@@ -755,7 +755,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Inspections.ApproveDeviation",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Change Deviation Approval",
                             Kind = 1
@@ -765,7 +765,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "InspectionSheets.Export",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Inspections",
                             DisplayName = "Export Inspection Sheets",
                             Kind = 1
@@ -775,7 +775,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Certifications.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Certifications",
                             DisplayName = "Read Certification Documents",
                             Kind = 0
@@ -785,7 +785,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Certifications.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Certifications",
                             DisplayName = "Upload Certification Documents",
                             Kind = 0
@@ -795,7 +795,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Certifications.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Certifications",
                             DisplayName = "Delete Certification Documents",
                             Kind = 0
@@ -805,7 +805,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Certifications.BuildPackage",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Certifications",
                             DisplayName = "Build and Export Certification Packages",
                             Kind = 1
@@ -815,7 +815,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Certifications.SendEmail",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Certifications",
                             DisplayName = "Send Certification Package Email",
                             Kind = 1
@@ -825,7 +825,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Certifications.TemporarilyCompletePackage",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Certifications",
                             DisplayName = "Temporarily Complete Package Rendering",
                             Kind = 1
@@ -835,7 +835,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "CertificationEmailTemplates.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Email Administration",
                             DisplayName = "Read Certification Email Templates",
                             Kind = 0
@@ -845,7 +845,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "CertificationEmailTemplates.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Email Administration",
                             DisplayName = "Update Certification Email Templates",
                             Kind = 0
@@ -855,7 +855,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "CertificationEmailSettings.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Email Administration",
                             DisplayName = "Read Global Certification Email Settings",
                             Kind = 0
@@ -865,7 +865,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "CertificationEmailSettings.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Email Administration",
                             DisplayName = "Update Global Certification Email Settings",
                             Kind = 0
@@ -875,7 +875,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "NominalToleranceSettings.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Global Settings",
                             DisplayName = "Read Nominal Tolerance Settings",
                             Kind = 0
@@ -885,7 +885,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "NominalToleranceSettings.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Global Settings",
                             DisplayName = "Update Nominal Tolerance Settings",
                             Kind = 0
@@ -895,7 +895,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Development.SetBusinessDate",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Development",
                             DisplayName = "Set Development Business Date",
                             Kind = 1
@@ -905,7 +905,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Development.SendTestEmail",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Development",
                             DisplayName = "Send Development SMTP Test",
                             Kind = 1
@@ -915,7 +915,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Suppliers.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Suppliers",
                             DisplayName = "Read Suppliers",
                             Kind = 0
@@ -925,7 +925,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Suppliers.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Suppliers",
                             DisplayName = "Create Suppliers",
                             Kind = 0
@@ -935,7 +935,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Suppliers.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Suppliers",
                             DisplayName = "Update Suppliers",
                             Kind = 0
@@ -945,7 +945,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Shipments.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Read Shipments",
                             Kind = 0
@@ -955,7 +955,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Shipments.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Create Shipments",
                             Kind = 0
@@ -965,7 +965,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Shipments.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Update Shipments",
                             Kind = 0
@@ -975,7 +975,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Shipments.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Delete Shipments",
                             Kind = 0
@@ -985,7 +985,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Read Containers",
                             Kind = 0
@@ -995,7 +995,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Create Containers",
                             Kind = 0
@@ -1005,7 +1005,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Update Containers",
                             Kind = 0
@@ -1015,7 +1015,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Delete Containers",
                             Kind = 0
@@ -1025,7 +1025,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ContainerContents.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Replace Container Contents",
                             Kind = 0
@@ -1035,7 +1035,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "BillsOfLading.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Read Bills of Lading",
                             Kind = 0
@@ -1045,7 +1045,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "BillsOfLading.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Create Bills of Lading",
                             Kind = 0
@@ -1055,7 +1055,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "BillsOfLading.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Update Bills of Lading",
                             Kind = 0
@@ -1065,7 +1065,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.Receive",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Receive Containers",
                             Kind = 1
@@ -1075,7 +1075,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.CorrectReceipt",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Correct or Reconcile Container Receipt",
                             Kind = 1
@@ -1085,7 +1085,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.Unreceive",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Unreceive Containers",
                             Kind = 1
@@ -1095,7 +1095,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.CorrectReceivedQuantities",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Correct Actual Received Quantities",
                             Kind = 1
@@ -1105,7 +1105,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.CorrectDepartedMetadata",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Correct Departed Container Metadata",
                             Kind = 1
@@ -1115,7 +1115,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Containers.DeleteDeparted",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Delete Departed Containers",
                             Kind = 1
@@ -1125,7 +1125,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "BillsOfLading.CorrectDeparted",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Logistics",
                             DisplayName = "Correct Bills Shared with Departed Containers",
                             Kind = 1
@@ -1135,7 +1135,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Receiving.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Receiving",
                             DisplayName = "Read Received Parts and Candidates",
                             Kind = 0
@@ -1145,7 +1145,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Receiving.BeginInspection",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Receiving",
                             DisplayName = "Begin Inspection from Receipt",
                             Kind = 1
@@ -1155,7 +1155,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Receiving.BumpQuantity",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Receiving",
                             DisplayName = "Add Received Quantity to Inspection",
                             Kind = 1
@@ -1165,7 +1165,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Receiving.ReverseAllocation",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Receiving",
                             DisplayName = "Reverse Receipt Allocation",
                             Kind = 1
@@ -1175,7 +1175,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.Read",
                             AllowedInBaseline = true,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Read Production Schedules",
                             Kind = 0
@@ -1185,7 +1185,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionJobs.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Create Production Jobs",
                             Kind = 0
@@ -1195,7 +1195,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionJobs.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Update Production Jobs",
                             Kind = 0
@@ -1205,7 +1205,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionJobs.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Delete Production Jobs",
                             Kind = 0
@@ -1215,7 +1215,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "MachineDowntime.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Create Planned Machine Downtime",
                             Kind = 0
@@ -1225,7 +1225,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "MachineDowntime.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Update Planned Machine Downtime",
                             Kind = 0
@@ -1235,7 +1235,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "MachineDowntime.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Delete Planned Machine Downtime",
                             Kind = 0
@@ -1245,7 +1245,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.Arrange",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Arrange Planned Production Work",
                             Kind = 1
@@ -1255,7 +1255,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.Optimize",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Apply Production Optimization",
                             Kind = 1
@@ -1265,7 +1265,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.AppendContainerPart",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Append Eligible Container Part",
                             Kind = 1
@@ -1275,7 +1275,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.StartWork",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Start Planned Production Work",
                             Kind = 1
@@ -1285,7 +1285,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.RecordProgress",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Record Additional Production Progress",
                             Kind = 1
@@ -1295,7 +1295,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.CompleteWork",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Complete Planned Production Work",
                             Kind = 1
@@ -1305,7 +1305,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSchedules.CorrectProgress",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Scheduling",
                             DisplayName = "Correct Cumulative Production Progress",
                             Kind = 1
@@ -1315,7 +1315,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortingMachines.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Read Sorting Machine Configuration",
                             Kind = 0
@@ -1325,7 +1325,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortingMachines.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Create Sorting Machines",
                             Kind = 0
@@ -1335,7 +1335,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortingMachines.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Update Sorting Machines",
                             Kind = 0
@@ -1345,7 +1345,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartMachineEligibility.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Read Part Machine Eligibility and Rates",
                             Kind = 0
@@ -1355,7 +1355,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartMachineEligibility.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Add Part Machine Eligibility",
                             Kind = 0
@@ -1365,7 +1365,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartMachineEligibility.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Update Part Machine Rate or Preference",
                             Kind = 0
@@ -1375,7 +1375,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "PartMachineEligibility.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Remove Part Machine Eligibility",
                             Kind = 0
@@ -1385,7 +1385,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionCalendars.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Read Default Working Calendar",
                             Kind = 0
@@ -1395,7 +1395,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionCalendars.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Update Default Working Calendar",
                             Kind = 0
@@ -1405,7 +1405,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionHolidays.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Read Production Holidays",
                             Kind = 0
@@ -1415,7 +1415,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionHolidays.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Create Production Holidays",
                             Kind = 0
@@ -1425,7 +1425,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionHolidays.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Update Production Holidays",
                             Kind = 0
@@ -1435,7 +1435,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionHolidays.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Delete Production Holidays",
                             Kind = 0
@@ -1445,7 +1445,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionDowntimeReasons.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Read Planned Downtime Reasons",
                             Kind = 0
@@ -1455,7 +1455,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionDowntimeReasons.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Create Planned Downtime Reasons",
                             Kind = 0
@@ -1465,7 +1465,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionDowntimeReasons.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Update Planned Downtime Reasons",
                             Kind = 0
@@ -1475,7 +1475,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionDowntimeReasons.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Delete Planned Downtime Reasons",
                             Kind = 0
@@ -1485,7 +1485,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSettings.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Read Production Efficiency Settings",
                             Kind = 0
@@ -1495,7 +1495,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionSettings.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Configuration",
                             DisplayName = "Update Production Efficiency Settings",
                             Kind = 0
@@ -1505,7 +1505,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Read Production Logs",
                             Kind = 0
@@ -1515,7 +1515,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Open or Create Production Logs",
                             Kind = 0
@@ -1525,7 +1525,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Update Production Log Comments",
                             Kind = 0
@@ -1535,7 +1535,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.StartRun",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Start Production Run Interval",
                             Kind = 1
@@ -1545,7 +1545,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.StopRun",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Stop Production Run Interval",
                             Kind = 1
@@ -1555,7 +1555,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.ResumeRun",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Resume Production Run Interval",
                             Kind = 1
@@ -1565,7 +1565,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionLogs.CorrectLine",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Correct Production Run Details",
                             Kind = 1
@@ -1575,7 +1575,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortLogDowntimeCauses.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Read Sort Log Downtime Causes",
                             Kind = 0
@@ -1585,7 +1585,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortLogDowntimeCauses.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Create Sort Log Downtime Causes",
                             Kind = 0
@@ -1595,7 +1595,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortLogDowntimeCauses.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Update Sort Log Downtime Causes",
                             Kind = 0
@@ -1605,7 +1605,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "SortLogDowntimeCauses.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Tracking",
                             DisplayName = "Delete Sort Log Downtime Causes",
                             Kind = 0
@@ -1615,7 +1615,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "ProductionReports.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Production Reporting",
                             DisplayName = "Read Production Review Reports",
                             Kind = 0
@@ -1625,7 +1625,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.Access",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Access Chat",
                             Kind = 0
@@ -1635,7 +1635,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.CreateConversations",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Create Direct and Group Conversations",
                             Kind = 1
@@ -1645,7 +1645,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.SendMessages",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Send Chat Messages",
                             Kind = 1
@@ -1655,7 +1655,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.ScheduleMessages",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Schedule Chat Messages",
                             Kind = 1
@@ -1665,7 +1665,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.CreateThreads",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Create Channel Threads",
                             Kind = 1
@@ -1675,7 +1675,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.CreatePolls",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Create Chat Polls",
                             Kind = 1
@@ -1685,7 +1685,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.VotePolls",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Vote in Chat Polls",
                             Kind = 1
@@ -1695,7 +1695,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.React",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "React to Chat Messages",
                             Kind = 1
@@ -1705,7 +1705,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.PinMessages",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Pin Chat Messages",
                             Kind = 1
@@ -1715,7 +1715,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.EditOwnMessages",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Edit Own Chat Messages",
                             Kind = 1
@@ -1725,7 +1725,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.DeleteOwnMessages",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Delete Own Chat Messages",
                             Kind = 1
@@ -1735,7 +1735,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.DeleteOthersMessages",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Delete Other Users' Messages",
                             Kind = 1
@@ -1745,7 +1745,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.CreateChannels",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Create or Duplicate Channels",
                             Kind = 1
@@ -1755,7 +1755,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.UpdateChannels",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Update Owned Channel Metadata",
                             Kind = 1
@@ -1765,7 +1765,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.DeleteChannels",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Delete Owned Channels",
                             Kind = 1
@@ -1775,7 +1775,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.ManagePrivateChannelMembers",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Manage Owned Private Channel Members",
                             Kind = 1
@@ -1785,7 +1785,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.CreateCategories",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Create Chat Categories",
                             Kind = 1
@@ -1795,7 +1795,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.ManageCategories",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Manage Accessible Chat Categories",
                             Kind = 1
@@ -1805,7 +1805,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.ReorderChannels",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Reorder and Relocate Accessible Channels",
                             Kind = 1
@@ -1815,7 +1815,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.ManageGroupConversations",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Manage Group Conversation Membership and Metadata",
                             Kind = 1
@@ -1825,7 +1825,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Chat.AdministerChannels",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Chat",
                             DisplayName = "Administer Any Channel Metadata or Deletion",
                             Kind = 1
@@ -1835,7 +1835,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Roles.Read",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Role Administration",
                             DisplayName = "Read Ordinary Roles and Effective Grants",
                             Kind = 0
@@ -1845,7 +1845,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Roles.Create",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Role Administration",
                             DisplayName = "Create Ordinary Roles",
                             Kind = 0
@@ -1855,7 +1855,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Roles.Update",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Role Administration",
                             DisplayName = "Edit Ordinary Role Metadata",
                             Kind = 0
@@ -1865,7 +1865,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Roles.Delete",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Role Administration",
                             DisplayName = "Delete Ordinary Roles",
                             Kind = 0
@@ -1875,7 +1875,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Roles.ManagePermissions",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Role Administration",
                             DisplayName = "Edit Ordinary Role Permission Grants",
                             Kind = 1
@@ -1885,7 +1885,7 @@ namespace Confast.Web.Data.Migrations
                             Key = "Roles.ManageInheritance",
                             AllowedInBaseline = false,
                             Authority = 0,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Role Administration",
                             DisplayName = "Edit Ordinary Role Parents",
                             Kind = 1
@@ -1895,9 +1895,99 @@ namespace Confast.Web.Data.Migrations
                             Key = "Authorization.ManageSecurity",
                             AllowedInBaseline = false,
                             Authority = 1,
-                            CatalogVersion = "FD8B0A9A5ADEEAD2F167A825869E4EC9CDAAC1A29EC0A766FF1E3777438AD544",
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
                             Category = "Authorization Security",
                             DisplayName = "Manage Protected Authorization and Root Security",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.View",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "View Backup Manager",
+                            Kind = 0
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Create",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Create Backups",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Configure",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Configure Backups",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Pin",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Pin and Unpin Backups",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.EditMetadata",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Edit Backup Labels and Notes",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Verify",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Verify Backup Integrity",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Download",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Download Database Backups",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Delete",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Delete Backups",
+                            Kind = 1
+                        },
+                        new
+                        {
+                            Key = "DatabaseBackups.Reconcile",
+                            AllowedInBaseline = false,
+                            Authority = 0,
+                            CatalogVersion = "5C2448318A1AEDB99D4739CCDCC4B3AF7226EBB757C1B6FCFF3D6CF9E45EA822",
+                            Category = "Database Backups",
+                            DisplayName = "Reconcile Backup Catalog",
                             Kind = 1
                         });
                 });
@@ -2965,6 +3055,399 @@ namespace Confast.Web.Data.Migrations
                         {
                             RoleId = "47cd3d4a-0d66-4acf-8556-4017336798d8",
                             PermissionKey = "Roles.ManageInheritance"
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupAlert", b =>
+                {
+                    b.Property<Guid>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<string>("RecipientEmail")
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("recipient_email");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("DeliveryClaim")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivery_claim");
+
+                    b.Property<string>("LastNotifiedMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("last_notified_message");
+
+                    b.Property<string>("Message")
+                        .HasColumnType("text")
+                        .HasColumnName("message");
+
+                    b.Property<DateTimeOffset?>("NextDeliveryAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_delivery_at_utc");
+
+                    b.HasKey("DeploymentId", "RecipientEmail", "Kind");
+
+                    b.HasIndex("RecipientEmail");
+
+                    b.ToTable("backup_alerts", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupAuditEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ActorUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<string>("After")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after");
+
+                    b.Property<string>("Before")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before");
+
+                    b.Property<Guid>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<Guid?>("ExecutionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("execution_id");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeploymentId", "ExecutionId", "OccurredAtUtc");
+
+                    b.ToTable("backup_audit", (string)null);
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupExecution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempt")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt");
+
+                    b.Property<int>("Availability")
+                        .HasColumnType("integer")
+                        .HasColumnName("availability");
+
+                    b.Property<Guid>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<string>("Destination")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("destination");
+
+                    b.Property<Guid>("DestinationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("destination_id");
+
+                    b.Property<string>("Diagnostic")
+                        .HasColumnType("text")
+                        .HasColumnName("diagnostic");
+
+                    b.Property<string>("DirectoryName")
+                        .HasMaxLength(72)
+                        .HasColumnType("character varying(72)")
+                        .HasColumnName("directory_name");
+
+                    b.Property<long?>("DurationMilliseconds")
+                        .HasColumnType("bigint")
+                        .HasColumnName("duration_milliseconds");
+
+                    b.Property<DateTimeOffset?>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at_utc");
+
+                    b.Property<string>("Label")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("label");
+
+                    b.Property<Guid>("MetadataVersion")
+                        .HasColumnType("uuid")
+                        .HasColumnName("metadata_version");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer")
+                        .HasColumnName("outcome");
+
+                    b.Property<bool>("Pinned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("pinned");
+
+                    b.Property<DateTimeOffset?>("RemovedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("removed_at_utc");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at_utc");
+
+                    b.Property<string>("RequestedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("requested_by");
+
+                    b.Property<Guid?>("RequestedGeneration")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_generation");
+
+                    b.Property<string>("RetentionDiagnostic")
+                        .HasColumnType("text")
+                        .HasColumnName("retention_diagnostic");
+
+                    b.Property<DateTimeOffset?>("ScheduledForUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("scheduled_for_utc");
+
+                    b.Property<Guid>("SettingsRevision")
+                        .HasColumnType("uuid")
+                        .HasColumnName("settings_revision");
+
+                    b.Property<int>("Stage")
+                        .HasColumnType("integer")
+                        .HasColumnName("stage");
+
+                    b.Property<DateTimeOffset?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at_utc");
+
+                    b.Property<long?>("TotalBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_bytes");
+
+                    b.Property<int>("Trigger")
+                        .HasColumnType("integer")
+                        .HasColumnName("trigger");
+
+                    b.Property<int>("Verification")
+                        .HasColumnType("integer")
+                        .HasColumnName("verification");
+
+                    b.Property<string>("VerificationDiagnostic")
+                        .HasColumnType("text")
+                        .HasColumnName("verification_diagnostic");
+
+                    b.Property<DateTimeOffset?>("VerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_at_utc");
+
+                    b.Property<Guid?>("VerifyGeneration")
+                        .HasColumnType("uuid")
+                        .HasColumnName("verify_generation");
+
+                    b.Property<string>("VerifyRequestedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("verify_requested_by");
+
+                    b.Property<DateTimeOffset?>("VerifyStartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verify_started_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeploymentId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_backup_executions_running")
+                        .HasFilter("outcome = 1");
+
+                    b.HasIndex("DeploymentId", "RequestedAtUtc");
+
+                    b.HasIndex("DeploymentId", "ScheduledForUtc", "Attempt")
+                        .IsUnique();
+
+                    b.ToTable("backup_executions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_backup_execution_trigger", "(trigger = 0 AND scheduled_for_utc IS NULL AND attempt = 0) OR (trigger = 1 AND scheduled_for_utc IS NOT NULL AND attempt BETWEEN 1 AND 2)");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupRecipient", b =>
+                {
+                    b.Property<string>("Email")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("email");
+
+                    b.Property<int>("Notices")
+                        .HasColumnType("integer")
+                        .HasColumnName("notices");
+
+                    b.Property<int>("SettingsId")
+                        .HasColumnType("integer")
+                        .HasColumnName("settings_id");
+
+                    b.HasKey("Email");
+
+                    b.HasIndex("SettingsId");
+
+                    b.ToTable("backup_notification_recipients", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_backup_recipient_notices", "notices BETWEEN 0 AND 255");
+                        });
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CatalogIssue")
+                        .HasColumnType("text")
+                        .HasColumnName("catalog_issue");
+
+                    b.Property<bool>("CatchUp")
+                        .HasColumnType("boolean")
+                        .HasColumnName("catch_up");
+
+                    b.Property<Guid?>("DeploymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("deployment_id");
+
+                    b.Property<string>("Destination")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("destination");
+
+                    b.Property<Guid?>("DestinationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("destination_id");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<int>("Frequency")
+                        .HasColumnType("integer")
+                        .HasColumnName("frequency");
+
+                    b.Property<bool>("FullVerification")
+                        .HasColumnType("boolean")
+                        .HasColumnName("full_verification");
+
+                    b.Property<DateOnly>("HourAnchor")
+                        .HasColumnType("date")
+                        .HasColumnName("hour_anchor");
+
+                    b.Property<int>("Hours")
+                        .HasColumnType("integer")
+                        .HasColumnName("hours");
+
+                    b.Property<DateTimeOffset?>("LastReconciledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_reconciled_at_utc");
+
+                    b.Property<TimeOnly>("LocalTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("local_time");
+
+                    b.Property<int>("MonthDay")
+                        .HasColumnType("integer")
+                        .HasColumnName("month_day");
+
+                    b.Property<int>("MonthShift")
+                        .HasColumnType("integer")
+                        .HasColumnName("month_shift");
+
+                    b.Property<DateTimeOffset?>("NextDueAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_due_at_utc");
+
+                    b.Property<Guid?>("ReconcileGeneration")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reconcile_generation");
+
+                    b.Property<string>("ReconcileRequestedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("reconcile_requested_by");
+
+                    b.Property<long>("ReserveBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reserve_bytes");
+
+                    b.Property<int>("Retain")
+                        .HasColumnType("integer")
+                        .HasColumnName("retain");
+
+                    b.Property<string>("RetentionIssue")
+                        .HasColumnType("text")
+                        .HasColumnName("retention_issue");
+
+                    b.Property<Guid>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid")
+                        .HasColumnName("revision");
+
+                    b.Property<DateTimeOffset?>("ScheduleStartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("schedule_started_at_utc");
+
+                    b.Property<string>("ServerZoneId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("server_zone_id");
+
+                    b.Property<int>("Weekdays")
+                        .HasColumnType("integer")
+                        .HasColumnName("weekdays");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("backup_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_backup_settings", "id = 1 AND retain BETWEEN 1 AND 1000 AND reserve_bytes >= 0 AND hours BETWEEN 1 AND 168 AND weekdays BETWEEN 1 AND 127 AND month_day BETWEEN 1 AND 31 AND month_shift BETWEEN -4 AND 4");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CatchUp = true,
+                            Enabled = false,
+                            Frequency = 1,
+                            FullVerification = true,
+                            HourAnchor = new DateOnly(2000, 1, 1),
+                            Hours = 1,
+                            LocalTime = new TimeOnly(2, 0, 0),
+                            MonthDay = 1,
+                            MonthShift = 0,
+                            ReserveBytes = 2147483648L,
+                            Retain = 14,
+                            Revision = new Guid("00000000-0000-0000-0000-000000000000"),
+                            Weekdays = 62
                         });
                 });
 
@@ -7418,6 +7901,24 @@ namespace Confast.Web.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupAlert", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Backups.BackupRecipient", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientEmail")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupRecipient", b =>
+                {
+                    b.HasOne("Confast.Web.Features.Backups.BackupSettings", null)
+                        .WithMany("Recipients")
+                        .HasForeignKey("SettingsId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatAttachment", b =>
                 {
                     b.HasOne("Confast.Web.Features.Chat.ChatMessage", "Message")
@@ -8675,6 +9176,11 @@ namespace Confast.Web.Data.Migrations
             modelBuilder.Entity("Confast.Web.Features.Authorization.AuthorizationChangeHistory", b =>
                 {
                     b.Navigation("Details");
+                });
+
+            modelBuilder.Entity("Confast.Web.Features.Backups.BackupSettings", b =>
+                {
+                    b.Navigation("Recipients");
                 });
 
             modelBuilder.Entity("Confast.Web.Features.Chat.ChatChannelGroup", b =>

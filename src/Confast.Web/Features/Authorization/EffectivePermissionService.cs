@@ -111,6 +111,18 @@ public sealed class EffectivePermissionService(
             await db.RoleInheritance.AsNoTracking().Select(x => new GraphEdge(x.ChildRoleId, x.ParentRoleId)).ToListAsync(ct));
     }
 
+    internal async Task DemandBackupRequesterAsync(AppDbContext db, string actorId, Guid? generation,
+        string[] required, CancellationToken ct)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
+        var stamp = await db.Users.Where(x => x.Id == actorId).Select(x => x.SecurityStamp).SingleOrDefaultAsync(ct);
+        if (string.IsNullOrEmpty(stamp)) throw new AuthorizationDeniedException(AuthorizationDenial.InvalidSession);
+        var snapshot = (await EvaluateCoreAsync(db, actorId, stamp, true, ct)).Snapshot;
+        if (generation != snapshot.Version.Generation || !PermissionCatalog.ExpandRequirements(required).All(snapshot.Has))
+            throw new AuthorizationDeniedException(AuthorizationDenial.DelegationDenied);
+        await transaction.CommitAsync(ct);
+    }
+
     private async Task<AuthorizationEvaluation> EvaluateCoreAsync(AppDbContext db, string actorId,
         string stamp, bool useCache, CancellationToken cancellationToken)
     {

@@ -38,7 +38,7 @@ public static class NavigationCatalog
             NavigationIconName.ClipboardCheck, "navigation-accent-quality", 30),
         new(NavigationCategoryId.MasterData, "Master Data", "Maintain parts and business records.",
             NavigationIconName.Database, "navigation-accent-master-data", 40),
-        new(NavigationCategoryId.Administration, "Administration", "Manage user accounts and roles.",
+        new(NavigationCategoryId.Administration, "Administration", "Manage users, roles, and backups.",
             NavigationIconName.Shield, "navigation-accent-slate", 50),
         new(NavigationCategoryId.Settings, "Settings", "Configure production and quality workflows.",
             NavigationIconName.Settings, "navigation-accent-slate", 60)
@@ -71,6 +71,8 @@ public static class NavigationCatalog
             NavigationIconName.Users, 10, Permissions.Users.Read),
         Page("roles", "Roles", "/admin/roles", NavigationCategoryId.Administration,
             NavigationIconName.Shield, 20, Permissions.Roles.Read),
+        Page("backup-manager", "Backup Manager", "/admin/backups", NavigationCategoryId.Administration,
+            NavigationIconName.Database, 30, Permissions.DatabaseBackups.View),
         new("scheduling-settings", "Scheduling Settings", "/production-scheduling/settings", NavigationCategoryId.Settings,
             NavigationIconName.Calendar, 10, PermissionPolicies.ProductionConfigurationRead, [.. PermissionPolicies.ProductionConfigurationReadKeys]),
         Page("downtime-causes", "Sort Log Downtime Causes", "/production-tracking/settings", NavigationCategoryId.Settings,

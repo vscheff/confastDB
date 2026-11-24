@@ -575,10 +575,6 @@
                                 && messageDate.Key == previousMessageDate
                                 && message.SentAtUtc >= previousMessage.SentAtUtc
                                 && message.SentAtUtc - previousMessage.SentAtUtc <= TimeSpan.FromMinutes(5);
-                            var isReplyToCurrentUser = message.Type == ChatMessageType.Text
-                                && currentUserId is not null
-                                && message.ReplyToSenderUserId == currentUserId
-                                && message.SenderUserId != currentUserId;
                             if (previousMessageDate is not null && previousMessageDate != messageDate.Key)
                             {
                                 <div class="chat-date-divider" role="separator" aria-label="@messageDate.Label">
@@ -587,7 +583,7 @@
                             }
                             previousMessageDate = messageDate.Key;
                             previousMessage = message;
-                            <article @key="message.Id" data-chat-message-id="@message.Id" tabindex="0" class="chat-message @(message.Type is ChatMessageType.PinNotice or ChatMessageType.ThreadNotice or ChatMessageType.MemberAddedNotice or ChatMessageType.MemberLeftNotice ? "chat-pin-notice" : "") @(isGrouped ? "chat-message-grouped" : "") @(message.SenderUserId == currentUserId ? "mine" : "") @(isReplyToCurrentUser ? "reply-to-me" : "") @(reactionPickerMessageId == message.Id ? "picker-open" : "") @(moreActionsMessageId == message.Id ? "more-menu-open" : "") @(tonePickerOpenedByTouch && tonePickerMessageId == message.Id ? "tone-picker-touch-open" : "")">
+                            <article @key="message.Id" data-chat-message-id="@message.Id" tabindex="0" class="chat-message @(message.Type is ChatMessageType.PinNotice or ChatMessageType.ThreadNotice or ChatMessageType.MemberAddedNotice or ChatMessageType.MemberLeftNotice ? "chat-pin-notice" : "") @(isGrouped ? "chat-message-grouped" : "") @(ShouldHighlightMessage(message) ? "chat-message-highlighted" : "") @(reactionPickerMessageId == message.Id ? "picker-open" : "") @(moreActionsMessageId == message.Id ? "more-menu-open" : "") @(tonePickerOpenedByTouch && tonePickerMessageId == message.Id ? "tone-picker-touch-open" : "")">
                                 @if (message.Type == ChatMessageType.ThreadNotice && message.ChannelThreadId is long announcedThreadId)
                                 {
                                     var announced = channelThreads.FirstOrDefault(x => x.Id == announcedThreadId);
@@ -1147,7 +1143,7 @@
                             @if (entry.Type is ChatMessageType.Text or ChatMessageType.Poll)
                             {
                                 <article @key="entry.Id" data-chat-message-id="@entry.Id"
-                                         class="chat-channel-thread-entry @(entry.SenderUserId == currentUserId ? "mine" : null)">
+                                         class="chat-channel-thread-entry @(ShouldHighlightMessage(entry) ? "chat-message-highlighted" : null)">
                                     <div><strong>@entry.SenderName</strong><time datetime="@entry.SentAtUtc.ToString("O")">@entry.SentAtUtc.ToLocalTime().ToString("g")</time></div>
                                     @if (entry.ReplyToBody is { } replyBody) { <small>↳ @replyBody</small> }
                                     @if (entry.Attachments.Count == 0 || !string.Equals(entry.Body, "Shared a file", StringComparison.Ordinal))
@@ -1877,6 +1873,20 @@
     }
 
     private string moderationReason = string.Empty;
+    private bool ShouldHighlightMessage(ChatMessageRow message)
+    {
+        if (currentUserId is null) return false;
+        if (message.SenderUserId == currentUserId)
+        {
+            // Broadcast tags have no user ID, and senders are excluded from saved mention recipients.
+            return message.Type == ChatMessageType.Text && message.Parts.Any(part => part.IsTag
+                && (part.UserId is null || part.UserId == currentUserId));
+        }
+
+        return message.MentionsCurrentUser
+            || (message.Type == ChatMessageType.Text && message.ReplyToSenderUserId == currentUserId);
+    }
+
     private bool CanModerate(ChatMessageRow message) => Can(Permissions.Chat.DeleteOthersMessages)
         && thread?.Conversation.Kind == ConversationKind.Channel
         && message.Type == ChatMessageType.Text && message.GiphyId is null

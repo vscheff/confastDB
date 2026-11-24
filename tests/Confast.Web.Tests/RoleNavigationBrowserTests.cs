@@ -98,7 +98,8 @@ public sealed partial class DelegatedAdministrationTests
     }
 
     private async Task WithNavigationBrowserAsync(string artifactName,
-        Func<IBrowser, string, string, string, ApplicationUser, string, Task> exercise)
+        Func<IBrowser, string, string, string, ApplicationUser, string, Task> exercise,
+        Func<ApplicationUser, ProcessStartInfo, Task>? configure = null, string? browserChannel = null)
     {
         var configuration = new ConfigurationBuilder().AddUserSecrets<Program>(optional: true).AddEnvironmentVariables().Build();
         var username = configuration["BrowserTestUser:Username"];
@@ -131,6 +132,7 @@ public sealed partial class DelegatedAdministrationTests
         start.Environment["BrowserTestUser__Username"] = "";
         start.Environment["BrowserTestUser__Password"] = "";
         start.Environment["Logging__LogLevel__Default"] = "Warning";
+        if (configure is not null) await configure(user, start);
         using var app = Process.Start(start)!;
         var stdout = app.StandardOutput.ReadToEndAsync();
         var stderr = app.StandardError.ReadToEndAsync();
@@ -146,7 +148,7 @@ public sealed partial class DelegatedAdministrationTests
                 await Task.Delay(200);
             }
             using var playwright = await Playwright.CreateAsync();
-            await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true });
+            await using var browser = await playwright.Chromium.LaunchAsync(new() { Headless = true, Channel = browserChannel });
             await exercise(browser, origin, username!, password!, user, output);
         }
         finally

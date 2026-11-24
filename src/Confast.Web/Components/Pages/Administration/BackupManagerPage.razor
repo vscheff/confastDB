@@ -1,0 +1,439 @@
+@page "/admin/backups"
+@inherits PermissionComponentBase
+@implements IAsyncDisposable
+@using Confast.Web.Features.Backups
+@using Keys = Confast.Web.Features.Authorization.Permissions.DatabaseBackups
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Permission:" + Keys.View)]
+
+<PageTitle>Backup Manager</PageTitle>
+<div class="backup-page">
+    <div class="page-heading backup-heading">
+        <h1>Backup Manager</h1>
+        @if (Can(Keys.Create))
+        {
+            <button class="button button-primary" @onclick="OpenCreate" disabled="@(overview?.Configured != true)">Create Backup</button>
+        }
+    </div>
+    @if (message is not null)
+    {
+        <div class="alert @(messageError ? "alert-error" : "alert-success")" role="status">@message</div>
+    }
+    @if (overview is { } data)
+    {
+        var status = data.Status;
+        <section class="backup-panel" aria-labelledby="backup-status-heading">
+            <div class="backup-section-heading">
+                <h2 id="backup-status-heading">Backup Status</h2>
+                <button class="button button-secondary" disabled="@busy" @onclick="RefreshAsync">Refresh</button>
+            </div>
+            @if (status.Warnings.Count > 0)
+            {
+                <ul class="backup-warnings" aria-label="Backup warnings">
+                    @foreach (var warning in status.Warnings.Values)
+                    {
+                        <li>@warning</li>
+                    }
+                </ul>
+            }
+            <dl class="backup-metrics">
+                <div><dt>Scheduler</dt><dd>@SchedulerStatus(data)</dd></div>
+                <div><dt>Execution</dt><dd>@(status.Active is { } active ? Stage(active.Stage) : "Idle")</dd>
+                    @if (status.Pending > 0) { <small>@status.Pending queued</small> }
+                </div>
+                <div><dt>Last Successful Backup</dt><dd>@When(status.LastSuccess?.FinishedAtUtc)</dd>
+                    @if (status.LastSuccess?.FinishedAtUtc is { } completed) { <small>@Age(completed) ago</small> }
+                </div>
+                <div><dt>Last Attempt</dt><dd>@When(status.LastAttempt?.StartedAtUtc)</dd>
+                    @if (status.LastAttempt is { } attempt) { <small>@attempt.Outcome</small> }
+                </div>
+                <div><dt>Next Scheduled Backup</dt><dd>@When(SchedulerStatus(data) == "Enabled" ? data.Settings.NextDueAtUtc : null)</dd></div>
+                <div><dt>Database Size</dt><dd>@Bytes(status.DatabaseBytes)</dd></div>
+                <div><dt>Known Backup Storage Used</dt><dd>@Bytes(status.StorageBytes)</dd></div>
+                <div><dt>Destination Free Space</dt><dd>@Bytes(status.FreeBytes)</dd></div>
+                <div><dt>Available Rolling Backups</dt><dd>@status.Rolling</dd></div>
+                <div><dt>Available Pinned Backups</dt><dd>@status.Pinned</dd></div>
+                <div><dt>Average Completed Backup Size</dt><dd>@Bytes(status.AverageBytes)</dd></div>
+                <div><dt>Average Backup Duration</dt><dd>@Duration(status.AverageMilliseconds)</dd></div>
+                <div><dt>Estimated Retained Storage</dt><dd>@Bytes(status.EstimatedRetentionBytes)</dd></div>
+                <div><dt>Last Catalog Reconciliation</dt><dd>@When(data.Settings.LastReconciledAtUtc)</dd></div>
+            </dl>
+        </section>
+
+        <section class="backup-panel" aria-labelledby="backup-configuration-heading">
+            <h2 id="backup-configuration-heading">Backup Configuration</h2>
+            <div class="backup-configuration">
+                <div>
+                    @if (Can(Keys.Configure))
+                    {
+                        <div class="backup-fields">
+                            <div class="form-field">
+                                <label for="backup-destination">Server Destination</label>
+                                <select id="backup-destination" @bind="destination" @bind:after="ClearTest">
+                                    <option value="">Select a destination</option>
+                                    @foreach (var item in data.Destinations)
+                                    {
+                                        <option value="@item.Name">@item.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="backup-inline">
+                                <button class="button button-secondary" @onclick="TestDestinationAsync" disabled="@(busy || string.IsNullOrEmpty(destination))">Test Destination</button>
+                                @if (data.Destinations.FirstOrDefault(x => x.Name == destination)?.ServerPath is { } path)
+                                {
+                                    <code>@path</code>
+                                }
+                            </div>
+                            @if (testMessage is not null)
+                            {
+                                <p class="alert @(testError ? "alert-error" : "alert-success")" role="status">@testMessage</p>
+                            }
+                            <div class="backup-checks">
+                                <label title="Run backups automatically on the configured schedule."><input type="checkbox" @bind="enabled" /> Automatic Backups</label>
+                                <label title="Run one backup for the most recent missed time, then resume the regular schedule."><input type="checkbox" @bind="catchUp" /> Catch Up on Missed Backups</label>
+                                <label title="Read the entire database archive and verify the backup files against their checksums before publishing."><input type="checkbox" @bind="fullVerification" /> Read Full Archive After Creation</label>
+                            </div>
+                            <div class="backup-field-grid">
+                                <div class="form-field">
+                                    <label for="backup-frequency">Frequency</label>
+                                    <select id="backup-frequency" @bind:get="schedule.Frequency" @bind:set="SetFrequency">
+                                        @foreach (var frequency in Enum.GetValues<BackupFrequency>())
+                                        {
+                                            <option value="@frequency">@frequency</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="form-field">
+                                    <label for="backup-time">@(schedule.Frequency == BackupFrequency.Hourly ? "Reference Time" : "Backup Time")</label>
+                                    <input id="backup-time" type="time" @bind:get="schedule.Time" @bind:set="SetTime" />
+                                </div>
+                                @if (schedule.Frequency == BackupFrequency.Hourly)
+                                {
+                                    <label class="form-field">Hours Between Backups <input type="number" min="1" max="168" @bind:get="schedule.Hours" @bind:set="SetHours" /></label>
+                                }
+                                @if (schedule.Frequency == BackupFrequency.Monthly)
+                                {
+                                    <label class="form-field">Day of Month <input type="number" min="1" max="31" @bind:get="schedule.MonthDay" @bind:set="SetMonthDay" /></label>
+                                }
+                                <label class="form-field">Rolling Backups to Retain <input type="number" min="1" max="1000" @bind="retain" /></label>
+                                <label class="form-field">Free Space Reserve (GiB) <input type="number" min="0" max="10240" step="0.01" @bind="reserveGiB" /></label>
+                            </div>
+                            @if (schedule.Frequency == BackupFrequency.Weekly)
+                            {
+                                <fieldset class="backup-fieldset">
+                                    <legend>Days of Week</legend>
+                                    <div class="backup-weekdays">
+                                        @foreach (var day in Weekdays)
+                                        {
+                                            <label><input type="checkbox" checked="@IsSelected(day)" @onchange="e => ToggleDay(day, e.Value is true)" /> @day.ToString()[..3]</label>
+                                        }
+                                    </div>
+                                </fieldset>
+                            }
+                            @if (schedule.Frequency == BackupFrequency.Monthly)
+                            {
+                                <p class="backup-hint">Short months use their last day. Time zone conversion can move an execution across a calendar day or month.</p>
+                                @if (schedule.MonthShift != 0)
+                                {
+                                    <p class="backup-hint">The displayed rule has a @schedule.MonthShift.ToString("+#;-#") day shift in this time zone. Editing Day of Month selects a new local calendar day.</p>
+                                }
+                            }
+                            <details class="backup-notifications">
+                                <summary>Notifications</summary>
+                                <div class="backup-fields">
+                                    @foreach (var recipient in recipients)
+                                    {
+                                        <fieldset class="backup-fieldset" @key="recipient">
+                                            <legend>Notification Recipient</legend>
+                                            <label class="form-field">Email Address <input type="email" maxlength="254" @bind="recipient.Email" /></label>
+                                            <div class="backup-checks backup-notice-options">
+                                                @foreach (var (notice, label, tooltip) in NoticeChoices)
+                                                {
+                                                    <label title="@tooltip"><input type="checkbox" checked="@recipient.Notices.HasFlag(notice)"
+                                                        @onchange="e => ToggleNotice(recipient, notice, e.Value is true)" /> @label</label>
+                                                }
+                                            </div>
+                                            <button type="button" class="button button-secondary" disabled="@busy"
+                                                @onclick="() => recipients.Remove(recipient)">Remove Recipient</button>
+                                        </fieldset>
+                                    }
+                                    <div class="backup-actions">
+                                        <button type="button" class="button button-secondary" disabled="@(busy || recipients.Count >= 20)"
+                                            @onclick="() => recipients.Add(new())">Add Recipient</button>
+                                    </div>
+                                </div>
+                            </details>
+                            @if (data.Settings.Revision != draftRevision)
+                            {
+                                <p class="alert alert-error">The saved configuration changed. Cancel to reload it, or review the latest configuration before saving your draft.</p>
+                                <button class="button button-secondary" @onclick="ReviewLatestSettings">Keep Draft and Review Latest</button>
+                            }
+                            @if (reviewedSettings is { } latest)
+                            {
+                                <p class="backup-hint">Latest saved settings use destination @(latest.Destination ?? "unset"), a rolling limit of @latest.Retain, and @ScheduleText(latest.Schedule, latest.ServerZoneId).</p>
+                            }
+                            <div class="backup-actions">
+                                <button class="button button-primary" disabled="@(busy || data.Settings.Revision != draftRevision || data.Destinations.Count == 0)" @onclick="SaveSettingsAsync">Save Configuration</button>
+                                <button class="button button-secondary" disabled="@busy" @onclick="ResetDraft">Cancel</button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <dl class="backup-metrics">
+                            <div><dt>Server Destination</dt><dd>@(data.Settings.Destination ?? "Not selected")</dd></div>
+                            <div><dt>Rolling Retention</dt><dd>@data.Settings.Retain</dd></div>
+                            <div><dt>Missed Backup Catch-Up</dt><dd>@(data.Settings.CatchUp ? "Enabled" : "Disabled")</dd></div>
+                            <div><dt>Full Archive Read</dt><dd>@(data.Settings.FullVerification ? "Enabled" : "Disabled")</dd></div>
+                        </dl>
+                    }
+                </div>
+                <aside class="backup-preview" aria-labelledby="backup-preview-heading">
+                    <h3 id="backup-preview-heading">Next Five Executions</h3>
+                    @if (!(Can(Keys.Configure) ? enabled : data.Settings.Enabled))
+                    {
+                        <p class="backup-hint">Preview if automatic backups are enabled.</p>
+                    }
+                    @if (GetPreview() is { } preview)
+                    {
+                        <p>@ScheduleText(preview.Rule, ServerZone.Id)</p>
+                        <ol>
+                            @foreach (var time in preview.Times)
+                            {
+                                <li>@When(time)</li>
+                            }
+                        </ol>
+                    }
+                    else
+                    {
+                        <p class="backup-hint">Enter a valid schedule to preview execution times.</p>
+                    }
+                </aside>
+            </div>
+        </section>
+
+        <section class="backup-panel" aria-labelledby="backup-history-heading">
+            <div class="backup-section-heading">
+                <h2 id="backup-history-heading">Backup History</h2>
+                @if (Can(Keys.Reconcile))
+                {
+                    <button class="button button-secondary" disabled="@(busy || data.Destinations.Count == 0)" @onclick="ReconcileAsync">Reconcile Catalog</button>
+                }
+            </div>
+            <form class="backup-filters" @onsubmit="ApplyFiltersAsync" @onsubmit:preventDefault>
+                <label class="form-field">Search <input type="search" maxlength="160" placeholder="Label, notes, or ID" @bind="search" /></label>
+                <div class="form-field">
+                    <label for="backup-filter-outcome">Execution Status</label>
+                    <select id="backup-filter-outcome" @bind="outcome">
+                        <option value="">All</option>
+                        @foreach (var value in Enum.GetValues<BackupOutcome>()) { <option value="@value">@value</option> }
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label for="backup-filter-trigger">Execution Type</label>
+                    <select id="backup-filter-trigger" @bind="trigger">
+                        <option value="">All</option>
+                        @foreach (var value in Enum.GetValues<BackupTrigger>()) { <option value="@value">@value</option> }
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label for="backup-filter-pin">Pin Status</label>
+                    <select id="backup-filter-pin" @bind="pinFilter"><option value="">All</option><option value="true">Pinned</option><option value="false">Unpinned</option></select>
+                </div>
+                <div class="form-field">
+                    <label for="backup-filter-availability">Backup Availability</label>
+                    <select id="backup-filter-availability" @bind="availability">
+                        <option value="">All</option>
+                        @foreach (var value in Enum.GetValues<BackupAvailability>())
+                        {
+                            <option value="@value">@(value == BackupAvailability.None ? "No Backup Set" : value.ToString())</option>
+                        }
+                    </select>
+                </div>
+                <label class="form-field">From Date <input type="date" @bind="fromDate" /></label>
+                <label class="form-field">Through Date <input type="date" @bind="throughDate" /></label>
+                <div class="form-field">
+                    <label for="backup-filter-sort">Sort By</label>
+                    <select id="backup-filter-sort" @bind="sort">
+                        @foreach (var value in Enum.GetValues<BackupHistorySort>()) { <option value="@value">@value</option> }
+                    </select>
+                </div>
+                <div class="backup-actions">
+                    <button type="submit" class="button button-secondary" disabled="@busy">Apply Filters</button>
+                    <button type="button" class="button button-secondary" disabled="@busy" @onclick="ClearFiltersAsync">Clear Filters</button>
+                </div>
+            </form>
+            @if (history.Records.Count == 0)
+            {
+                <p class="backup-empty">No backup executions match the current filters.</p>
+            }
+            else
+            {
+                <div class="backup-table-scroll" tabindex="0" role="region" aria-label="Backup history results">
+                    <table class="data-table backup-table">
+                        <thead><tr><th>Created</th><th>Backup</th><th>Type</th><th>Status</th><th>Availability</th><th>Size</th><th>Duration</th><th>Verification</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in history.Records)
+                            {
+                                <tr @key="row.Id">
+                                    <td class="backup-nowrap">@When(row.StartedAtUtc ?? row.RequestedAtUtc)</td>
+                                    <td><strong>@(row.Label ?? "Untitled Backup")</strong><small>@row.Destination @(row.Pinned ? "· Pinned" : "")</small></td>
+                                    <td>@row.Trigger</td>
+                                    <td>@row.Outcome @if (row.Outcome == BackupOutcome.Running) { <small>@Stage(row.Stage)</small> }</td>
+                                    <td>@(row.Availability == BackupAvailability.None ? "—" : row.Availability.ToString())</td>
+                                    <td class="backup-nowrap">@Bytes(row.TotalBytes)</td>
+                                    <td class="backup-nowrap">@Duration(row.DurationMilliseconds)</td>
+                                    <td>@VerificationText(row.Verification)</td>
+                                    <td><button class="button button-secondary" disabled="@busy" @onclick="() => OpenDetailsAsync(row.Id)">Details</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="backup-section-heading backup-pagination">
+                    <span>@FirstVisible–@LastVisible of @history.Total</span>
+                    <div class="backup-actions">
+                        <button class="button button-secondary" disabled="@(busy || filter.Page == 0)" @onclick="() => SetPageAsync(filter.Page - 1)">Previous</button>
+                        <button class="button button-secondary" disabled="@(busy || LastVisible >= history.Total)" @onclick="() => SetPageAsync(filter.Page + 1)">Next</button>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+    else if (message is null)
+    {
+        <p role="status">Loading backup status…</p>
+    }
+</div>
+
+<dialog class="backup-dialog" @ref="dialog" @onclose="DialogClosed" aria-labelledby="backup-dialog-title">
+    @if (panel == Panel.Create)
+    {
+        <h2 id="backup-dialog-title">Create Backup</h2>
+        <div class="backup-fields">
+            <label class="form-field">Label <input type="text" maxlength="160" @bind="manualLabel" /></label>
+            <label class="form-field">Notes <textarea rows="3" maxlength="2000" @bind="manualNotes"></textarea></label>
+            @if (Can(Keys.Pin))
+            {
+                <label><input type="checkbox" @bind="manualPin" /> Pin This Backup</label>
+            }
+            <div class="backup-actions">
+                <button class="button button-primary" disabled="@busy" @onclick="CreateAsync">Queue Backup</button>
+                <button class="button button-secondary" disabled="@busy" @onclick="CloseDialogAsync">Cancel</button>
+            </div>
+        </div>
+    }
+    else if (details is { } selected)
+    {
+        var row = selected.Execution;
+        <h2 id="backup-dialog-title">@(panel == Panel.Delete ? "Delete Backup" : panel == Panel.Unpin ? "Unpin Backup" : "Backup Details")</h2>
+        @if (panel is Panel.Delete or Panel.Unpin)
+        {
+            @if (selected.LatestAvailable)
+            {
+                <p class="backup-warning">This is the latest known-good backup. @(overview?.Status is { } s && s.Rolling + s.Pinned <= 1 ? "It is your only currently available recovery point." : "")</p>
+            }
+            <p>@(panel == Panel.Delete ? "Permanently delete the files for this backup? Its execution history will remain." : "Unpin this backup so it can expire during a future successful backup?")</p>
+            <div class="backup-actions">
+                <button class="button button-danger-outline" disabled="@busy" @onclick="ConfirmActionAsync">@(panel == Panel.Delete ? "Delete Backup" : "Unpin Backup")</button>
+                <button class="button button-secondary" disabled="@busy" @onclick="BackToDetails">Cancel</button>
+            </div>
+        }
+        else
+        {
+            <dl class="backup-metrics backup-detail-metrics">
+                <div><dt>Execution ID</dt><dd>@row.Id</dd></div>
+                <div><dt>Server Destination</dt><dd>@row.Destination</dd></div>
+                <div><dt>Requested</dt><dd>@When(row.RequestedAtUtc)</dd></div>
+                <div><dt>Requested By</dt><dd>@(selected.RequesterName ?? row.RequestedBy ?? "System scheduler")</dd></div>
+                <div><dt>Scheduled For</dt><dd>@When(row.ScheduledForUtc)</dd></div>
+                <div><dt>Started</dt><dd>@When(row.StartedAtUtc)</dd></div>
+                <div><dt>Finished</dt><dd>@When(row.FinishedAtUtc)</dd></div>
+                <div><dt>Execution / Availability</dt><dd>@row.Outcome / @row.Availability</dd></div>
+                <div><dt>Backup Size</dt><dd>@Bytes(row.TotalBytes)</dd></div>
+                <div><dt>Duration</dt><dd>@Duration(row.DurationMilliseconds)</dd></div>
+                <div><dt>Integrity</dt><dd>@VerificationText(row.Verification)</dd><small>@When(row.VerifiedAtUtc)</small></div>
+                <div><dt>Protection</dt><dd>@(row.Pinned ? "Pinned" : "Unpinned")</dd></div>
+                @if (row.RemovedAtUtc is { } removed) { <div><dt>Files Retired</dt><dd>@When(removed)</dd></div> }
+            </dl>
+            @if (row.Outcome is BackupOutcome.Running or BackupOutcome.Pending || row.Stage == BackupStage.ApplyingRetention)
+            {
+                <p role="status">@Stage(row.Stage)</p>
+            }
+            @if (row.VerifyRequestedBy is not null)
+            {
+                <p role="status">@(row.VerifyStartedAtUtc is null ? "Integrity verification queued." : "Integrity verification in progress.")</p>
+            }
+            @foreach (var diagnostic in new[] { row.Diagnostic, row.RetentionDiagnostic, row.VerificationDiagnostic }.OfType<string>())
+            {
+                <p class="backup-warning">@diagnostic</p>
+            }
+            @if (row.Verification is BackupVerification.ArchiveListed or BackupVerification.Verified)
+            {
+                <p class="backup-hint">Archive checks verify readability and integrity. Restore testing is performed offline.</p>
+            }
+            @if (editing)
+            {
+                <div class="backup-fields">
+                    @if (showSavedDetails)
+                    {
+                        <div class="backup-label-notes"><strong>Saved Label</strong><p>@(row.Label ?? "Untitled Backup")</p>
+                            <strong>Saved Notes</strong><p>@(row.Notes ?? "—")</p></div>
+                    }
+                    <label class="form-field">Label <input type="text" maxlength="160" @bind="editLabel" /></label>
+                    <label class="form-field">Notes <textarea rows="3" maxlength="2000" @bind="editNotes"></textarea></label>
+                    <div class="backup-actions">
+                        <button class="button button-primary" disabled="@busy" @onclick="SaveMetadataAsync">Save Details</button>
+                        <button class="button button-secondary" disabled="@busy" @onclick="() => editing = false">Cancel Edit</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="backup-label-notes"><strong>@(row.Label ?? "Untitled Backup")</strong>@if (row.Notes is { } notes) { <p>@notes</p> }</div>
+            }
+            @if (selected.Events.Count > 0)
+            {
+                <details class="backup-events">
+                    <summary>Execution and Audit Events</summary>
+                    <ul>
+                        @foreach (var auditEvent in selected.Events)
+                        {
+                            <li><time datetime="@auditEvent.OccurredAtUtc.ToString("O")">@When(auditEvent.OccurredAtUtc)</time> · @EventText(auditEvent.Action)</li>
+                        }
+                    </ul>
+                </details>
+            }
+            <div class="backup-actions">
+                @if (Manageable(row) && !editing)
+                {
+                    @if (Can(Keys.Pin))
+                    {
+                        <button class="button button-secondary" disabled="@busy" @onclick="TogglePinAsync">@(row.Pinned ? "Unpin" : "Pin")</button>
+                    }
+                    @if (Can(Keys.EditMetadata))
+                    {
+                        <button class="button button-secondary" disabled="@busy" @onclick="BeginEdit">Edit Details</button>
+                    }
+                    @if (!row.Pinned && Can(Keys.Delete))
+                    {
+                        <button class="button button-danger-outline" disabled="@busy" @onclick="OpenDelete">Delete</button>
+                    }
+                }
+                @if (row.Outcome == BackupOutcome.Completed && !row.IsRetired && Can(Keys.Verify))
+                {
+                    <button class="button button-secondary" disabled="@(busy || row.VerifyRequestedBy is not null)" @onclick="VerifyAsync">Verify Integrity</button>
+                }
+                @if (row.Availability == BackupAvailability.Available && Can(Keys.Download))
+                {
+                    <a class="button button-secondary" href="@($"/admin/backups/{row.Id:D}/download")" download data-enhance-nav="false">Download</a>
+                }
+                <button class="button button-secondary" disabled="@busy" @onclick="RefreshDetailsAsync">Refresh Details</button>
+                <button class="button button-secondary" disabled="@busy" @onclick="CloseDialogAsync">Close</button>
+            </div>
+        }
+    }
+    @if (dialogMessage is not null)
+    {
+        <p class="alert @(dialogError ? "alert-error" : "alert-success")" role="status">@dialogMessage</p>
+    }
+</dialog>

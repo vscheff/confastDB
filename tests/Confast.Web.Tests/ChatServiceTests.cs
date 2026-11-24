@@ -2111,6 +2111,8 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
         var tagged = (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == taggedMessageId);
         Assert.Equal("Please check this, @Member", tagged.Body);
         Assert.Contains(tagged.Parts, part => part.IsTag && part.UserId == member && part.Text == "@Member");
+        Assert.True(tagged.MentionsCurrentUser);
+        Assert.False((await sender.GetThreadAsync(channelId)).Messages.Single(x => x.Id == taggedMessageId).MentionsCurrentUser);
 
         await recipient.MarkReadAsync(channelId, taggedMessageId);
         Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
@@ -2128,10 +2130,13 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
 
         var editableId = await sender.SendAsync(channelId, "Initial text");
         await sender.EditOwnMessageAsync(editableId, "Now tagged: @mEmBeR");
-        Assert.Equal("Now tagged: @Member", (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == editableId).Body);
+        var edited = (await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == editableId);
+        Assert.Equal("Now tagged: @Member", edited.Body);
+        Assert.True(edited.MentionsCurrentUser);
         Assert.True((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
         await sender.EditOwnMessageAsync(editableId, "No tag now");
         Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        Assert.False((await recipient.GetThreadAsync(channelId)).Messages.Single(x => x.Id == editableId).MentionsCurrentUser);
     }
 
     [Fact]
@@ -2166,8 +2171,12 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
             user!.PresencePreference = UserPresencePreference.Invisible;
             await db.SaveChangesAsync();
         }
-        await sender.SendAsync(channelId, "@here invisible");
+        var invisibleId = await sender.SendAsync(channelId, "@here invisible");
         Assert.False((await recipient.GetConversationsAsync()).Single().HasUnreadMention);
+        var messages = (await recipient.GetThreadAsync(channelId)).Messages;
+        Assert.Equal(new[] { onlineId }, messages.Where(x => x.MentionsCurrentUser).Select(x => x.Id));
+        Assert.Contains(messages, x => x.Id == offlineId);
+        Assert.Contains(messages, x => x.Id == invisibleId);
     }
 
     [Fact]
@@ -2207,8 +2216,9 @@ public sealed class ChatServiceTests(PostgresTestDatabase database) : IAsyncLife
             await db.SaveChangesAsync();
         }
 
-        var message = (await sender.GetThreadAsync(channelId)).Messages.Single(x => x.Id == messageId);
+        var message = (await Service(member).GetThreadAsync(channelId)).Messages.Single(x => x.Id == messageId);
         Assert.Contains(message.Parts, part => part.IsTag && part.UserId == member);
+        Assert.True(message.MentionsCurrentUser);
     }
 
     [Fact]

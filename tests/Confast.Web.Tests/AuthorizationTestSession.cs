@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Confast.Web.Data;
 using Confast.Web.Features.Authorization;
 using Confast.Web.Features.Identity;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -11,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace Confast.Web.Tests;
 
 // Explicit disposable-database setup. Reset remains PendingRoot; individual tests opt in.
-internal sealed class AuthorizationTestSession(PostgresTestDatabase database) : AuthenticationStateProvider, IDisposable
+internal sealed class AuthorizationTestSession(IDbContextFactory<AppDbContext> database) : AuthenticationStateProvider, IDisposable
 {
     private readonly PermissionCache cache = new();
     internal ClaimsPrincipal Principal { get; set; } = new(new ClaimsIdentity());

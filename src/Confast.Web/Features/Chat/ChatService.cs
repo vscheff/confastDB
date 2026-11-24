@@ -26,7 +26,10 @@ public sealed record ChatMessageRow(long Id, ChatMessageType Type, string? Sende
     DateTime SentAtUtc, DateTime? EditedAtUtc, DateTime? PinnedAtUtc,
     IReadOnlyList<ChatReactionRow> Reactions, IReadOnlyList<ChatMessagePart> Parts,
     long? ReplyToMessageId, string? ReplyToSenderUserId, string? ReplyToSenderName, string? ReplyToBody,
-    IReadOnlyList<ChatAttachmentRow> Attachments, long? ChannelThreadId = null, ChatPollRow? Poll = null, string? GiphyId = null);
+    IReadOnlyList<ChatAttachmentRow> Attachments, long? ChannelThreadId = null, ChatPollRow? Poll = null, string? GiphyId = null)
+{
+    public bool MentionsCurrentUser { get; init; }
+}
 public sealed record ChatAttachmentRow(long Id, string FileName, ChatAttachmentKind Kind, int Size, string? Text);
 public sealed record ChatAttachmentUpload(string FileName, byte[] Content);
 public sealed record ChatAttachmentFile(string FileName, string ContentType, ChatAttachmentKind Kind, byte[] Content);
@@ -993,7 +996,10 @@ public sealed partial class ChatService(
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.SenderUser == null
                     ? "System" : x.ReplyToMessage.SenderUser.DisplayName,
                 x.ReplyToMessage == null ? null : x.ReplyToMessage.DeletedAtUtc == null
-                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null, x.GiphyId))
+                    ? x.ReplyToMessage.Body : null, Array.Empty<ChatAttachmentRow>(), x.ChannelThreadId, null, x.GiphyId)
+            {
+                MentionsCurrentUser = x.Mentions.Any(mention => mention.UserId == userId)
+            })
             .ToListAsync(cancellationToken);
         var messageIds = messages.Select(x => x.Id).ToArray();
         var polls = await ReadPollsAsync(db, messageIds, userId, cancellationToken);

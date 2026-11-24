@@ -85,16 +85,7 @@ internal sealed class SmtpEmailService(
 {
     public async Task SendAsync(EmailMessage message, CancellationToken cancellationToken = default)
     {
-        EmailOptions options;
-        try
-        {
-            options = configuredOptions.Value;
-        }
-        catch (OptionsValidationException exception)
-        {
-            logger.LogError(exception, "Certification email configuration is invalid.");
-            throw new EmailDeliveryException("Email delivery is not configured correctly. Contact an administrator.", exception);
-        }
+        var options = Options();
         MimeMessage mimeMessage;
         try
         {
@@ -109,6 +100,37 @@ internal sealed class SmtpEmailService(
             throw new EmailDeliveryException("The email message could not be prepared.", exception);
         }
 
+        var envelopeSender = options.UseLoggedInUserAsEnvelopeSender
+            && options.SenderMode == EmailSenderMode.LoggedInUser
+            ? message.Sender.EmailAddress
+            : options.DefaultFrom;
+        await DeliverAsync(mimeMessage, options, envelopeSender, cancellationToken);
+    }
+
+    internal async Task SendApplicationNoticeAsync(string subject, string body, IReadOnlyCollection<string> recipients,
+        CancellationToken cancellationToken)
+    {
+        var options = Options();
+        var from = ToMailbox(options.DefaultFrom, options.DefaultDisplayName, "The application sender address is invalid.");
+        using var message = new MimeMessage { Subject = subject, Body = new TextPart("plain") { Text = body } };
+        message.From.Add(from);
+        AddRecipients(message.To, recipients, "To");
+        await DeliverAsync(message, options, options.DefaultFrom, cancellationToken);
+    }
+
+    private EmailOptions Options()
+    {
+        try { return configuredOptions.Value; }
+        catch (OptionsValidationException exception)
+        {
+            logger.LogError("Application email configuration is invalid.");
+            throw new EmailDeliveryException("Email delivery is not configured correctly. Contact an administrator.", exception);
+        }
+    }
+
+    private async Task DeliverAsync(MimeMessage mimeMessage, EmailOptions options, string? envelopeSender,
+        CancellationToken cancellationToken)
+    {
         try
         {
             using var client = new SmtpClient();
@@ -116,10 +138,6 @@ internal sealed class SmtpEmailService(
                 options.UseSsl ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls,
                 cancellationToken);
             await client.AuthenticateAsync(options.UserName!, options.Password!, cancellationToken);
-            var envelopeSender = options.UseLoggedInUserAsEnvelopeSender
-                && options.SenderMode == EmailSenderMode.LoggedInUser
-                ? message.Sender.EmailAddress
-                : options.DefaultFrom;
             var envelopeRecipients = mimeMessage.To.Mailboxes.Concat(mimeMessage.Cc.Mailboxes).ToArray();
             await client.SendAsync(
                 mimeMessage,
@@ -132,7 +150,8 @@ internal sealed class SmtpEmailService(
         catch (Exception exception) when (exception is SmtpCommandException
             or SmtpProtocolException or AuthenticationException or IOException)
         {
-            logger.LogError(exception, "SMTP delivery failed for certification email to {RecipientCount} recipients.", message.To.Count);
+            logger.LogError("SMTP delivery failed for email to {RecipientCount} recipients ({FailureType}).",
+                mimeMessage.To.Count, exception.GetType().Name);
             throw new EmailDeliveryException("The email could not be sent. Verify the recipient and try again; contact an administrator if the problem continues.", exception);
         }
     }

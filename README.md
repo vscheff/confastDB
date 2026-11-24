@@ -224,3 +224,7 @@ HTTPS, persistent Data Protection keys, backups, and the server-side PDF tools f
 actual host. Start with one application instance since live chat and permission refresh
 notifications are process-local. Follow the [deployment runbook](docs/deployment-readiness.md)
 for installation, grants, proxy configuration, and recovery.
+
+The Backup Manager runbook covers [local Windows setup](docs/backup-manager.md#local-windows-setup),
+[additional destinations](docs/backup-manager.md#add-another-destination), and
+[offline recovery](docs/backup-manager.md#offline-restore).

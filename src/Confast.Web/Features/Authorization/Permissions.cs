@@ -307,6 +307,19 @@ public static class Permissions
         public const string AdministerChannels = "Chat.AdministerChannels";
     }
 
+    public static class DatabaseBackups
+    {
+        public const string View = "DatabaseBackups.View";
+        public const string Create = "DatabaseBackups.Create";
+        public const string Configure = "DatabaseBackups.Configure";
+        public const string Pin = "DatabaseBackups.Pin";
+        public const string EditMetadata = "DatabaseBackups.EditMetadata";
+        public const string Verify = "DatabaseBackups.Verify";
+        public const string Download = "DatabaseBackups.Download";
+        public const string Delete = "DatabaseBackups.Delete";
+        public const string Reconcile = "DatabaseBackups.Reconcile";
+    }
+
     public static class Roles
     {
         public const string Read = "Roles.Read";

@@ -5,6 +5,7 @@ using Confast.Web.Components.Layout;
 using Confast.Web.Data;
 using Confast.Web.Features.Customers;
 using Confast.Web.Features.Chat;
+using Confast.Web.Features.Backups;
 using Confast.Web.Features.ContainerTracking;
 using Confast.Web.Features.Suppliers;
 using Confast.Web.Features.Gages;
@@ -143,7 +144,8 @@ builder.Services.AddScoped<ICertificationPackageService, CertificationPackageSer
 builder.Services.AddOptions<EmailOptions>()
     .Bind(builder.Configuration.GetSection("Email"));
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<EmailOptions>, EmailOptionsValidator>();
-builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<SmtpEmailService>();
+builder.Services.AddScoped<IEmailService>(services => services.GetRequiredService<SmtpEmailService>());
 builder.Services.AddScoped<ICertificationEmailService, CertificationEmailService>();
 builder.Services.AddScoped<NominalToleranceSettingsService>();
 builder.Services.AddScoped<InspectionService>();
@@ -158,6 +160,16 @@ builder.Services.AddOptions<ChatGifCacheOptions>().BindConfiguration("Giphy")
     .ValidateOnStart();
 builder.Services.AddSingleton<ChatGifCategoryBackgrounds>();
 builder.Services.AddHostedService<ChatMessageDeliveryWorker>();
+builder.Services.AddOptions<BackupHostOptions>().BindConfiguration("Backups");
+builder.Services.AddSingleton<BackupStorage>();
+builder.Services.AddSingleton<BackupCoordinator>();
+builder.Services.AddSingleton<BackupCatalog>();
+builder.Services.AddSingleton<BackupPostgres>();
+builder.Services.AddSingleton<BackupHealth>();
+builder.Services.AddScoped<BackupManager>();
+builder.Services.AddScoped<BackupProcessor>();
+builder.Services.AddScoped<BackupNotifications>();
+builder.Services.AddHostedService<BackupWorker>();
 builder.Services.AddScoped<UserProfilePictureService>();
 builder.Services.AddScoped<UserPresenceService>();
 builder.Services.AddScoped<Confast.Web.Features.ProductionScheduling.ProductionService>();
@@ -236,6 +248,7 @@ if (app.Environment.IsDevelopment())
 }
 app.MapStaticAssets().AllowAnonymous();
 app.MapIdentityEndpoints();
+BackupManager.MapEndpoints(app);
 app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
     string userId, HttpContext context, UserProfilePictureService pictures, CancellationToken cancellationToken) =>
 {

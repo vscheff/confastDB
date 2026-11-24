@@ -9,7 +9,7 @@ version, service identity, and proxy settings on the intended host.
 | Area | Requirement / decision before installation |
 |---|---|
 | Application | .NET 10 ASP.NET Core runtime. Use the SDK selected by [global.json](../global.json) for builds. |
-| PostgreSQL | PostgreSQL 18 was used for the local rehearsal. Include PostgreSQL client tools for migrations, backups, and recovery checks. |
+| PostgreSQL | PostgreSQL 18 was used for the local rehearsal. Install compatible client tools and provision a dedicated backup reader alongside the schema owner and restricted runtime login. |
 | Database identities | Use a schema owner for migrations and recovery, and a restricted nonowner login with no role memberships for the application. |
 | Hosting | Set service identity, restart policy, writable paths, resource limits, monitoring, and patch ownership on the chosen host. |
 | Transport | HTTPS at the listener or a controlled proxy. Restrict backend access to the proxy and authorized renderer. |
@@ -171,15 +171,21 @@ See [Microsoft's proxy guidance](https://learn.microsoft.com/en-us/aspnet/core/h
 
 ## Backup, restore and offline recovery
 
+Use the [Backup Manager runbook](backup-manager.md) to provision private storage,
+configure the dedicated backup login and schedule, validate backup sets, and restore
+the database and allowlisted application file. Keep the Data Protection ring and
+deployment secrets in the separate infrastructure backup.
+
 Run these steps as the schema owner. Record the exact source and target, take a
 verified backup, and stop application writes and workers before changing the
 designation or generation. The SQL scripts require an explicit target, expected
 epoch, reason, and `approved=yes`. Read the epoch and designation from the target's
 `public.authorization_state` row immediately before each operator command.
 
-1. Back up with `pg_dump -Fc` using the operator connection. Protect dumps like
-   the source database because they contain password hashes and private data.
-   Back up the key ring and file configuration separately.
+1. Create and verify a backup in Backup Manager. For offline maintenance, an
+   operator can use `pg_dump -Fc` and separately preserve the allowlisted artwork
+   map. Protect dumps like the source database because they contain password
+   hashes and private data.
 2. Prepare the cluster roles and a separate empty database, then restore with
    `pg_restore --exit-on-error --dbname=APPROVED_TARGET BACKUP_FILE`. Validate
    owners, extensions, function permissions and search paths, triggers, and
@@ -200,6 +206,8 @@ epoch, reason, and `approved=yes`. Read the epoch and designation from the targe
    invalidate human cookies. Reconcile security changes since the backup and make
    an explicit session-invalidation decision (affected stamps or key custody) before
    reopening traffic, particularly after a security incident.
+   Reconcile the backup inventory before saving the intended settings to re-arm
+   retention. Backup Manager reads pinning from external manifests.
 5. If Root credentials are lost, select an active replacement account whose
    credentials and sign-in have been verified. Run the recovery script as the
    schema owner using that account's Identity ID.

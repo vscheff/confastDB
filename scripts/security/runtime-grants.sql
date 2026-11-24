@@ -35,13 +35,13 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', tablename, :'runtime_role')
 FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN
     ('permissions', 'authorization_state', 'authorization_change_history', 'authorization_change_details',
-     'chat_moderation_history', '__EFMigrationsHistory') \gexec
+     'chat_moderation_history', 'backup_audit', '__EFMigrationsHistory') \gexec
 SELECT format('REVOKE ALL ON TABLE public.%I FROM %I', tablename, :'runtime_role')
 FROM pg_tables WHERE schemaname = 'public' AND tablename IN
     ('permissions', 'authorization_state', 'authorization_change_history', 'authorization_change_details',
-     'chat_moderation_history', '__EFMigrationsHistory') \gexec
+     'chat_moderation_history', 'backup_audit', '__EFMigrationsHistory') \gexec
 SELECT format('GRANT SELECT ON public.permissions, public.authorization_state TO %I', :'runtime_role') \gexec
-SELECT format('GRANT SELECT, INSERT ON public.authorization_change_history, public.authorization_change_details, public.chat_moderation_history TO %I', :'runtime_role') \gexec
+SELECT format('GRANT SELECT, INSERT ON public.authorization_change_history, public.authorization_change_details, public.chat_moderation_history, public.backup_audit TO %I', :'runtime_role') \gexec
 SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', :'runtime_role') \gexec
 -- Trigger execution does not require runtime EXECUTE. No operator function is exposed.
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
