@@ -1,0 +1,54 @@
+.factory-reset {
+    max-width: 60rem;
+    display: grid;
+    gap: 1rem;
+}
+
+.factory-reset-scope {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+    gap: 1rem;
+}
+
+.factory-reset-scope section,
+.factory-reset form,
+.factory-reset dialog {
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.factory-reset h2 {
+    font-size: 1.15rem;
+}
+
+.factory-reset li + li {
+    margin-top: 0.45rem;
+}
+
+.factory-reset form {
+    display: grid;
+    justify-items: start;
+    gap: 1rem;
+}
+
+.factory-reset .form-field {
+    width: min(100%, 27rem);
+}
+
+.factory-reset dialog {
+    width: min(calc(100% - 2rem), 30rem);
+}
+
+.factory-reset dialog::backdrop {
+    background: rgb(0 0 0 / 50%);
+}
+
+.factory-reset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.65rem;
+}

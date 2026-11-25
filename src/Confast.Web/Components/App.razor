@@ -1,6 +1,8 @@
 @using Confast.Web.Features.Navigation
 @using Confast.Web.Features.Inspections
+@using Confast.Web.Features.Maintenance
 @inject AppearancePreferenceService AppearancePreferences
+@inject MaintenanceGate Maintenance
 @inject ILogger<App> Logger
 
 <!DOCTYPE html>
@@ -10,6 +12,10 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    @if (HttpContext.User.Identity?.IsAuthenticated == true && Maintenance.CurrentGeneration is { } generation)
+    {
+        <meta name="confast-installation" content="@generation.ToString("D")" />
+    }
     <base href="/" />
     <script src="@Assets["theme.js"]"></script>
     <ResourcePreloader />
@@ -39,6 +45,7 @@
     <script src="@Assets["lib/quill/quill.js"]"></script>
     <script src="@Assets["rich-text-editor.js"]"></script>
     <script src="@Assets["email-surface.js"]"></script>
+    <script src="@Assets["factory-reset.js"]" defer></script>
 </body>
 
 </html>

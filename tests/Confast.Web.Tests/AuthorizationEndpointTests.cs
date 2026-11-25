@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Confast.Web.Components.Pages.Administration;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.Maintenance;
 using Confast.Web.Data;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -122,7 +123,8 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
             AllowAutoRedirect = false,
             BaseAddress = new Uri("https://localhost")
         });
-        using var operation = PrintTestCapability.Operation("InspectionSheets.Export", 1, Permissions.InspectionSheets.Export);
+        var generation = (await factory.Services.GetRequiredService<MaintenanceGate>().ReadAsync(default)).Generation;
+        using var operation = PrintTestCapability.Operation("InspectionSheets.Export", 1, generation, Permissions.InspectionSheets.Export);
         var token = factory.Services
             .GetRequiredService<InspectionPrintRenderTokenService>()
             .CreateForExport(operation, 1);
@@ -279,7 +281,8 @@ public sealed class AuthorizationEndpointTests(PostgresTestDatabase database)
         await using var factory = CreateFactory();
         using var client = factory.CreateClient(new() { AllowAutoRedirect = false, BaseAddress = new("https://localhost") });
         var service = factory.Services.GetRequiredService<InspectionPrintRenderTokenService>();
-        using var operation = PrintTestCapability.Operation("InspectionSheets.Export", 1, Permissions.InspectionSheets.Export);
+        var generation = (await factory.Services.GetRequiredService<MaintenanceGate>().ReadAsync(default)).Generation;
+        using var operation = PrintTestCapability.Operation("InspectionSheets.Export", 1, generation, Permissions.InspectionSheets.Export);
         var token = Uri.EscapeDataString(service.CreateForExport(operation, 1));
         foreach (var path in new[] { "/customers", "/admin/users", "/chat/attachments/1", "/inspections/1/print/download", "/inspections/2/print" })
         {

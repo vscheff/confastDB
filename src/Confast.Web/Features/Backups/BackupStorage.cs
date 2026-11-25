@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Confast.Web.Features.Chat;
+using Confast.Web.Features.Maintenance;
 using Microsoft.Extensions.Options;
 
 namespace Confast.Web.Features.Backups;
@@ -77,7 +78,7 @@ internal sealed class BackupStorage
     public BackupStorage(IOptions<BackupHostOptions> options, IWebHostEnvironment environment, IConfiguration configuration)
     {
         DeploymentId = options.Value.DeploymentId;
-        artwork = ChatGifCategoryBackgrounds.StoragePath(environment.ContentRootPath);
+        artwork = Path.Combine(ChatGifCategoryBackgrounds.StorageDirectory(environment.ContentRootPath, configuration), ArtworkName);
         if (DeploymentId == Guid.Empty) return;
         try
         {
@@ -85,6 +86,7 @@ internal sealed class BackupStorage
             {
                 var full = CanonicalPath(path);
                 if (Overlap(full, Path.GetFullPath(environment.ContentRootPath)) ||
+                    Overlap(full, Path.GetDirectoryName(artwork)!) ||
                     environment.WebRootPath is { } web && Overlap(full, Path.GetFullPath(web)) ||
                     configuration["DataProtection:KeyRingPath"] is { Length: > 0 } keys && Overlap(full, Path.GetFullPath(keys)))
                     throw InvalidConfiguration();
@@ -115,6 +117,11 @@ internal sealed class BackupStorage
     internal string? ConfigurationIssue { get; }
     internal bool Configured => DeploymentId != Guid.Empty && ConfigurationIssue is null;
     internal IReadOnlyList<string> Destinations => locations.Keys.Order(StringComparer.Ordinal).ToArray();
+
+    internal string ControlDirectory
+    {
+        get { CheckControl(); return control!; }
+    }
 
     internal BackupLocation Approved(string? name)
     {
@@ -290,13 +297,18 @@ internal sealed class BackupStorage
         return true;
     }
 
-    internal BackupSet Publish(BackupLocation location, string name)
+    internal BackupSet Publish(BackupLocation location, string name, bool durable = false)
     {
         RequireLocation(location.Name, location.Id);
         var staging = ReadSet(location, name, StagePrefix);
         CheckSetFiles(staging);
         var final = Path.Combine(location.Path, name);
-        Directory.Move(staging.Path, final);
+        if (durable)
+        {
+            DurableFileMoves.FlushDirectory(staging.Path);
+            DurableFileMoves.Move(staging.Path, final, directory: true);
+        }
+        else Directory.Move(staging.Path, final);
         return staging with { Path = final };
     }
 
@@ -393,7 +405,7 @@ internal sealed class BackupStorage
 
     // The application service identity and the storage operator are the only writer
     // principals. Reject links at every component, including the provisioned roots.
-    private static bool CheckPath(string path, bool directory, bool allowMissing = false)
+    internal static bool CheckPath(string path, bool directory, bool allowMissing = false)
     {
         var root = Path.GetPathRoot(path)!;
         var components = path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
@@ -420,7 +432,7 @@ internal sealed class BackupStorage
         else Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
-    private static string CanonicalPath(string? path)
+    internal static string CanonicalPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) ||
             path.Split(['/', '\\']).Any(part => part is "." or ".."))
@@ -434,7 +446,7 @@ internal sealed class BackupStorage
         return full;
     }
 
-    private static bool Overlap(string left, string right) => Within(left, right) || Within(right, left);
+    internal static bool Overlap(string left, string right) => Within(left, right) || Within(right, left);
 
     private static bool Within(string path, string parent) =>
         path.Equals(parent, PathComparison) || path.StartsWith(Path.EndsInDirectorySeparator(parent) ? parent :

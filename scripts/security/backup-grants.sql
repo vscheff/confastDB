@@ -19,6 +19,11 @@ SELECT rolcanlogin AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolrepli
     SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'backup_role') \gexec
     SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', :'backup_role') \gexec
     SELECT format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', :'backup_role') \gexec
+    SELECT to_regclass('confast_maintenance.factory_resets') IS NOT NULL AS has_maintenance \gset
+    \if :has_maintenance
+        SELECT format('GRANT USAGE ON SCHEMA confast_maintenance TO %I', :'backup_role') \gexec
+        SELECT format('GRANT SELECT ON confast_maintenance.factory_resets TO %I', :'backup_role') \gexec
+    \endif
     SELECT format('GRANT SELECT ON LARGE OBJECT %s TO %I', oid, :'backup_role')
         FROM pg_largeobject_metadata \gexec
 \else

@@ -277,6 +277,8 @@ public sealed partial class DeploymentSecurityTests
                 GRANT USAGE ON SCHEMA public TO {backupRole};
                 GRANT SELECT ON ALL TABLES IN SCHEMA public TO {backupRole};
                 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {backupRole};
+                GRANT USAGE ON SCHEMA confast_maintenance TO {backupRole};
+                GRANT SELECT ON confast_maintenance.factory_resets TO {backupRole};
                 GRANT SELECT ON LARGE OBJECT {oid} TO {backupRole};
                 """);
     }

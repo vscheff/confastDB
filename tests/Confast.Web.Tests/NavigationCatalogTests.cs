@@ -18,7 +18,7 @@ public sealed class NavigationCatalogTests
             "/", "/production-tracking", "/production-scheduling", "/morning-production-review",
             "/received-parts", "/container-tracking", "/inspections", "/gages", "/gage-types",
             "/parts", "/customers", "/suppliers", "/admin/users", "/admin/roles",
-            "/admin/backups",
+            "/admin/backups", "/admin/factory-reset",
             "/production-scheduling/settings", "/production-tracking/settings",
             "/admin/certification-email-templates", "/admin/nominal-tolerance"
         };
@@ -37,7 +37,7 @@ public sealed class NavigationCatalogTests
             Assert.All(item.AnyPermissionKeys, key => Assert.Contains(key, PermissionCatalog.ByKey.Keys));
         }
         Assert.False(NavigationCatalog.Home.ShowOnHome);
-        Assert.All(NavigationCatalog.Destinations, item => Assert.True(item.ShowOnHome));
+        Assert.All(NavigationCatalog.Destinations, item => Assert.Equal(item.Id != "factory-reset", item.ShowOnHome));
     }
 
     [Fact]

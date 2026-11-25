@@ -13,6 +13,7 @@ using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.Authorization;
+using Confast.Web.Features.Maintenance;
 using Confast.Web.Features.Navigation;
 using Confast.Web.Features.Parts;
 using Confast.Web.Time;
@@ -34,8 +35,15 @@ var connectionString = builder.Configuration.GetConnectionString("Confast")
     ?? throw new InvalidOperationException(
         "Connection string 'Confast' is not configured. Use appsettings or .NET user secrets.");
 
-builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+builder.Services.AddConfastMaintenance();
+builder.Services.AddDbContextFactory<AppDbContext>((services, options) =>
+{
+    options.UseNpgsql(connectionString);
+    // The explicit schema-owner CLI establishes the maintenance schema on upgrade.
+    // Runtime DbContexts always enforce its activity gate.
+    if (!EF.IsDesignTime)
+        options.AddInterceptors(services.GetRequiredService<MaintenanceConnections>());
+});
 builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     {
         options.User.RequireUniqueEmail = true;
@@ -83,7 +91,6 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.Events.OnValidatePrincipal = async context =>
     {
-        await SecurityStampValidator.ValidatePrincipalAsync(context);
         if (context.Principal?.Identity?.IsAuthenticated != true)
         {
             return;
@@ -92,11 +99,15 @@ builder.Services.ConfigureApplicationCookie(options =>
         var userManager = context.HttpContext.RequestServices
             .GetRequiredService<UserManager<ApplicationUser>>();
         var user = await userManager.GetUserAsync(context.Principal);
-        if (user is null || !user.IsActive)
+        var claims = context.HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<IdentityOptions>>();
+        if (user is null || !user.IsActive ||
+            context.Principal.FindFirstValue(claims.Value.ClaimsIdentity.SecurityStampClaimType) != user.SecurityStamp)
         {
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
+            return;
         }
+        await SecurityStampValidator.ValidatePrincipalAsync(context);
     };
 });
 builder.Services.AddAuthorization(options =>
@@ -201,6 +212,7 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
+app.UseConfastMaintenance();
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
@@ -246,9 +258,10 @@ if (app.Environment.IsDevelopment())
     }).RequireAuthorization(AuthorizationRegistration.PolicyName(Permissions.Certifications.SendEmail))
       .WithMetadata(new BusinessHttpBoundary("Development.EmailDiagnostic", Permissions.Certifications.SendEmail, _ => new("Development")));
 }
-app.MapStaticAssets().AllowAnonymous();
+app.MapStaticAssets().ShortCircuit().AllowAnonymous();
 app.MapIdentityEndpoints();
 BackupManager.MapEndpoints(app);
+FactoryResetWeb.MapEndpoints(app);
 app.MapGet("/profile-pictures/{userId}", async Task<IResult> (
     string userId, HttpContext context, UserProfilePictureService pictures, CancellationToken cancellationToken) =>
 {
@@ -493,11 +506,16 @@ componentEndpoints.Add(endpoint =>
             context => new("Inspection", context.Request.RouteValues["InspectionId"]!.ToString())));
 });
 
-await IdentityBootstrapper.CreateInitialAdministratorAsync(app.Services);
-if (app.Environment.IsDevelopment())
+try
 {
-    await IdentityBootstrapper.EnsureBrowserTestUserAsync(app.Services);
+    await app.Services.GetRequiredService<MaintenanceGate>().RunAsync(async () =>
+    {
+        await IdentityBootstrapper.CreateInitialAdministratorAsync(app.Services);
+        if (app.Environment.IsDevelopment())
+            await IdentityBootstrapper.EnsureBrowserTestUserAsync(app.Services);
+    }, CancellationToken.None);
 }
+catch (MaintenanceUnavailableException) { /* The reset worker owns startup recovery while maintenance is active. */ }
 
 app.Run();
 

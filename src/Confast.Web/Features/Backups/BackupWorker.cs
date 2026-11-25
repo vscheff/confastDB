@@ -1,10 +1,12 @@
 using Confast.Web.Data;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.Maintenance;
 using Microsoft.EntityFrameworkCore;
 
 namespace Confast.Web.Features.Backups;
 
-internal sealed class BackupWorker(IServiceScopeFactory scopes, BackupStorage storage, ILogger<BackupWorker> logger) : BackgroundService
+internal sealed class BackupWorker(IServiceScopeFactory scopes, BackupStorage storage, MaintenanceGate maintenance,
+    ILogger<BackupWorker> logger) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
         storage.Configured
@@ -35,10 +37,14 @@ internal sealed class BackupWorker(IServiceScopeFactory scopes, BackupStorage st
         {
             try
             {
-                await using var scope = scopes.CreateAsyncScope();
-                await work(scope.ServiceProvider, ct);
+                await maintenance.RunAsync(async () =>
+                {
+                    await using var scope = scopes.CreateAsyncScope();
+                    await work(scope.ServiceProvider, ct);
+                }, ct);
                 failures = 0;
             }
+            catch (MaintenanceUnavailableException) { failures = 0; }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {

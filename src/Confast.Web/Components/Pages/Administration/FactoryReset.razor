@@ -1,0 +1,82 @@
+@page "/admin/factory-reset"
+@using Confast.Web.Features.Maintenance
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = FactoryResetService.Policy)]
+@attribute [Microsoft.AspNetCore.Components.ExcludeFromInteractiveRouting]
+
+<PageTitle>Factory Reset</PageTitle>
+
+<div class="factory-reset">
+    <div class="page-heading"><h1>Factory Reset</h1></div>
+    <div class="alert alert-error" role="note">
+        <strong>This permanently deletes application data.</strong>
+        ConfastDB will be unavailable during the reset. All existing sessions will be signed out when it succeeds.
+    </div>
+
+    <div class="factory-reset-scope">
+        <section aria-labelledby="reset-removed">
+            <h2 id="reset-removed">Deleted or Restored to Defaults</h2>
+            <ul>
+                <li>Business records, documents, generated artifacts, chat, history, and pending work</li>
+                <li>All accounts except Root Administrator Prime, plus all user preferences</li>
+                <li>Custom roles and grants, with built-in roles and application settings restored to installation defaults</li>
+            </ul>
+        </section>
+        <section aria-labelledby="reset-kept">
+            <h2 id="reset-kept">Preserved</h2>
+            <ul>
+                <li>The Root Administrator Prime account and credentials</li>
+                <li>Existing backups, catalog records, pins, and backup settings</li>
+                <li>Database schema and migration history, deployment configuration, and Data Protection keys</li>
+            </ul>
+        </section>
+    </div>
+
+    <p>A complete pre-reset backup is created, verified, and pinned before any application data is removed. If the backup fails, the reset stops.</p>
+
+    @if (ErrorMessage is { } message)
+    {
+        <div class="alert alert-error" role="alert">@message</div>
+    }
+
+    <form method="post" action="@FactoryResetService.ExecuteRoute" data-factory-reset data-enhance="false">
+        <AntiforgeryToken />
+        <input type="hidden" name="Confirmed" value="false" />
+        <div class="form-field">
+            <label for="reset-password">Current Password</label>
+            <input id="reset-password" name="Password" type="password" autocomplete="current-password" maxlength="4096" required />
+        </div>
+        <div class="form-field">
+            <label for="reset-phrase">Type <code>@FactoryResetService.Phrase</code></label>
+            <input id="reset-phrase" name="Phrase" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="14" required />
+        </div>
+        <label class="checkbox-field">
+            <input name="Acknowledged" type="checkbox" value="true" required />
+            <span>I understand this will permanently delete application data and sign out every user.</span>
+        </label>
+        <button type="submit" class="button button-danger" disabled>Factory Reset</button>
+
+        <dialog aria-labelledby="reset-confirm-title">
+            <h2 id="reset-confirm-title">Confirm Factory Reset</h2>
+            <p>Start maintenance and create the pinned pre-reset backup? After the backup is verified, application data will be erased.</p>
+            <div class="factory-reset-actions">
+                <button type="button" class="button button-secondary" data-reset-cancel autofocus>Cancel</button>
+                <button type="button" class="button button-danger" data-reset-confirm>Start Factory Reset</button>
+            </div>
+        </dialog>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public string? Error { get; set; }
+
+    private string? ErrorMessage => Error switch
+    {
+        "Confirmation" => "Enter your current password, type RESET DATABASE, and complete both confirmations.",
+        "Password" => "Current password authentication failed.",
+        "Busy" => "Another Factory Reset is already in progress.",
+        "BackupDestination" => "Set up a backup destination in Backup Manager before starting a Factory Reset.",
+        "Configuration" or "ResetConnection" or "Database" => "Factory Reset needs working backup and reset database configuration. Contact the deployment operator.",
+        _ => null
+    };
+}

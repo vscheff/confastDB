@@ -19,6 +19,8 @@ namespace Confast.Web.Data;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<ApplicationUser, ApplicationRole, string>(options)
 {
+    internal Guid? MaintenanceGeneration { get; set; }
+
     internal DbSet<BackupSettings> BackupSettings => Set<BackupSettings>();
     internal DbSet<BackupExecution> BackupExecutions => Set<BackupExecution>();
     internal DbSet<BackupAuditEntry> BackupAudit => Set<BackupAuditEntry>();

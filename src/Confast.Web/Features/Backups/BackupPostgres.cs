@@ -78,6 +78,7 @@ internal sealed partial class BackupPostgres(IConfiguration configuration, IOpti
             ["PGCONNECT_TIMEOUT"] = "10"
         };
         await RunAsync(tools.DumpPath, ["--no-password", "--format=custom", "--compress=gzip:6", "--large-objects",
+            "--exclude-table-data=confast_maintenance.factory_resets",
             "--lock-wait-timeout=30000", "--snapshot=" + snapshot, "--file=" + path], environment, captureOutput: false, ct);
         await transaction.CommitAsync(ct);
 

@@ -97,16 +97,22 @@
         <div class="chat-panel-body @(selectedId is not null ? "chat-has-thread" : "") @(sidebarCollapsed ? "chat-sidebar-collapsed" : "")">
             <aside id="chat-conversation-sidebar" class="chat-sidebar">
                 <div class="chat-sidebar-scroll">
-                <div class="chat-tabs" aria-label="Chat views">
-                    <button type="button" class="@(view == ChatView.Conversations ? "active" : "")" @onclick="() => ChangeViewAsync(ChatView.Conversations)">
-                        Conversations
+                <div class="chat-tabs" role="group" aria-label="Chat views">
+                    <button type="button" aria-pressed="@(view == ChatView.Conversations ? "true" : "false")" @onclick="() => ChangeViewAsync(ChatView.Conversations)">
+                        <span class="chat-tab-label">
+                            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M7 4h10a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4h-6l-5 3v-3a4 4 0 0 1-3-4V8a4 4 0 0 1 4-4Z" /></svg>
+                            Conversations
+                        </span>
                         @if (unreadConversations > 0)
                         {
                             <span class="chat-tab-count attention" aria-label="@unreadConversations unread messages">@(unreadConversations > 99 ? "99+" : unreadConversations.ToString())</span>
                         }
                     </button>
-                    <button type="button" class="@(view is ChatView.Channels or ChatView.NewChannel ? "active" : "")" @onclick="() => ChangeViewAsync(ChatView.Channels)">
-                        Channels
+                    <button type="button" aria-pressed="@(view is ChatView.Channels or ChatView.NewChannel ? "true" : "false")" @onclick="() => ChangeViewAsync(ChatView.Channels)">
+                        <span class="chat-tab-label">
+                            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M10 3 6 21M18 3l-4 18M4 9h17M3 15h17" /></svg>
+                            Channels
+                        </span>
                         @if (unreadChannels > 0)
                         {
                             <span class="chat-tab-count @(conversations.Any(x => x.Kind == ConversationKind.Channel && NotificationUnread(x.Id).HasAlert) ? "attention" : "")" aria-label="@unreadChannels unread messages">@(unreadChannels > 99 ? "99+" : unreadChannels.ToString())</span>

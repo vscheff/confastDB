@@ -5,6 +5,7 @@ using Confast.Web.Features.Gages;
 using Confast.Web.Features.Identity;
 using Confast.Web.Features.InspectionCriteria;
 using Confast.Web.Features.Inspections;
+using Confast.Web.Features.Maintenance;
 using Confast.Web.Features.Parts;
 using Confast.Web.Features.Suppliers;
 using Microsoft.AspNetCore.DataProtection;
@@ -20,6 +21,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace Confast.Web.Tests;
@@ -124,19 +126,26 @@ public sealed class CoreBusinessAuthorizationTests(PostgresTestDatabase database
         using var operation = await guard.BeginAsync("Certifications.BuildPackage", new("Inspection", id.ToString()),
             [Permissions.Certifications.BuildPackage, Permissions.Certifications.TemporarilyCompletePackage]);
         var token = tokens.CreateForPackage(operation, id, id, true);
-        await using var services = new ServiceCollection().AddSingleton(tokens).BuildServiceProvider();
+        var maintenance = new MaintenanceGate(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Confast"] = database.ConnectionString
+        }).Build());
+        await using var services = new ServiceCollection().AddSingleton(tokens).AddSingleton(maintenance).BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services, User = new(new ClaimsIdentity([
             new Claim(ClaimTypes.NameIdentifier, "inspection-print-renderer")], InspectionPrintRenderAuthenticationHandler.SchemeName)) };
         context.Request.Path = $"/inspections/{id}/print";
         context.Request.QueryString = new("?renderToken=" + Uri.EscapeDataString(token));
         session.Principal = new(new ClaimsIdentity());
         var adapter = new InspectionService(database, evaluator, guard, new HttpContextAccessor { HttpContext = context }, tokens);
-        var model = await adapter.GetPrintableInspectionAsync(id, token, false);
-        Assert.True(model!.IsTemporarilyCompletedForCertificationPackage);
-        Assert.All(model.SecondaryProcesses, process => Assert.True(process.IsComplete));
-        await using var db = database.CreateDbContext();
-        Assert.False(Assert.Single(await db.InspectionSecondaryProcesses.Where(x => x.InspectionId == id).ToArrayAsync()).IsComplete);
-        await Assert.ThrowsAsync<AuthorizationDeniedException>(() => adapter.GetPrintableInspectionAsync(id, token, true));
+        await maintenance.RunAsync(async () =>
+        {
+            var model = await adapter.GetPrintableInspectionAsync(id, token, false);
+            Assert.True(model!.IsTemporarilyCompletedForCertificationPackage);
+            Assert.All(model.SecondaryProcesses, process => Assert.True(process.IsComplete));
+            await using var db = database.CreateDbContext();
+            Assert.False(Assert.Single(await db.InspectionSecondaryProcesses.Where(x => x.InspectionId == id).ToArrayAsync()).IsComplete);
+            await Assert.ThrowsAsync<AuthorizationDeniedException>(() => adapter.GetPrintableInspectionAsync(id, token, true));
+        }, default);
     }
 
     private Dictionary<string, Func<Task>> Boundaries() => new()

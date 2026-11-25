@@ -2,6 +2,7 @@
 @implements IDisposable
 @using System.Collections.Immutable
 @using Confast.Web.Features.Navigation
+@using Confast.Web.Features.Maintenance
 @using Confast.Web.Time
 @inject EffectivePermissionService NavigationPermissions
 @inject AuthorizationChangeNotifications AuthorizationChanges
@@ -11,6 +12,7 @@
 @inject DevelopmentDateOverrideTimeProvider DevelopmentClock
 @inject NavigationManager Navigation
 @inject IServiceProvider Services
+@inject Microsoft.Extensions.Options.IOptionsMonitor<DatabaseResetOptions> DatabaseReset
 
 @if (navigationReady)
 {
@@ -154,7 +156,7 @@
         if (navigationPermissions?.Version != snapshot?.Version) authorizationRevision++;
         navigationPermissions = snapshot;
         signedIn = authenticated;
-        visibleGroups = NavigationCatalog.GetVisibleGroups(snapshot);
+        visibleGroups = NavigationCatalog.GetVisibleGroups(snapshot, DatabaseReset.CurrentValue.Enabled);
         UpdateActivePage();
         navigationReady = true;
     }

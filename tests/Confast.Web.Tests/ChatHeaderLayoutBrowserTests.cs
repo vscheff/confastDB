@@ -35,31 +35,44 @@ public sealed partial class DelegatedAdministrationTests
                 await page.GetByRole(AriaRole.Button, new() { Name = "Open chat", Exact = true }).ClickAsync();
 
                 var panel = page.GetByRole(AriaRole.Region, new() { Name = "Chat", Exact = true });
-                var tabs = panel.Locator(".chat-tabs");
+                var tabs = panel.GetByRole(AriaRole.Group, new() { Name = "Chat views" });
+                var conversationsTab = tabs.GetByRole(AriaRole.Button, new() { Name = "Conversations", Exact = true });
+                var channelsTab = tabs.GetByRole(AriaRole.Button, new() { Name = "Channels", Exact = true });
                 var header = panel.Locator(".chat-thread-header");
                 var directRow = panel.Locator(".chat-conversation-row .chat-conversation").Filter(new() { HasText = otherUser.DisplayName });
-                var initialHeight = await tabs.EvaluateAsync<double>("tabs => tabs.getBoundingClientRect().height");
+                await Expect(conversationsTab).ToHaveAttributeAsync("aria-pressed", "true");
+                await Expect(channelsTab).ToHaveAttributeAsync("aria-pressed", "false");
+                var initialTabsHeight = (await tabs.BoundingBoxAsync())!.Height;
+                Assert.InRange(initialTabsHeight, touch ? 50 : 36, touch ? 52 : 38);
 
                 await directRow.ClickAsync();
                 await Expect(panel.GetByText("Direct conversation message", new() { Exact = true })).ToBeVisibleAsync();
-                await AssertAlignedAsync();
+                var initialHeaderHeight = (await header.BoundingBoxAsync())!.Height;
 
-                await tabs.GetByRole(AriaRole.Button, new() { Name = "Channels", Exact = true }).ClickAsync();
+                await conversationsTab.FocusAsync();
+                await page.Keyboard.PressAsync("Tab");
+                await Expect(channelsTab).ToBeFocusedAsync();
+                await Expect(channelsTab).ToHaveCSSAsync("outline-width", "2px");
+                await page.Keyboard.PressAsync("Space");
+                await Expect(conversationsTab).ToHaveAttributeAsync("aria-pressed", "false");
+                await Expect(channelsTab).ToHaveAttributeAsync("aria-pressed", "true");
                 var channelRow = panel.GetByRole(AriaRole.Button, new() { Name = "# Header Layout Check", Exact = true });
                 await channelRow.ClickAsync();
                 await Expect(header.GetByRole(AriaRole.Button, new() { Name = "Read full channel topic" })).ToBeVisibleAsync();
-                await AssertAlignedAsync();
+                await AssertStableHeightsAsync();
 
-                await tabs.GetByRole(AriaRole.Button, new() { Name = "Conversations", Exact = true }).ClickAsync();
+                await channelsTab.FocusAsync();
+                await page.Keyboard.PressAsync("Shift+Tab");
+                await Expect(conversationsTab).ToBeFocusedAsync();
+                await page.Keyboard.PressAsync("Enter");
+                await Expect(conversationsTab).ToHaveAttributeAsync("aria-pressed", "true");
                 await Expect(panel.GetByText("Direct conversation message", new() { Exact = true })).ToBeVisibleAsync();
-                await AssertAlignedAsync();
+                await AssertStableHeightsAsync();
 
-                async Task AssertAlignedAsync()
+                async Task AssertStableHeightsAsync()
                 {
-                    var tabBounds = (await tabs.BoundingBoxAsync())!;
-                    var headerBounds = (await header.BoundingBoxAsync())!;
-                    Assert.Equal(initialHeight, tabBounds.Height, precision: 2);
-                    Assert.Equal(tabBounds.Y + tabBounds.Height, headerBounds.Y + headerBounds.Height, precision: 2);
+                    Assert.Equal(initialTabsHeight, (await tabs.BoundingBoxAsync())!.Height, precision: 2);
+                    Assert.Equal(initialHeaderHeight, (await header.BoundingBoxAsync())!.Height, precision: 2);
                 }
             }
         });

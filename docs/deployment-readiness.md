@@ -176,6 +176,9 @@ configure the dedicated backup login and schedule, validate backup sets, and res
 the database and allowlisted application file. Keep the Data Protection ring and
 deployment secrets in the separate infrastructure backup.
 
+[Factory Reset](factory-reset.md) documents the deployment-only safeguard, dedicated
+executor login, shared managed storage, and recovery from an interrupted reset.
+
 Run these steps as the schema owner. Record the exact source and target, take a
 verified backup, and stop application writes and workers before changing the
 designation or generation. The SQL scripts require an explicit target, expected

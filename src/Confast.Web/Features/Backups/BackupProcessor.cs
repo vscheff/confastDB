@@ -115,7 +115,26 @@ internal sealed class BackupProcessor(
         BackupMapping.Audit(db, row.DeploymentId, now, "ScheduledBackupQueued", id: row.Id, after: new { occurrence, attempt });
     }
 
-    private async Task<BackupCompletion?> RunBackupAsync(AppDbContext db, BackupSettings settings, BackupExecution row, BackupLease lease)
+    internal async Task<BackupSet> CreatePreResetAsync(AppDbContext db, BackupLease lease, Guid id,
+        string actor, Guid generation, DateTimeOffset requested, Guid resetId)
+    {
+        var settings = await db.BackupSettings.SingleAsync(lease.Token);
+        if (settings.DeploymentId != storage.DeploymentId || settings.DestinationId is null || settings.Destination is null)
+            throw new BackupException("DestinationChanged", "Select a backup destination before starting a Factory Reset.");
+        var row = BackupManager.NewRequest(settings, requested, actor, generation);
+        row.Id = id;
+        row.Pinned = true;
+        row.Label = "Pre-reset backup";
+        row.Notes = $"Factory Reset {resetId:D}";
+        db.BackupExecutions.Add(row);
+        await RunBackupAsync(db, settings, row, lease, preReset: true);
+        if (row is not { Outcome: BackupOutcome.Completed, Pinned: true, Verification: BackupVerification.Verified, DirectoryName: { } name })
+            throw new BackupException("PreResetBackup", "The mandatory backup could not be created and verified.");
+        return storage.ReadSet(storage.RequireLocation(row.Destination, row.DestinationId), name);
+    }
+
+    private async Task<BackupCompletion?> RunBackupAsync(AppDbContext db, BackupSettings settings, BackupExecution row,
+        BackupLease lease, bool preReset = false)
     {
         var ct = lease.Token;
         var elapsed = Stopwatch.StartNew();
@@ -127,11 +146,16 @@ internal sealed class BackupProcessor(
         BackupLocation? location = null;
         try
         {
-            if (row.RequestedBy is { } actor)
-                await permissions.DemandBackupRequesterAsync(db, actor, row.RequestedGeneration, BackupManager.CreatePermissions(row.Pinned), ct);
-            else if (row.Trigger != BackupTrigger.Scheduled || !settings.Enabled || row.SettingsRevision != settings.Revision ||
-                     settings.ServerZoneId != TimeZoneInfo.Local.Id)
-                throw new BackupException("ScheduleChanged", "The schedule changed before this backup could run.");
+            // Factory Reset has already rechecked durable Root approval while holding
+            // the exclusive application lease and the database scope locks.
+            if (!preReset)
+            {
+                if (row.RequestedBy is { } actor)
+                    await permissions.DemandBackupRequesterAsync(db, actor, row.RequestedGeneration, BackupManager.CreatePermissions(row.Pinned), ct);
+                else if (row.Trigger != BackupTrigger.Scheduled || !settings.Enabled || row.SettingsRevision != settings.Revision ||
+                         settings.ServerZoneId != TimeZoneInfo.Local.Id)
+                    throw new BackupException("ScheduleChanged", "The schedule changed before this backup could run.");
+            }
 
             if (settings.DeploymentId != row.DeploymentId || settings.DestinationId != row.DestinationId || settings.Destination != row.Destination)
                 throw new BackupException("DestinationChanged", "The destination changed after this backup was queued. Request a new backup.");
@@ -154,7 +178,8 @@ internal sealed class BackupProcessor(
             var copiedArtwork = await storage.CopyArtworkAsync(staging, ct);
 
             await StageAsync(db, row, BackupStage.ValidatingArchive, ct);
-            await postgres.ValidateArchiveAsync(archive, settings.FullVerification, ct, utilities.RestorePath);
+            var fullVerification = preReset || settings.FullVerification;
+            await postgres.ValidateArchiveAsync(archive, fullVerification, ct, utilities.RestorePath);
             var files = new List<BackupFile> { await BackupStorage.FingerprintAsync(staging, BackupStorage.ArchiveName, ct) };
             if (copiedArtwork) files.Add(await BackupStorage.FingerprintAsync(staging, BackupStorage.ArtworkName, ct));
 
@@ -167,17 +192,26 @@ internal sealed class BackupProcessor(
                 source.Name, typeof(Program).Assembly.GetName().Version?.ToString() ?? "Unknown",
                 source.Version, utilities.DumpVersion, row.RequestedAtUtc, row.StartedAtUtc.Value, completed,
                 elapsed.ElapsedMilliseconds, row.Trigger, row.ScheduledForUtc, row.Attempt, row.RequestedBy,
-                row.Pinned, row.Label, row.Notes, Guid.NewGuid(), settings.FullVerification, files.ToArray());
+                row.Pinned, row.Label, row.Notes, Guid.NewGuid(), fullVerification, files.ToArray());
             BackupStorage.WriteManifest(staging, manifest);
-            if (settings.FullVerification)
+            if (fullVerification)
                 await BackupCatalog.VerifyChecksumsAsync(storage.ReadSet(location, name, BackupStorage.StagePrefix), ct);
             await lease.CheckAsync();
-            var set = storage.Publish(location, name);
+            var set = storage.Publish(location, name, durable: preReset);
             published = true;
             BackupCatalog.Register(row, set);
-            row.Stage = BackupStage.ApplyingRetention;
-            BackupMapping.Audit(db, storage.DeploymentId, completed, "BackupCompleted", row.RequestedBy, row.Id,
+            row.Stage = preReset ? BackupStage.Finished : BackupStage.ApplyingRetention;
+            BackupMapping.Audit(db, storage.DeploymentId, completed, preReset ? "PreResetBackupCompleted" : "BackupCompleted", row.RequestedBy, row.Id,
                 after: new { row.TotalBytes, row.DurationMilliseconds, Verification = row.Verification.ToString() });
+            if (preReset)
+            {
+                await BackupCatalog.VerifyChecksumsAsync(set, ct);
+                await using var registration = await db.Database.BeginTransactionAsync(ct);
+                await db.Database.ExecuteSqlRawAsync("SET LOCAL synchronous_commit = on", ct);
+                await db.SaveChangesAsync(ct);
+                await registration.CommitAsync(ct);
+                return null;
+            }
             await db.SaveChangesAsync(ct);
         }
         catch (Exception ex) when (!published && !ct.IsCancellationRequested)

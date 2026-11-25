@@ -47,6 +47,19 @@ SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', :'r
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 SELECT format('REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM %I', :'runtime_role') \gexec
 SELECT format('GRANT EXECUTE ON FUNCTION public.confast_lock_authorization() TO %I', :'runtime_role') \gexec
+SELECT to_regclass('confast_maintenance.activity') IS NOT NULL AS has_maintenance \gset
+\if :has_maintenance
+    -- pg_restore --no-privileges recreates SECURITY DEFINER functions with
+    -- PostgreSQL's default EXECUTE grant. Restore the boundary before USAGE.
+    REVOKE ALL ON SCHEMA confast_maintenance FROM PUBLIC;
+    REVOKE ALL ON ALL TABLES IN SCHEMA confast_maintenance FROM PUBLIC;
+    REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA confast_maintenance FROM PUBLIC;
+    SELECT format('REVOKE ALL ON SCHEMA confast_maintenance FROM %I', :'runtime_role') \gexec
+    SELECT format('REVOKE ALL ON ALL TABLES IN SCHEMA confast_maintenance FROM %I', :'runtime_role') \gexec
+    SELECT format('REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA confast_maintenance FROM %I', :'runtime_role') \gexec
+    SELECT format('GRANT USAGE ON SCHEMA confast_maintenance TO %I', :'runtime_role') \gexec
+    SELECT format('GRANT SELECT ON confast_maintenance.activity TO %I', :'runtime_role') \gexec
+\endif
 -- Do not default-grant future tables/functions: every migration needs privilege review.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 COMMIT;

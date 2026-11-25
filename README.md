@@ -228,3 +228,6 @@ for installation, grants, proxy configuration, and recovery.
 The Backup Manager runbook covers [local Windows setup](docs/backup-manager.md#local-windows-setup),
 [additional destinations](docs/backup-manager.md#add-another-destination), and
 [offline recovery](docs/backup-manager.md#offline-restore).
+
+The [Factory Reset runbook](docs/factory-reset.md) covers the disabled-by-default
+deployment switch, mandatory pinned backup, and maintenance recovery.

@@ -14,12 +14,12 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
 {
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
     private readonly IDataProtector protector = dataProtectionProvider.CreateProtector(
-        "Confast.Web.Inspections.InspectionPrintRenderToken.v2");
+        "Confast.Web.Inspections.InspectionPrintRenderToken.v3");
 
     internal string CreateForExport(AuthorizedOperation operation, long inspectionId, bool secondPageNotes = false)
     {
         operation.Require("InspectionSheets.Export", new("Inspection", inspectionId.ToString()), Permissions.InspectionSheets.Export);
-        return Protect(inspectionId, false, secondPageNotes);
+        return Protect(inspectionId, false, secondPageNotes, operation.Snapshot.Version.Generation);
     }
 
     internal string CreateForPackage(AuthorizedOperation operation, long activeInspectionId, long inspectionId,
@@ -28,10 +28,10 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
         operation.Require("Certifications.BuildPackage", new("Inspection", activeInspectionId.ToString()), Permissions.Certifications.BuildPackage);
         if (temporarilyCompleteForCertificationPackage)
             operation.Require(operation.Purpose, operation.Scope, Permissions.Certifications.TemporarilyCompletePackage);
-        return Protect(inspectionId, temporarilyCompleteForCertificationPackage, false);
+        return Protect(inspectionId, temporarilyCompleteForCertificationPackage, false, operation.Snapshot.Version.Generation);
     }
 
-    private string Protect(long inspectionId, bool temporarilyCompleteForCertificationPackage, bool secondPageNotes)
+    private string Protect(long inspectionId, bool temporarilyCompleteForCertificationPackage, bool secondPageNotes, Guid generation)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(inspectionId);
         var expiresAtUtc = (clock ?? TimeProvider.System).GetUtcNow().Add(Lifetime).Ticks;
@@ -40,13 +40,13 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
             ":",
             expiresAtUtc.ToString(CultureInfo.InvariantCulture),
             ":",
-            temporarilyCompleteForCertificationPackage ? "1" : "0", ":", secondPageNotes ? "1" : "0"));
+            temporarilyCompleteForCertificationPackage ? "1" : "0", ":", secondPageNotes ? "1" : "0", ":", generation.ToString("D")));
     }
 
     public bool IsValid(string? token, long inspectionId)
         => TryGetOptions(token, inspectionId, out _);
 
-    public bool TryGetOptions(string? token, long inspectionId, out InspectionPrintRenderOptions options)
+    public bool TryGetOptions(string? token, long inspectionId, out InspectionPrintRenderOptions options, Guid? expectedGeneration = null)
     {
         options = default;
         if (string.IsNullOrWhiteSpace(token) || inspectionId <= 0)
@@ -57,8 +57,10 @@ public sealed class InspectionPrintRenderTokenService(IDataProtectionProvider da
         try
         {
             var values = protector.Unprotect(token).Split(':');
-            if (values.Length == 4
+            if (values.Length == 5
                 && values[2] is "0" or "1" && values[3] is "0" or "1"
+                && Guid.TryParseExact(values[4], "D", out var generation)
+                && (expectedGeneration is null || generation == expectedGeneration)
                 && long.TryParse(values[0], CultureInfo.InvariantCulture, out var tokenInspectionId)
                 && long.TryParse(values[1], CultureInfo.InvariantCulture, out var expirationTicks)
                 && tokenInspectionId == inspectionId

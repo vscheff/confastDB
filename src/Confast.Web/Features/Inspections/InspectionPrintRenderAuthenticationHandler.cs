@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using Confast.Web.Features.Maintenance;
 
 namespace Confast.Web.Features.Inspections;
 
@@ -17,7 +18,7 @@ public sealed class InspectionPrintRenderAuthenticationHandler(
 
     public static bool CanAuthenticate(HttpRequest request, InspectionPrintRenderTokenService renderTokenService) =>
         TryGetInspectionId(request.Path, out var inspectionId)
-        && renderTokenService.IsValid(request.Query["renderToken"], inspectionId);
+        && TryGetCurrentOptions(request, renderTokenService, inspectionId, out _);
 
     internal static bool CanAuthorizePrint(HttpContext? context, ClaimsPrincipal principal)
     {
@@ -26,14 +27,14 @@ public sealed class InspectionPrintRenderAuthenticationHandler(
             || principal.FindFirstValue(ClaimTypes.NameIdentifier) != "inspection-print-renderer"
             || !TryGetInspectionId(context.Request.Path, out var id)) return false;
         var tokens = context.RequestServices.GetRequiredService<InspectionPrintRenderTokenService>();
-        return tokens.TryGetOptions(context.Request.Query["renderToken"], id, out var options)
+        return TryGetCurrentOptions(context.Request, tokens, id, out var options)
             && options.SecondPageNotes == string.Equals(context.Request.Query["notesPage"], "second", StringComparison.OrdinalIgnoreCase);
     }
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!TryGetInspectionId(Request.Path, out var inspectionId)
-            || !renderTokenService.IsValid(Request.Query["renderToken"], inspectionId))
+            || !TryGetCurrentOptions(Request, renderTokenService, inspectionId, out _))
         {
             return Task.FromResult(AuthenticateResult.NoResult());
         }
@@ -45,6 +46,16 @@ public sealed class InspectionPrintRenderAuthenticationHandler(
         ], SchemeName);
         return Task.FromResult(AuthenticateResult.Success(
             new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
+    }
+
+    private static bool TryGetCurrentOptions(HttpRequest request, InspectionPrintRenderTokenService tokens,
+        long inspectionId, out InspectionPrintRenderOptions options)
+    {
+        options = default;
+        // Inspection IDs can be reused after Factory Reset. The HTTP maintenance
+        // lease pins the installation generation until the print response finishes.
+        return request.HttpContext.RequestServices.GetService<MaintenanceGate>()?.CurrentGeneration is { } generation
+            && tokens.TryGetOptions(request.Query["renderToken"], inspectionId, out options, generation);
     }
 
     private static bool TryGetInspectionId(PathString path, out long inspectionId)

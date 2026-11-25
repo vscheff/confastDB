@@ -157,7 +157,8 @@ public sealed partial class ChatService
     }
 }
 
-public sealed class ChatMessageDeliveryWorker(IServiceScopeFactory scopes, ILogger<ChatMessageDeliveryWorker> logger) : BackgroundService
+internal sealed class ChatMessageDeliveryWorker(IServiceScopeFactory scopes, Maintenance.MaintenanceGate maintenance,
+    ILogger<ChatMessageDeliveryWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -166,10 +167,14 @@ public sealed class ChatMessageDeliveryWorker(IServiceScopeFactory scopes, ILogg
         {
             try
             {
-                using var scope = scopes.CreateScope();
-                await scope.ServiceProvider.GetRequiredService<ChatService>().DeliverDueMessagesAsync(stoppingToken);
+                await maintenance.RunAsync(async () =>
+                {
+                    using var scope = scopes.CreateScope();
+                    await scope.ServiceProvider.GetRequiredService<ChatService>().DeliverDueMessagesAsync(stoppingToken);
+                }, stoppingToken);
                 failures = 0;
             }
+            catch (Maintenance.MaintenanceUnavailableException) { failures = 0; }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception)
             {

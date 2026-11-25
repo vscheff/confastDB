@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Confast.Web.Features.Authorization;
+using Confast.Web.Features.Maintenance;
 
 namespace Confast.Web.Features.Navigation;
 
@@ -73,6 +74,8 @@ public static class NavigationCatalog
             NavigationIconName.Shield, 20, Permissions.Roles.Read),
         Page("backup-manager", "Backup Manager", "/admin/backups", NavigationCategoryId.Administration,
             NavigationIconName.Database, 30, Permissions.DatabaseBackups.View),
+        new("factory-reset", "Factory Reset", FactoryResetService.Route, NavigationCategoryId.Administration,
+            NavigationIconName.Database, 40, FactoryResetService.Policy, [], ShowOnHome: false),
         new("scheduling-settings", "Scheduling Settings", "/production-scheduling/settings", NavigationCategoryId.Settings,
             NavigationIconName.Calendar, 10, PermissionPolicies.ProductionConfigurationRead, [.. PermissionPolicies.ProductionConfigurationReadKeys]),
         Page("downtime-causes", "Sort Log Downtime Causes", "/production-tracking/settings", NavigationCategoryId.Settings,
@@ -94,12 +97,13 @@ public static class NavigationCatalog
 
     internal static NavigationCategory CategoryFor(NavigationItem item) => CategoriesById[item.Category!.Value];
 
-    public static ImmutableArray<NavigationGroup> GetVisibleGroups(EffectivePermissionSnapshot? permissions)
+    public static ImmutableArray<NavigationGroup> GetVisibleGroups(EffectivePermissionSnapshot? permissions, bool factoryResetEnabled = false)
     {
         if (permissions is null)
             return [];
 
-        var authorized = Destinations.Where(item => CanAccess(item, permissions)).ToArray();
+        var authorized = Destinations.Where(item => item.AuthorizationPolicy == FactoryResetService.Policy
+            ? factoryResetEnabled && permissions.IsRoot : CanAccess(item, permissions)).ToArray();
         return [.. Categories.OrderBy(category => category.Order)
             .Select(category => new NavigationGroup(category,
                 [.. authorized.Where(item => item.Category == category.Id
